@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      body {
+	  background-color: linen;
+      }
+      
+      h1 {
+	  color: maroon;
+	  margin-left: 40px;
+      }
+      .korttialue {
+	  border : 1px;
+	  width : 100%;
+	  background-color: lightgreen;
+		     
+      }
+      .pakka {
+	  width : 15em;//150px;
+	  height: 23em;//225px;
+	  background-color: white;
+	  border: 1px;
+	  padding: 10px;
+	  margin: 10px;
+	  display: inline-block;
+      }
+      .poyta {
+	  width : 75em;//750px;
+	  height: 23em;//225px;
+	  background-color: white;
+	  border: 1px;
+	  padding: 10px;
+	  margin: 10px;
+	  display: inline-block;
+	  
+      }
+      .poisto {
+	  width : 15em;//150px;
+	  height: 23em;//225px;
+	  background-color: white;
+	  border: 1px;
+	  padding: 1em;//10px;
+	  margin: 1em;//10px;
+	  display: inline-block;
+	  
+      }
+      
+      .pakka .kortti {
+	  background: linear-gradient(45deg, #dca 12%, transparent 0, transparent 88%, #dca 0),
+		      linear-gradient(135deg, transparent 37%, #a85 0, #a85 63%, transparent 0),
+		      linear-gradient(45deg, transparent 37%, #dca 0, #dca 63%, transparent 0) #753;
+	  background-size: 25px 25px;
+	  width: 14em;//140px;
+	  height: 20em;//200px;
+	  margin: 3px;
+	  border: 1px solid black;
+ 	  position: absolute;
+	  text-indent: -9999px;
+      }
+
+      .pakka .yohyokkays_nakyva {
+	  width: 14em //140px;
+	  height: 20em; //200px;
+	  margin: 3px;
+	  border: 1px solid black;
+ 	  position: absolute;
+	  background: aqua;
+	  text-indent: 0px;
+      }      
+      .poyta .kortti {
+	  width: 14em;//140px;
+	  height: 20em;//200px;
+	  margin: 3px;
+	  border: 1px solid black;
+	  float: right;
+      }
+
+      .poisto .kortti {
+	  width: 14em;//140px;
+	  height: 20em;//200px;
+	  margin: 3px;
+	  border: 1px solid black;
+	  position: absolute;
+	  background: lightgray;
+      }
+
+    </style>
+
+    
+  </head>
+  
+<body>
+
+<h1>64 km saattue</h1>
+
+
+
+<div id='korruptio' class='korttialue'> <h2>Ennakkokorruptio</h2>
+  <div class='pakka' id='korruptiopakka'> Pakka </div>
+  <div id='korruptiopoyta' class='poyta'> Poyta  </div>
+  <div class='poisto' id='korruptiopoisto'> Poisto </div>
+</div>
+
+<div id='vastarinta' class='korttialue'> <h2>Vastarinta</h2>
+  <div class='pakka' id='vastarintapakka'> Pakka </div>
+  <div class='poyta' id='vastarintapoyta'> Poyta </div>
+  <div class='poisto' id='vastarintapoisto'> Poisto </div>
+</div>
+
+<div id='ryosto_maaseutu' class='korttialue'> <h2>Ryöstettävää: Maaseutu</h2>
+  <div class='pakka' id='ryosto_maaseutupakka'> Pakka </div>
+  <div class='poyta' id='ryosto_maaseutupoyta'> Poyta </div>
+  <div class='poisto' id='ryosto_maaseutupoisto'> Poisto </div>
+</div>
+
+<div id='ryosto_kaupunki' class='korttialue'> <h2>Ryöstettävää: Kaupunki</h2>
+  <div class='pakka' id='ryosto_kaupunkipakka'> Pakka </div>
+  <div class='poyta' id='ryosto_kaupunkipoyta'> Poyta </div>
+  <div class='poisto' id='ryosto_kaupunkipoisto'> Poisto </div>
+</div>
+
+<div id='aseapu' class='korttialue'> <h2>Ulkomainen aseapu</h2>
+  <div class='pakka' id='aseapupakka'> Pakka </div>
+  <div class='poyta' id='aseapupoyta'> Poyta </div>
+</div>
+
+<div id='yohyokkays' class='korttialue'> <h2>Yöhyökkäys</h2>
+  <div class='pakka' id='yohyokkayspakka' > Pakka </div>
+  <div class='poyta' id='yohyokkayspoyta'> Poyta </div>
+  <div class='poisto' id='yohyokkayspoisto'> Poisto </div>
+</div>
+
+<div id='yohyokkays_extra' class='korttialue'> <h2>Yöhyökkäys extrat</h2>
+  <div class='pakka' id='yohyokkays_extrapakka'> Pakka </div>
+  <div class='poyta' id='yohyokkays_extrapakka'> Poyta </div>
+  <div class='poisto' id='yohyokkays_extrapakka'> Poisto </div>
+</div>
+
+<script type="text/javascript" src="korruptio.js"></script>
+<script type="text/javascript" src="vastarinta.js"></script>
+<script type="text/javascript" src="ryosto_maaseutu.js"></script>
+<script type="text/javascript" src="ryosto_kaupunki.js"></script>
+<script type="text/javascript" src="yohyokkays.js"></script>
+<script type="text/javascript" src="aseapu.js"></script>
+
+<script src="korttiengine.js"></script> 
+
+
+</body>
+</html> 
