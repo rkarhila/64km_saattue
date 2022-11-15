@@ -1,3 +1,20 @@
+function getCardElement(id, title, content, back) {
+  const card = document.createElement('div');
+  card.classList.add('card');
+  card.innerHTML = `
+    <div class="card__flipper">
+      <div class="card__front">
+        <div class="id">${id}</div>
+        <h4 class="title">${title}</h4>
+        <div class="content">${content}</div>
+      </div>
+      <div class="card__back">
+        <span>${back}</span>
+      </div>
+    </div>`;
+  return card;
+}
+
 
 var siirra_seuraavaan = function (el, i) {
   console.log('from', el);
@@ -23,24 +40,23 @@ var siirra_aseapupoydalle = function (el, i) {
 
 
 var nayta_yohyokkays = function (el, elid) {
-  el.classList.add('kortin_vaklaus');
-  el.classList.add("yohyokkays_nakyva");
+  el.classList.add("card--peek");
   el.setAttribute("onClick", "javascript: siirra_seuraavaan(this,2);");
   setTimeout(function () {
     console.log(el);
-    if (el.classList.contains("yohyokkays_nakyva")) {
-      el.classList.remove("kortin_vaklaus");
-      el.classList.remove("yohyokkays_nakyva");
+    if (el.classList.contains("card--peek")) {
+      el.classList.remove("card--peek");
       el.setAttribute("onClick", "javascript: nayta_yohyokkays(this);");
     }
-  }, 3000)
+  }, 20000)
 }
 
 
 var siirra_yohyokkayksiin = function (el) {
   console.log('from', el);
-  el.classList.add('kortti');
-  el.classList.remove("yohyokkays_nakyva");
+  el.classList.add('card');
+  el.classList.remove("card--peek");
+  el.querySelector('.card__back span').innerText = 'Yöhyökkäys';
   pakka = document.querySelector("#yohyokkayspakka");
 
   randomposition = Math.floor(Math.random() * pakka.children.length)
@@ -66,71 +82,83 @@ var siirra_yohyokkayksiin = function (el) {
 // Piirretaan!
 
 var piirra_korruptiokortti = function (data) {
-  const kortti = document.createElement("div");
-  kortti.classList.add('kortti');
-  kortti.innerHTML = data.id;
-  kortti.innerHTML += '<h4>' + data.mita + "</h4>";
-  kortti.innerHTML += '<p>' + data.paljonko + "</p>";
-
+  const kortti = getCardElement(
+    data.id,
+    data.mita,
+    `
+    <div class="ohje">${data.ohje}</div>
+    <div class="paljonko">${data.paljonko}</div>
+    `,
+    'Ennakkokorruptio'
+  );
   kortti.setAttribute("onClick", "javascript: siirra_seuraavaan(this,2);");
   return kortti;
 }
 
 
 var piirra_vastarintakortti = function (data) {
-  const kortti = document.createElement("div");
-  kortti.classList.add('kortti');
-  kortti.innerHTML = data.id;
-  kortti.innerHTML += '<h4>' + data.maasto + "</h4>";
-  kortti.innerHTML += '<p>Kesto:' + data.kesto + "</p>";
-  kortti.innerHTML += '<p>Hyökkäys: Jos <b>' + data.Jos + ":</b> " + data.niin + "</p>";
-  kortti.innerHTML += '<p>Muuten:' + data.muuten + "</br>";
-
-  kortti.innerHTML += '<p>Ryöstettävää:' + data.ryostettavaa + "</br>";
-
+  const kortti = getCardElement(
+    data.id,
+    data.maasto,
+    `
+      <p>Kesto:${data.kesto}</p>
+      <p>Hyökkäys: Jos <b>${data.Jos}:</b>${data.niin}</p>
+      <p>Muuten:${data.muuten}</br>
+      <p>Ryöstettävää:${data.ryostettavaa}</br>
+    `,
+    'Vastarinta'
+  );
   kortti.setAttribute("onClick", "javascript: siirra_seuraavaan(this,2);");
   return kortti;
 }
 
-var piirra_ryostokortti = function (data) {
-  const kortti = document.createElement("div");
-  kortti.classList.add('kortti');
-  kortti.innerHTML = data.id;
-  kortti.innerHTML += '<h4>' + data.paikka + "</h4>";
-  kortti.innerHTML += '<p>Jos <b>' + data.Jos + ":</b> " + data.niin + "</p>";
-  kortti.innerHTML += '<p>Muuten:' + data.muulloin + "</br>";
-
-
+var piirra_ryostokortti = function (data, back) {
+  const kortti = getCardElement(
+    data.id,
+    data.paikka,
+    `
+      <p>Jos <b>${data.Jos}:</b> ${data.niin}</p>
+      <p>Muuten: ${data.muulloin}</p>
+    `,
+    back
+  );
   kortti.setAttribute("onClick", "javascript: siirra_seuraavaan(this,2);");
   return kortti;
 }
 
-var piirra_yohyokkayskortti = function (data) {
-  const kortti = document.createElement("div");
-  kortti.classList.add('kortti');
-  kortti.innerHTML = data.id;
-  kortti.innerHTML += '<h4>' + data.nimi + "</h4>";
+var piirra_yohyokkayskortti = function (data, back) {
+  let content = '';
   if (data.erikois == '') {
-    kortti.innerHTML += '<p>Kohde:' + data.kohde + "</p>";
-    kortti.innerHTML += '<p>Hyökkäys: Jos <b>' + data.jos + ":</b> " + data.niin + "</p>";
-    kortti.innerHTML += '<p>Muuten:' + data.muulloin + "</br>";
+    content += `
+      <p>Kohde:${data.kohde}</p>
+      <p>Hyökkäys: Jos <b>${data.jos}:</b> ${data.niin}</p>
+      <p>Muuten:${data.muulloin}</br>
+    `;
   }
   else {
-    kortti.innerHTML += '<p>' + data.erikois + "</p>";
+    content = `<p>${data.erikois}</p>`;
   }
+
+  const kortti = getCardElement(
+    data.id,
+    data.nimi,
+    content,
+    back
+  );
+
   kortti.setAttribute("onClick", "javascript: nayta_yohyokkays(this,2);");
   return kortti;
 }
 
 var piirra_yohyokkaysextrakortti = function (data) {
-  kortti = piirra_yohyokkayskortti(data);
+  kortti = piirra_yohyokkayskortti(data, 'Yöhyökkäys extrat');
   kortti.setAttribute("onClick", "javascript: siirra_seuraavaan(this,2);");
   return kortti;
 }
 
 
 var piirra_aseapukortti = function (data) {
-  kortti = piirra_yohyokkayskortti(data);
+  kortti = piirra_yohyokkayskortti(data, 'Ulkomainen aseapu');
   kortti.setAttribute("onClick", "javascript: siirra_aseapupoydalle(this,2);");
   return kortti;
 }
@@ -172,7 +200,7 @@ let ryosto_maaseutu_shuffled = ryosto_maaseutu
 ryosto_maaseutu_shuffled.forEach(function (data) {
   //data = JSON.parse(data);
   //console.log(data);
-  kortti = piirra_ryostokortti(data);
+  kortti = piirra_ryostokortti(data, 'Ryöstettävää: Maaseutu');
   document.querySelector("#ryosto_maaseutupakka").append(kortti);
 });
 
@@ -185,7 +213,7 @@ let ryosto_kaupunki_shuffled = ryosto_kaupunki
 ryosto_kaupunki_shuffled.forEach(function (data) {
   //data = JSON.parse(data);
   //console.log(data);
-  kortti = piirra_ryostokortti(data);
+  kortti = piirra_ryostokortti(data, 'Ryöstettävää: Kaupunki');
   document.querySelector("#ryosto_kaupunkipakka").append(kortti);
 });
 
@@ -201,7 +229,7 @@ yohyokkays_shuffled = yohyokkays_shuffled.slice(0, 7)
 yohyokkays_shuffled.forEach(function (data) {
   //data = JSON.parse(data);
   //console.log(data);
-  kortti = piirra_yohyokkayskortti(data);
+  kortti = piirra_yohyokkayskortti(data, 'Yöhyökkäys');
   document.querySelector("#yohyokkayspakka").append(kortti);
 });
 

@@ -1,165 +1,719 @@
 <!DOCTYPE html>
-<html>
+<html lang="fi">
 
 <head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <link rel="stylesheet" href="normalise.css">
   <style>
     body {
-      background-color: linen;
+      background-color: #4d2712;
+      font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
     }
 
     h1 {
       color: maroon;
-      margin-left: 40px;
+      text-align: center;
     }
 
-    .korttialue {
-      border: 1px;
+    .pakka .yohyokkays_nakyva {}
+
+    h1 {
+      color: #281105;
+    }
+
+    .playmat {
+      border: 1px solid black;
+      width: calc(100vw - 128px);
+      min-width: 802px;
+      border-radius: calc(10px + 15px + 10px);
+      padding: 10px;
+      margin-bottom: 10px;
+      background:
+        url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAMAAAAp4XiDAAAAUVBMVEWFhYWDg4N3d3dtbW17e3t1dXWBgYGHh4d5eXlzc3OLi4ubm5uVlZWPj4+NjY19fX2JiYl/f39ra2uRkZGZmZlpaWmXl5dvb29xcXGTk5NnZ2c8TV1mAAAAG3RSTlNAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAvEOwtAAAFVklEQVR4XpWWB67c2BUFb3g557T/hRo9/WUMZHlgr4Bg8Z4qQgQJlHI4A8SzFVrapvmTF9O7dmYRFZ60YiBhJRCgh1FYhiLAmdvX0CzTOpNE77ME0Zty/nWWzchDtiqrmQDeuv3powQ5ta2eN0FY0InkqDD73lT9c9lEzwUNqgFHs9VQce3TVClFCQrSTfOiYkVJQBmpbq2L6iZavPnAPcoU0dSw0SUTqz/GtrGuXfbyyBniKykOWQWGqwwMA7QiYAxi+IlPdqo+hYHnUt5ZPfnsHJyNiDtnpJyayNBkF6cWoYGAMY92U2hXHF/C1M8uP/ZtYdiuj26UdAdQQSXQErwSOMzt/XWRWAz5GuSBIkwG1H3FabJ2OsUOUhGC6tK4EMtJO0ttC6IBD3kM0ve0tJwMdSfjZo+EEISaeTr9P3wYrGjXqyC1krcKdhMpxEnt5JetoulscpyzhXN5FRpuPHvbeQaKxFAEB6EN+cYN6xD7RYGpXpNndMmZgM5Dcs3YSNFDHUo2LGfZuukSWyUYirJAdYbF3MfqEKmjM+I2EfhA94iG3L7uKrR+GdWD73ydlIB+6hgref1QTlmgmbM3/LeX5GI1Ux1RWpgxpLuZ2+I+IjzZ8wqE4nilvQdkUdfhzI5QDWy+kw5Wgg2pGpeEVeCCA7b85BO3F9DzxB3cdqvBzWcmzbyMiqhzuYqtHRVG2y4x+KOlnyqla8AoWWpuBoYRxzXrfKuILl6SfiWCbjxoZJUaCBj1CjH7GIaDbc9kqBY3W/Rgjda1iqQcOJu2WW+76pZC9QG7M00dffe9hNnseupFL53r8F7YHSwJWUKP2q+k7RdsxyOB11n0xtOvnW4irMMFNV4H0uqwS5ExsmP9AxbDTc9JwgneAT5vTiUSm1E7BSflSt3bfa1tv8Di3R8n3Af7MNWzs49hmauE2wP+ttrq+AsWpFG2awvsuOqbipWHgtuvuaAE+A1Z/7gC9hesnr+7wqCwG8c5yAg3AL1fm8T9AZtp/bbJGwl1pNrE7RuOX7PeMRUERVaPpEs+yqeoSmuOlokqw49pgomjLeh7icHNlG19yjs6XXOMedYm5xH2YxpV2tc0Ro2jJfxC50ApuxGob7lMsxfTbeUv07TyYxpeLucEH1gNd4IKH2LAg5TdVhlCafZvpskfncCfx8pOhJzd76bJWeYFnFciwcYfubRc12Ip/ppIhA1/mSZ/RxjFDrJC5xifFjJpY2Xl5zXdguFqYyTR1zSp1Y9p+tktDYYSNflcxI0iyO4TPBdlRcpeqjK/piF5bklq77VSEaA+z8qmJTFzIWiitbnzR794USKBUaT0NTEsVjZqLaFVqJoPN9ODG70IPbfBHKK+/q/AWR0tJzYHRULOa4MP+W/HfGadZUbfw177G7j/OGbIs8TahLyynl4X4RinF793Oz+BU0saXtUHrVBFT/DnA3ctNPoGbs4hRIjTok8i+algT1lTHi4SxFvONKNrgQFAq2/gFnWMXgwffgYMJpiKYkmW3tTg3ZQ9Jq+f8XN+A5eeUKHWvJWJ2sgJ1Sop+wwhqFVijqWaJhwtD8MNlSBeWNNWTa5Z5kPZw5+LbVT99wqTdx29lMUH4OIG/D86ruKEauBjvH5xy6um/Sfj7ei6UUVk4AIl3MyD4MSSTOFgSwsH/QJWaQ5as7ZcmgBZkzjjU1UrQ74ci1gWBCSGHtuV1H2mhSnO3Wp/3fEV5a+4wz//6qy8JxjZsmxxy5+4w9CDNJY09T072iKG0EnOS0arEYgXqYnXcYHwjTtUNAcMelOd4xpkoqiTYICWFq0JSiPfPDQdnt+4/wuqcXY47QILbgAAAABJRU5ErkJggg==),
+        radial-gradient(circle, #36aa25 -30%, #073602 90%);
+      display: grid;
+      grid-template-columns: min-content 1fr min-content;
+      grid-template-areas: 'draw play discard';
+      gap: 20px;
+      margin-inline: auto;
+      --stack-height: calc(1.5px - 0.5px * (var(--per-row) / 8));
+      /* --stack-height: calc(1.5px + 0px); */
+      --overlap-height: 0px;
+      --per-row: 1;
+    }
+
+    @media (min-width: 1162px) {
+      .playmat {
+        --per-row: 2;
+        --overlap-height: 0.5px;
+      }
+
+      .playmat .card-slot--play .card:nth-last-child(-n+2) {
+        transform: var(--default-transform);
+        --reset: none;
+      }
+    }
+
+    @media (min-width: 1394px) {
+      .playmat {
+        --per-row: 3;
+        --overlap-height: 1px;
+      }
+
+      .playmat .card-slot--play .card:nth-last-child(-n+3) {
+        transform: var(--default-transform);
+        --reset: none;
+      }
+    }
+
+    @media (min-width: 1626px) {
+      .playmat {
+        --per-row: 4;
+        --overlap-height: 1.5px;
+      }
+
+      .playmat .card-slot--play .card:nth-last-child(-n+4) {
+        transform: var(--default-transform);
+        --reset: none;
+      }
+    }
+
+    @media (min-width: 1858px) {
+      .playmat {
+        --per-row: 5;
+      }
+
+      .playmat .card-slot--play .card:nth-last-child(-n+5) {
+        transform: var(--default-transform);
+        --reset: none;
+      }
+    }
+
+    @media (min-width: 2090px) {
+      .playmat {
+        --per-row: 6;
+      }
+
+      .playmat .card-slot--play .card:nth-last-child(-n+6) {
+        transform: var(--default-transform);
+        --reset: none;
+      }
+    }
+
+    @media (min-width: 2322px) {
+      .playmat {
+        --per-row: 7;
+      }
+
+      .playmat .card-slot--play .card:nth-last-child(-n+7) {
+        transform: var(--default-transform);
+        --reset: none;
+      }
+    }
+
+    @media (min-width: 2554px) {
+      .playmat {
+        --per-row: 8;
+      }
+
+      .playmat .card-slot--play .card:nth-last-child(-n+8) {
+        transform: var(--default-transform);
+        --reset: none;
+      }
+    }
+
+    @media (min-width: 2786px) {
+      .playmat {
+        --per-row: 9;
+      }
+
+      .playmat .card-slot--play .card:nth-last-child(-n+9) {
+        transform: var(--default-transform);
+        --reset: none;
+      }
+    }
+
+    .card-slot {
+      background-color: transparent;
+      border: 5px rgba(255, 255, 255, 0.2) solid;
+      border-radius: calc(10px + 15px);
+      padding: 10px;
+      align-self: center;
+      min-height: 320px;
+      min-width: 224px;
+    }
+
+    .card-slot--play {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: end;
+      max-width: 100%;
+      flex-direction: row-reverse;
+      perspective: 1000px;
+      transform-style: preserve-3d;
+      transform-origin: 100%;
+    }
+
+    .card-slot--play .card {
+      --default-transform: translateZ(calc(var(--n) / var(--per-row) * var(--overlap-height)));
+      --dur: 1s;
+      transform: var(--default-transform);
+      flex-shrink: 1;
+      margin-bottom: -280px;
+      z-index: 0;
+      --upfront: 50px;
+      --shadow-color: rgba(0, 0, 0, 0.2);
+      box-shadow: 0 0 0 0 var(--shadow-color);
+      border-radius: 15px;
+      transition: transform 0.1s ease-out, box-shadow 0.1s ease-out;
+      transition-delay: calc(var(--dur) * 0.8);
+    }
+
+    .card-slot--play .card:hover {
+      animation: var(--reset, var(--dur) 1 normal reveal);
+      z-index: 1;
+      transition: z-index 0s linear, transform 0s linear, box-shadow 2s linear;
+      transition-delay: calc(var(--dur) * 0.8);
+      transform-origin: top center;
+
+      transform: translateY(0) translateZ(var(--upfront));
+      box-shadow: var(--reset, 20px 20px 20px 0 var(--shadow-color));
+    }
+
+    .card-slot--play .card:hover .card__flipper {
+      animation: var(--reset, var(--dur) 1 normal reveal_flip);
+    }
+
+    @keyframes reveal {
+      0% {
+        transform: translateY(0) translateZ(calc(var(--n) / var(--per-row) * var(--overlap-height)));
+        box-shadow: 0 0 0 0 var(--shadow-color);
+      }
+
+      20% {
+        transform: translateY(-10px) translateZ(calc(var(--n) / var(--per-row) * var(--overlap-height)));
+        box-shadow: 0 0 0 0 var(--shadow-color);
+      }
+
+      60% {
+        transform: translateY(-20px) translateZ(calc(var(--n) / var(--per-row) * var(--overlap-height)));
+        box-shadow: 0 0 0 0 var(--shadow-color);
+      }
+
+      80% {
+        transform: translateY(-280px) translateZ(calc(var(--n) / var(--per-row) * var(--overlap-height)));
+        box-shadow: 0 0 0 0 var(--shadow-color);
+      }
+
+      100% {
+        transform: translateY(0) translateZ(var(--upfront));
+        box-shadow: 20px 20px 20px 0 var(--shadow-color);
+      }
+    }
+
+    @keyframes reveal_flip {
+      0% {
+        transform: rotateX(0);
+      }
+
+      20% {
+        transform: rotateX(-10deg);
+      }
+
+      60% {
+        transform: rotateX(-20deg);
+      }
+
+      80% {
+        transform: rotateX(40deg);
+      }
+
+      100% {
+        transform: rotateX(0deg);
+      }
+    }
+
+    .card-slot--play .card:last-child {
+      margin-bottom: 0;
+    }
+
+    .card-slot--draw,
+    .card-slot--discard {
+      grid-area: draw;
+      display: grid;
+      grid-template-areas: 'pile';
+      grid-template-rows: 1fr;
+      grid-template-columns: 1fr;
+    }
+
+
+    h2 {
+      grid-area: draw;
+      align-self: center;
+      justify-self: center;
+      margin: 0;
+      padding: 5px 15px;
+      font-size: 40px;
+      position: absolute;
+      transform: rotate(-60deg);
+      color: rgba(255, 255, 255, 0.2);
+      font-weight: normal;
+      text-align: center;
+      user-select: none;
+    }
+
+    .card-slot--discard .card {
+      filter: grayscale(1);
+    }
+
+    .playmat {
+      perspective: 1000px;
+      transform-style: preserve-3d;
+      transform-origin: center center;
+    }
+
+    .card-slot {
+      perspective: 1000px;
+      transform-style: preserve-3d;
+    }
+
+
+    .card-slot--draw .card,
+    .card-slot--discard .card {
+      grid-area: pile;
+      transform: translateZ(calc(var(--n) * var(--stack-height)));
+    }
+
+    .card:nth-child(1) {
+      --n: 1;
+    }
+
+    .card:nth-child(2) {
+      --n: 2;
+    }
+
+    .card:nth-child(3) {
+      --n: 3;
+    }
+
+    .card:nth-child(4) {
+      --n: 4;
+    }
+
+    .card:nth-child(5) {
+      --n: 5;
+    }
+
+    .card:nth-child(6) {
+      --n: 6;
+    }
+
+    .card:nth-child(7) {
+      --n: 7;
+    }
+
+    .card:nth-child(8) {
+      --n: 8;
+    }
+
+    .card:nth-child(9) {
+      --n: 9;
+    }
+
+    .card:nth-child(10) {
+      --n: 10;
+    }
+
+    .card:nth-child(11) {
+      --n: 11;
+    }
+
+    .card:nth-child(12) {
+      --n: 12;
+    }
+
+    .card:nth-child(13) {
+      --n: 13;
+    }
+
+    .card:nth-child(14) {
+      --n: 14;
+    }
+
+    .card:nth-child(15) {
+      --n: 15;
+    }
+
+    .card:nth-child(16) {
+      --n: 16;
+    }
+
+    .card:nth-child(17) {
+      --n: 17;
+    }
+
+    .card:nth-child(18) {
+      --n: 18;
+    }
+
+    .card:nth-child(19) {
+      --n: 19;
+    }
+
+    .card:nth-child(20) {
+      --n: 20;
+    }
+
+    .card:nth-child(21) {
+      --n: 21;
+    }
+
+    .card:nth-child(22) {
+      --n: 22;
+    }
+
+    .card:nth-child(23) {
+      --n: 23;
+    }
+
+    .card:nth-child(24) {
+      --n: 24;
+    }
+
+    .card:nth-child(25) {
+      --n: 25;
+    }
+
+    .card:nth-child(26) {
+      --n: 26;
+    }
+
+    .card:nth-child(27) {
+      --n: 27;
+    }
+
+    .card:nth-child(28) {
+      --n: 28;
+    }
+
+    .card:nth-child(29) {
+      --n: 29;
+    }
+
+    .card:nth-child(30) {
+      --n: 30;
+    }
+
+    .card:nth-child(31) {
+      --n: 31;
+    }
+
+    .card:nth-child(32) {
+      --n: 32;
+    }
+
+    .card:nth-child(33) {
+      --n: 33;
+    }
+
+    .card:nth-child(34) {
+      --n: 34;
+    }
+
+    .card:nth-child(35) {
+      --n: 35;
+    }
+
+    .card:nth-child(36) {
+      --n: 36;
+    }
+
+    .card:nth-child(37) {
+      --n: 37;
+    }
+
+    .card:nth-child(38) {
+      --n: 38;
+    }
+
+    .card:nth-child(39) {
+      --n: 39;
+    }
+
+    .card:nth-child(40) {
+      --n: 40;
+    }
+
+    .card:nth-child(41) {
+      --n: 41;
+    }
+
+    .card:nth-child(42) {
+      --n: 42;
+    }
+
+    .card:nth-child(43) {
+      --n: 43;
+    }
+
+    .card:nth-child(44) {
+      --n: 44;
+    }
+
+    .card:nth-child(45) {
+      --n: 45;
+    }
+
+    .card:nth-child(46) {
+      --n: 46;
+    }
+
+    .card:nth-child(47) {
+      --n: 47;
+    }
+
+    .card:nth-child(48) {
+      --n: 48;
+    }
+
+    .card:nth-child(49) {
+      --n: 49;
+    }
+
+    .card:nth-child(50) {
+      --n: 50;
+    }
+
+    .card:nth-child(51) {
+      --n: 51;
+    }
+
+    .card:nth-child(52) {
+      --n: 52;
+    }
+
+    .card:nth-child(53) {
+      --n: 53;
+    }
+
+    .card:nth-child(54) {
+      --n: 54;
+    }
+
+    .card:nth-child(55) {
+      --n: 55;
+    }
+
+    .card:nth-child(56) {
+      --n: 56;
+    }
+
+    .card:nth-child(57) {
+      --n: 57;
+    }
+
+    .card:nth-child(58) {
+      --n: 58;
+    }
+
+    .card:nth-child(59) {
+      --n: 59;
+    }
+
+    .card:nth-child(60) {
+      --n: 60;
+    }
+
+
+    .card-slot--play {
+      grid-area: play;
+    }
+
+    .card-slot--discard {
+      grid-area: discard;
+    }
+
+    .card {
+      perspective: 1000px;
+      width: 224px;
+      height: 320px;
+    }
+
+    .card ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .card ::-webkit-scrollbar-track {
+      margin-block: 15px;
+      margin-right: 8px;
+    }
+
+    .card ::-webkit-scrollbar-thumb {
+      border-radius: 10px;
+      background: #4d2714;
+      background-clip: content-box;
+      border: 2px solid transparent;
+    }
+
+    .card__flipper {
+      border: 1px solid rgba(0, 0, 0, 0.5);
+      position: absolute;
       width: 100%;
-      background-color: lightgreen;
-
+      height: 100%;
+      border-radius: 15px;
+      transition: transform 0.5s ease-out;
+      transform-style: preserve-3d;
+      transform-origin: 100%;
     }
 
-    .pakka {
-      width: 15em;
-      /*150px; */
-      height: 23em;
-      /*225px; */
-      background-color: white;
-      border: 1px;
-      padding: 10px;
-      margin: 10px;
-      display: inline-block;
+
+    .card-slot--draw .card__flipper {
+      transform: translateX(-100%) rotateY(180deg);
     }
 
-    .poyta {
-      width: 75em;
-      /*750px; */
-      height: 23em;
-      /*225px; */
-      background-color: white;
-      border: 1px;
-      padding: 10px;
-      margin: 10px;
-      display: inline-block;
-
+    .card--peek:hover .card__flipper {
+      transform: none;
     }
 
-    .poisto {
-      width: 15em;
-      /*150px; */
-      height: 23em;
-      /*225px; */
-      background-color: white;
-      border: 1px;
-      padding: 1em;
-      /*10px; */
-      margin: 1em;
-      /*10px; */
-      display: inline-block;
-
-    }
-
-    .pakka .kortti {
-      background: linear-gradient(45deg, #dca 12%, transparent 0, transparent 88%, #dca 0),
-        linear-gradient(135deg, transparent 37%, #a85 0, #a85 63%, transparent 0),
-        linear-gradient(45deg, transparent 37%, #dca 0, #dca 63%, transparent 0) #753;
-      background-size: 25px 25px;
-      width: 14em;
-      /*140px; */
-      height: 20em;
-      /*200px; */
-      margin: 3px;
-      border: 1px solid black;
+    .card__front,
+    .card__back {
+      border-radius: 15px;
+      padding: 15px;
+      inset: 0;
       position: absolute;
-      text-indent: -9999px;
+      backface-visibility: hidden;
+      background-color: #c0b083;
     }
 
-    .pakka .yohyokkays_nakyva {
-      width: 14em;
-      /*140px; */
-      height: 20em;
-      /*200px; */
-      margin: 3px;
-      border: 1px solid black;
+    .card__front {
+      color: black;
+      transform: translateZ(1px);
+      overflow: auto;
+    }
+
+    .card__back {
+      content: '64km';
+      text-align: center;
+      transform: rotateY(180deg);
+      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='filter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05' numOctaves='3'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='discrete' tableValues='0 0 1'/%3E%3CfeFuncG type='discrete' tableValues='0 0 0 1 1'/%3E%3CfeFuncB type='discrete' tableValues='0 1'/%3E%3C/feComponentTransfer%3E%3CfeColorMatrix values='1 0 0 0 0 -1 1 0 0 0 -1 -1 1 0 0 0 0 0 0 1'/%3E%3CfeColorMatrix values='-.08 .42 .09 0 .08 -.17 .35 -.08 0 .17 -.08 .15 -.04 0 .08 0 0 0 0 1'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23filter)'/%3E%3C/svg%3E");
+      box-shadow: inset 0 0 0 5px #c0b083, inset 0 0 0 8px #302627;
+      display: grid;
+      justify-items: center;
+      align-items: center;
+    }
+
+    .card__back span {
+      background: #c0b083;
+      border-radius: 40px;
+      padding: 5px 15px;
+      font-size: 40px;
       position: absolute;
-      background: aqua;
-      text-indent: 0px;
+      transform: rotate(-60deg);
+      color: #4d2712;
+      border: 1px solid #4d2712;
+      box-shadow: 0 0 0 2px #c0b083;
+      user-select: none;
     }
 
-    .poyta .kortti {
-      width: 14em;
-      /*140px; */
-      height: 20em;
-      /*200px; */
-      margin: 3px;
-      border: 1px solid black;
-      float: right;
+    .id {
+        float: right;
+        background: #4d2714;
+        border-radius: 0 0 0 24px;
+        min-width: 32px;
+        height: 32px;
+        margin-right: -15px;
+        margin-top: -15px;
+        color: #c0b083;
+        text-align: center;
+        line-height: 32px;
     }
-
-    .poisto .kortti {
-      width: 14em;
-      /*140px; */
-      height: 20em;
-      /*200px; */
-      margin: 3px;
-      border: 1px solid black;
-      position: absolute;
-      background: lightgray;
+    .title {
+      margin-top: 0;
+      text-align: center;
+    }
+    .ohje {
+      text-align: center;
+      min-height: 70px;
+    }
+    .paljonko {
+      margin-top: 32px;
+      font-size: 50px;
+      text-align: center;
     }
 
   </style>
 </head>
+
 <body>
   <h1>64 km saattue</h1>
 
-
-
-  <div id='korruptio' class='korttialue'>
+  <div id='korruptio' class='playmat'>
     <h2>Ennakkokorruptio</h2>
-    <div class='pakka' id='korruptiopakka'> Pakka </div>
-    <div id='korruptiopoyta' class='poyta'> Poyta </div>
-    <div class='poisto' id='korruptiopoisto'> Poisto </div>
+    <div class='card-slot card-slot--draw' id='korruptiopakka'></div>
+    <div class='card-slot card-slot--play' id='korruptiopoyta'></div>
+    <div class='card-slot card-slot--discard' id='korruptiopoisto'></div>
   </div>
 
-  <div id='vastarinta' class='korttialue'>
+  <div id='vastarinta' class='playmat playmat--opposition'>
     <h2>Vastarinta</h2>
-    <div class='pakka' id='vastarintapakka'> Pakka </div>
-    <div class='poyta' id='vastarintapoyta'> Poyta </div>
-    <div class='poisto' id='vastarintapoisto'> Poisto </div>
+    <div class='card-slot card-slot--draw' id='vastarintapakka'></div>
+    <div class='card-slot card-slot--play' id='vastarintapoyta'></div>
+    <div class='card-slot card-slot--discard' id='vastarintapoisto'></div>
   </div>
 
-  <div id='ryosto_maaseutu' class='korttialue'>
+  <div id='ryosto_maaseutu' class='playmat'>
     <h2>Ryöstettävää: Maaseutu</h2>
-    <div class='pakka' id='ryosto_maaseutupakka'> Pakka </div>
-    <div class='poyta' id='ryosto_maaseutupoyta'> Poyta </div>
-    <div class='poisto' id='ryosto_maaseutupoisto'> Poisto </div>
+    <div class='card-slot card-slot--draw' id='ryosto_maaseutupakka'></div>
+    <div class='card-slot card-slot--play' id='ryosto_maaseutupoyta'></div>
+    <div class='card-slot card-slot--discard' id='ryosto_maaseutupoisto'></div>
   </div>
 
-  <div id='ryosto_kaupunki' class='korttialue'>
+  <div id='ryosto_kaupunki' class='playmat'>
     <h2>Ryöstettävää: Kaupunki</h2>
-    <div class='pakka' id='ryosto_kaupunkipakka'> Pakka </div>
-    <div class='poyta' id='ryosto_kaupunkipoyta'> Poyta </div>
-    <div class='poisto' id='ryosto_kaupunkipoisto'> Poisto </div>
+    <div class='card-slot card-slot--draw' id='ryosto_kaupunkipakka'></div>
+    <div class='card-slot card-slot--play' id='ryosto_kaupunkipoyta'>
+<div class="card" onclick="javascript: siirra_seuraavaan(this,3);">
+  <div class="card__flipper">
+    <div class="card__front">
+      <div class="id">1</div>
+      <h4 class="title">Ydinvoimala</h4>
+      <div class="content">
+        <p>Jos <b>Märkäkorva tai kamoissa: :</b> Yksikkö tuhoutuu. Perässä tulevat yksiköt eivät toimi enää tämän pelin aikana. Loppupelin aikana saattuetta vastaan ei hyökätä. Maastokortit lasketaan voitetuiksi heti, yöhyökkäyskortteja ei nosteta. Ryöväyskorttien vaikutukset, jotka liittyvät ihmisiin, jätetään huomiotta.</p>
+        <p>Muuten: Muut: Lunnaat henkilökunnasta + 500 $</p>
+      </div>
+    </div>
+    <div class="card__back">
+      <span>Ryöstettävää: Kaupunki</span>
+    </div>
+  </div>
+</div>
+
+    </div>
+    <div class='card-slot card-slot--discard' id='ryosto_kaupunkipoisto'></div>
   </div>
 
-  <div id='aseapu' class='korttialue'>
+  <div id='aseapu' class='playmat'>
     <h2>Ulkomainen aseapu</h2>
-    <div class='pakka' id='aseapupakka'> Pakka </div>
-    <div class='poyta' id='aseapupoyta'> Poyta </div>
+    <div class='card-slot card-slot--draw' id='aseapupakka'></div>
+    <div class='card-slot card-slot--play' id='aseapupoyta'></div>
   </div>
 
-  <div id='yohyokkays' class='korttialue'>
+  <div id='yohyokkays' class='playmat'>
     <h2>Yöhyökkäys</h2>
-    <div class='pakka' id='yohyokkayspakka'> Pakka </div>
-    <div class='poyta' id='yohyokkayspoyta'> Poyta </div>
-    <div class='poisto' id='yohyokkayspoisto'> Poisto </div>
+    <div class='card-slot card-slot--draw' id='yohyokkayspakka'></div>
+    <div class='card-slot card-slot--play' id='yohyokkayspoyta'></div>
+    <div class='card-slot card-slot--discard' id='yohyokkayspoisto'></div>
   </div>
 
-  <div id='yohyokkays_extra' class='korttialue'>
+  <div id='yohyokkays_extra' class='playmat'>
     <h2>Yöhyökkäys extrat</h2>
-    <div class='pakka' id='yohyokkays_extrapakka'> Pakka </div>
-    <div class='poyta' id='yohyokkays_extrapakka'> Poyta </div>
-    <div class='poisto' id='yohyokkays_extrapakka'> Poisto </div>
+    <div class='card-slot card-slot--draw' id='yohyokkays_extrapakka'></div>
+    <div class='card-slot card-slot--play' id='yohyokkays_extrapakka'></div>
+    <div class='card-slot card-slot--discard' id='yohyokkays_extrapakka'></div>
   </div>
 
   <script type="text/javascript" src="js/korruptio.js"></script>
