@@ -39,6 +39,16 @@ var siirra_aseapupoydalle = function (el, i) {
 }
 
 
+var nayta_vastarinta = function (el, elid) {
+  const clickableElem = el.parentElement.querySelector('.card:not(.card--reveal)');
+  if (el === clickableElem) {
+    el.classList.add("card--reveal");
+    el.removeAttribute("onClick");
+  } else {
+    console.log('Wrong card clicked, ignoring');
+  }
+}
+
 var nayta_yohyokkays = function (el, elid) {
   el.classList.add("card--peek");
   el.setAttribute("onClick", "javascript: siirra_seuraavaan(this,2);");
@@ -108,7 +118,8 @@ var piirra_vastarintakortti = function (data) {
     `,
     'Vastarinta'
   );
-  kortti.setAttribute("onClick", "javascript: siirra_seuraavaan(this,2);");
+  // kortti.setAttribute("onClick", "javascript: siirra_seuraavaan(this,2);");
+  kortti.setAttribute("onClick", "javascript: nayta_vastarinta(this,2);");
   return kortti;
 }
 
@@ -188,7 +199,7 @@ vastarinta_shuffled.forEach(function (data) {
   //data = JSON.parse(data);
   console.log(data);
   kortti = piirra_vastarintakortti(data);
-  document.querySelector("#vastarintapakka").append(kortti);
+  document.querySelector("#vastarintapoyta").append(kortti);
 });
 
 //var ryosto_maaseutu = JSON.parse(ryosto_maaseutu);

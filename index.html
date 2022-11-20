@@ -565,13 +565,18 @@
       transform-origin: 100%;
     }
 
-
+    .playmat--opposition .card__flipper,
     .card-slot--draw .card__flipper {
       transform: translateX(-100%) rotateY(180deg);
     }
 
+    .playmat--opposition .card--reveal .card__flipper,
     .card--peek:hover .card__flipper {
       transform: none;
+    }
+
+    .playmat--opposition .card--reveal {
+      z-index: 2;
     }
 
     .card__front,
@@ -654,10 +659,10 @@
   </div>
 
   <div id='vastarinta' class='playmat playmat--opposition'>
-    <h2>Vastarinta</h2>
-    <div class='card-slot card-slot--draw' id='vastarintapakka'></div>
+    <!-- <h2>Vastarinta</h2>
+    <div class='card-slot card-slot--draw' id='vastarintapakka'></div> -->
     <div class='card-slot card-slot--play' id='vastarintapoyta'></div>
-    <div class='card-slot card-slot--discard' id='vastarintapoisto'></div>
+    <!-- <div class='card-slot card-slot--discard' id='vastarintapoisto'></div> -->
   </div>
 
   <div id='ryosto_maaseutu' class='playmat'>
