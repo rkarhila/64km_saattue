@@ -9,19 +9,14 @@
   <link rel="stylesheet" href="normalise.css">
   <style>
     body {
-      background-color: #4d2712;
+      background-color: #583c34;
+      background-image: var(--wood);
       font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
     }
 
     h1 {
-      color: maroon;
+      color: #c0b083;
       text-align: center;
-    }
-
-    .pakka .yohyokkays_nakyva {}
-
-    h1 {
-      color: #281105;
     }
 
     .playmat {
@@ -599,7 +594,7 @@
       content: '64km';
       text-align: center;
       transform: rotateY(180deg);
-      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='filter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.06' numOctaves='3'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='discrete' tableValues='0 0 0 1 1'/%3E%3CfeFuncG type='discrete' tableValues='0 0 0 1 1'/%3E%3CfeFuncB type='discrete' tableValues='0 1'/%3E%3C/feComponentTransfer%3E%3CfeColorMatrix values='1 0 0 0 0 -1 1 0 0 0 -1 -1 1 0 0 0 0 0 0 1'/%3E%3CfeColorMatrix values='-.08 .42 .09 0 .08 -.17 .35 -.08 0 .17 -.08 .15 -.04 0 .08 0 0 0 0 1'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23filter)'/%3E%3C/svg%3E");
+      background: var(--camo);
       box-shadow: inset 0 0 0 5px #c0b083, inset 0 0 0 8px #302627;
       display: grid;
       justify-items: center;
@@ -725,7 +720,80 @@
 
   <script src="js/korttiengine.js"></script>
 
+<script>
+let ra_first = 88 / 255;
+let ga_first = 60 / 255;
+let ba_first = 52 / 255;
 
+let rc_first = 37 / 255;
+let gc_first = 20 / 255;
+let bc_first = 18 / 255;
+
+let multi = 0.09;
+
+let rc = rc_first*0.12;
+let gc = gc_first*multi;
+let bc = bc_first*multi;
+
+let ra = ra_first*0.12 - rc;
+let ga = ga_first*multi - gc;
+let ba = ba_first*multi - bc;
+
+document.write(`
+<style>/*
+  html{
+    --wood: url("data:image/svg+xml,\
+      %3Csvg xmlns='http://www.w3.org/2000/svg'%3E\
+        %3Cfilter id='filter'%3E\
+          %3CfeTurbulence type='fractalNoise' baseFrequency='.5 .001'/%3E\
+          %3CfeColorMatrix values='0 0 0 ${ra} ${rc}\
+                                   0 0 0 ${ga} ${gc}\
+                                   0 0 0 ${ba} ${bc}\
+                                   0 0 0 0 1'/%3E\
+        %3C/filter%3E\
+        %3Crect width='100%25' height='100%25' filter='url(%23filter)'/%3E\
+      %3C/svg%3E");
+  }*/
+</style>
+`)
+</script>
+
+<style>
+  html{
+    --wood: url("data:image/svg+xml,\
+      %3Csvg xmlns='http://www.w3.org/2000/svg'%3E\
+        %3Cfilter id='filter'%3E\
+          %3CfeTurbulence type='fractalNoise' baseFrequency='.5 .001'/%3E\
+          %3CfeColorMatrix values='0 0 0 0.023 0.017\
+                                   0 0 0 0.014 0.007\
+                                   0 0 0 0.011 0.006\
+                                   0 0 0 0     1'/%3E\
+        %3C/filter%3E\
+        %3Crect width='100%25' height='100%25' filter='url(%23filter)'/%3E\
+      %3C/svg%3E");
+
+    --camo: url("data:image/svg+xml,\
+      %3Csvg xmlns='http://www.w3.org/2000/svg'%3E\
+        %3Cfilter id='filter'%3E\
+          %3CfeTurbulence type='fractalNoise' baseFrequency='0.06' numOctaves='3'/%3E\
+          %3CfeComponentTransfer%3E\
+            %3CfeFuncR type='discrete' tableValues='0 0 0 1 1'/%3E\
+            %3CfeFuncG type='discrete' tableValues='0 0 0 1 1'/%3E\
+            %3CfeFuncB type='discrete' tableValues='0 1'/%3E\
+          %3C/feComponentTransfer%3E\
+          %3CfeColorMatrix values='1  0 0 0 0 \
+                                  -1  1 0 0 0 \
+                                  -1 -1 1 0 0 \
+                                   0  0 0 0 1'/%3E\
+          %3CfeColorMatrix values='-.08 .42  .09 0 .08 \
+                                   -.17 .35 -.08 0 .17 \
+                                   -.08 .15 -.04 0 .08 \
+                                    0   0    0   0 1'/%3E\
+        %3C/filter%3E\
+        %3Crect width='100%25' height='100%25' filter='url(%23filter)'/%3E\
+      %3C/svg%3E");
+  }
+</style>
 </body>
 
 </html>
