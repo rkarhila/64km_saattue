@@ -720,44 +720,6 @@
 
   <script src="js/korttiengine.js"></script>
 
-<script>
-let ra_first = 88 / 255;
-let ga_first = 60 / 255;
-let ba_first = 52 / 255;
-
-let rc_first = 37 / 255;
-let gc_first = 20 / 255;
-let bc_first = 18 / 255;
-
-let multi = 0.09;
-
-let rc = rc_first*0.12;
-let gc = gc_first*multi;
-let bc = bc_first*multi;
-
-let ra = ra_first*0.12 - rc;
-let ga = ga_first*multi - gc;
-let ba = ba_first*multi - bc;
-
-document.write(`
-<style>/*
-  html{
-    --wood: url("data:image/svg+xml,\
-      %3Csvg xmlns='http://www.w3.org/2000/svg'%3E\
-        %3Cfilter id='filter'%3E\
-          %3CfeTurbulence type='fractalNoise' baseFrequency='.5 .001'/%3E\
-          %3CfeColorMatrix values='0 0 0 ${ra} ${rc}\
-                                   0 0 0 ${ga} ${gc}\
-                                   0 0 0 ${ba} ${bc}\
-                                   0 0 0 0 1'/%3E\
-        %3C/filter%3E\
-        %3Crect width='100%25' height='100%25' filter='url(%23filter)'/%3E\
-      %3C/svg%3E");
-  }*/
-</style>
-`)
-</script>
-
 <style>
   html{
     --wood: url("data:image/svg+xml,\
@@ -795,5 +757,4 @@ document.write(`
   }
 </style>
 </body>
-
 </html>
