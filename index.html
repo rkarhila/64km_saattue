@@ -46,7 +46,7 @@
         --overlap-height: 0.5px;
       }
 
-      .playmat .card-slot--play .card:nth-last-child(-n+2) {
+      .playmat .card-slot--overlap .card:nth-last-child(-n+2) {
         transform: var(--default-transform);
         --reset: none;
       }
@@ -58,7 +58,7 @@
         --overlap-height: 1px;
       }
 
-      .playmat .card-slot--play .card:nth-last-child(-n+3) {
+      .playmat .card-slot--overlap .card:nth-last-child(-n+3) {
         transform: var(--default-transform);
         --reset: none;
       }
@@ -70,7 +70,7 @@
         --overlap-height: 1.5px;
       }
 
-      .playmat .card-slot--play .card:nth-last-child(-n+4) {
+      .playmat .card-slot--overlap .card:nth-last-child(-n+4) {
         transform: var(--default-transform);
         --reset: none;
       }
@@ -81,7 +81,7 @@
         --per-row: 5;
       }
 
-      .playmat .card-slot--play .card:nth-last-child(-n+5) {
+      .playmat .card-slot--overlap .card:nth-last-child(-n+5) {
         transform: var(--default-transform);
         --reset: none;
       }
@@ -92,7 +92,7 @@
         --per-row: 6;
       }
 
-      .playmat .card-slot--play .card:nth-last-child(-n+6) {
+      .playmat .card-slot--overlap .card:nth-last-child(-n+6) {
         transform: var(--default-transform);
         --reset: none;
       }
@@ -103,7 +103,7 @@
         --per-row: 7;
       }
 
-      .playmat .card-slot--play .card:nth-last-child(-n+7) {
+      .playmat .card-slot--overlap .card:nth-last-child(-n+7) {
         transform: var(--default-transform);
         --reset: none;
       }
@@ -114,7 +114,7 @@
         --per-row: 8;
       }
 
-      .playmat .card-slot--play .card:nth-last-child(-n+8) {
+      .playmat .card-slot--overlap .card:nth-last-child(-n+8) {
         transform: var(--default-transform);
         --reset: none;
       }
@@ -125,7 +125,7 @@
         --per-row: 9;
       }
 
-      .playmat .card-slot--play .card:nth-last-child(-n+9) {
+      .playmat .card-slot--overlap .card:nth-last-child(-n+9) {
         transform: var(--default-transform);
         --reset: none;
       }
@@ -153,7 +153,7 @@
       transform-origin: 100%;
     }
 
-    .card-slot--play .card {
+     .card-slot--overlap .card {
       --default-transform: translateZ(calc(var(--n) / var(--per-row) * var(--overlap-height)));
       --dur: 1s;
       transform: var(--default-transform);
@@ -168,7 +168,7 @@
       transition-delay: calc(var(--dur) * 0.8);
     }
 
-    .card-slot--play .card:hover {
+    .card-slot--overlap .card:hover {
       animation: var(--reset, var(--dur) 1 normal reveal);
       z-index: 1;
       transition: z-index 0s linear, transform 0s linear, box-shadow 2s linear;
@@ -179,7 +179,7 @@
       box-shadow: var(--reset, 20px 20px 20px 0 var(--shadow-color));
     }
 
-    .card-slot--play .card:hover .card__flipper {
+    .card-slot--overlap .card:hover .card__flipper {
       animation: var(--reset, var(--dur) 1 normal reveal_flip);
     }
 
@@ -232,7 +232,7 @@
       }
     }
 
-    .card-slot--play .card:last-child {
+    .card-slot--overlap .card:last-child {
       margin-bottom: 0;
     }
 
@@ -649,7 +649,7 @@
   <div id='korruptio' class='playmat'>
     <h2>Ennakkokorruptio</h2>
     <div class='card-slot card-slot--draw' id='korruptiopakka'></div>
-    <div class='card-slot card-slot--play' id='korruptiopoyta'></div>
+    <div class='card-slot card-slot--play card-slot--overlap' id='korruptiopoyta'></div>
     <div class='card-slot card-slot--discard' id='korruptiopoisto'></div>
   </div>
 
@@ -663,34 +663,34 @@
   <div id='ryosto_maaseutu' class='playmat'>
     <h2>Ryöstettävää: Maaseutu</h2>
     <div class='card-slot card-slot--draw' id='ryosto_maaseutupakka'></div>
-    <div class='card-slot card-slot--play' id='ryosto_maaseutupoyta'></div>
+    <div class='card-slot card-slot--play card-slot--overlap' id='ryosto_maaseutupoyta'></div>
     <div class='card-slot card-slot--discard' id='ryosto_maaseutupoisto'></div>
   </div>
 
   <div id='ryosto_kaupunki' class='playmat'>
     <h2>Ryöstettävää: Kaupunki</h2>
     <div class='card-slot card-slot--draw' id='ryosto_kaupunkipakka'></div>
-    <div class='card-slot card-slot--play' id='ryosto_kaupunkipoyta'></div>
+    <div class='card-slot card-slot--play card-slot--overlap' id='ryosto_kaupunkipoyta'></div>
     <div class='card-slot card-slot--discard' id='ryosto_kaupunkipoisto'></div>
   </div>
 
   <div id='aseapu' class='playmat'>
     <h2>Ulkomainen aseapu</h2>
     <div class='card-slot card-slot--draw' id='aseapupakka'></div>
-    <div class='card-slot card-slot--play' id='aseapupoyta'></div>
+    <div class='card-slot card-slot--play card-slot--overlap' id='aseapupoyta'></div>
   </div>
 
   <div id='yohyokkays' class='playmat'>
     <h2>Yöhyökkäys</h2>
     <div class='card-slot card-slot--draw' id='yohyokkayspakka'></div>
-    <div class='card-slot card-slot--play' id='yohyokkayspoyta'></div>
+    <div class='card-slot card-slot--play card-slot--overlap' id='yohyokkayspoyta'></div>
     <div class='card-slot card-slot--discard' id='yohyokkayspoisto'></div>
   </div>
 
   <div id='yohyokkays_extra' class='playmat'>
     <h2>Yöhyökkäys extrat</h2>
     <div class='card-slot card-slot--draw' id='yohyokkays_extrapakka'></div>
-    <div class='card-slot card-slot--play' id='yohyokkays_extrapakka'></div>
+    <div class='card-slot card-slot--play card-slot--overlap' id='yohyokkays_extrapakka'></div>
     <div class='card-slot card-slot--discard' id='yohyokkays_extrapakka'></div>
   </div>
 
