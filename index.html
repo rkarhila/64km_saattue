@@ -13,6 +13,7 @@
       background-image: var(--wood);
       background-size: cover;
       font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+      line-height: 1.15;
     }
 
     h1 {
@@ -39,6 +40,19 @@
       /* --stack-height: calc(1.5px + 0px); */
       --overlap-height: 0px;
       --per-row: 1;
+      perspective: 1000px;
+      transform-style: preserve-3d;
+      transform-origin: center center;
+    }
+
+    .playmat--opposition {
+      grid-template-columns: 1fr;
+      grid-template-areas: 'play';
+    }
+
+    .playmat--foreign-aid {
+      grid-template-columns: min-content 1fr;
+      grid-template-areas: 'draw play';
     }
 
     @media (min-width: 1162px) {
@@ -155,7 +169,7 @@
     }
 
      .card-slot--overlap .card {
-      --default-transform: translateZ(calc(var(--n) / var(--per-row) * var(--overlap-height)));
+      --default-transform: var(--move-transform, translateZ(calc(var(--n) / var(--per-row) * var(--overlap-height))));
       --dur: 1s;
       transform: var(--default-transform);
       flex-shrink: 1;
@@ -165,8 +179,7 @@
       --shadow-color: rgba(0, 0, 0, 0.2);
       box-shadow: 0 0 0 0 var(--shadow-color);
       border-radius: 15px;
-      transition: transform 0.1s ease-out, box-shadow 0.1s ease-out;
-      transition-delay: calc(var(--dur) * 0.8);
+      transition: transform 0.3s ease-out, box-shadow 0.1s ease-out calc(var(--dur) * 0.8);
     }
 
     .card-slot--overlap .card:hover {
@@ -264,12 +277,6 @@
 
     .card-slot--discard .card {
       filter: grayscale(1);
-    }
-
-    .playmat {
-      perspective: 1000px;
-      transform-style: preserve-3d;
-      transform-origin: center center;
     }
 
     .card-slot {
@@ -566,6 +573,7 @@
       transform-origin: 100%;
     }
 
+    .card-slot--overlap:not(#yohyokkayspoyta) .card--added .card__flipper,
     .playmat--opposition .card__flipper,
     .card-slot--draw .card__flipper {
       transform: translateX(-100%) rotateY(180deg);
@@ -647,6 +655,21 @@
       text-align: center;
     }
 
+    @property --floor {
+      syntax: '<integer>';
+      initial-value: 0;
+      inherits: false /* or true depending on context */
+    }
+
+    .card-slot--overlap .card--added {
+        --finetune: 192px;
+        --move-transform: translateX(calc(-100vw + var(--finetune) + (var(--n) + 1 - var(--floor) * var(--per-row))*232px));
+        --t: calc((var(--n) - 1) / var(--per-row));
+        --floor: calc(var(--t) - .5);
+    }
+    .playmat--foreign-aid .card--added {
+      --finetune: -63px;
+    }
 </style>
 </head>
 
@@ -681,7 +704,7 @@
     <div class='card-slot card-slot--discard' id='ryosto_kaupunkipoisto'></div>
   </div>
 
-  <div id='aseapu' class='playmat'>
+  <div id='aseapu' class='playmat playmat--foreign-aid'>
     <h2>Ulkomainen aseapu</h2>
     <div class='card-slot card-slot--draw' id='aseapupakka'></div>
     <div class='card-slot card-slot--play card-slot--overlap' id='aseapupoyta'></div>

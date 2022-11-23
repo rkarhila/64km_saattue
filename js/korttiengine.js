@@ -17,9 +17,9 @@ function getCardElement(id, title, content, back) {
 
 
 var siirra_seuraavaan = function (el, i) {
-  console.log('from', el);
-  console.log('to', el.parentElement.children[i]);
+  console.log('from', el.parentElement.id, 'to', el.parentElement.parentElement.children[i].id);
   el.parentElement.parentElement.children[i].appendChild(el);
+  window.setTimeout(function () { el.classList.remove('card--added') }, 1);
   if (i < 3) {
     el.setAttribute("onClick", "javascript: siirra_seuraavaan(this," + (i + 1) + ");");
   } else {
@@ -28,9 +28,9 @@ var siirra_seuraavaan = function (el, i) {
 }
 
 var siirra_aseapupoydalle = function (el, i) {
-  console.log('from', el);
-  console.log('to', el.parentElement.children[i]);
+  console.log('from', el.parentElement.id, 'to', el.parentElement.parentElement.children[i].id);
   el.parentElement.parentElement.children[i].appendChild(el);
+  window.setTimeout(function () { el.classList.remove('card--added') }, 1);
   if (i < 3) {
     el.setAttribute("onClick", "javascript: siirra_yohyokkayksiin(this," + (i + 1) + ");");
   } else {
@@ -63,7 +63,7 @@ var nayta_yohyokkays = function (el, elid) {
 
 
 var siirra_yohyokkayksiin = function (el) {
-  console.log('from', el);
+  console.log('from', el.parent.id);
   el.classList.add('card');
   el.classList.remove("card--peek");
   el.querySelector('.card__back span').innerText = 'Yöhyökkäys';
@@ -102,6 +102,7 @@ var piirra_korruptiokortti = function (data) {
     'Ennakkokorruptio'
   );
   kortti.setAttribute("onClick", "javascript: siirra_seuraavaan(this,2);");
+  kortti.classList.add('card--added');
   return kortti;
 }
 
@@ -120,6 +121,7 @@ var piirra_vastarintakortti = function (data) {
   );
   // kortti.setAttribute("onClick", "javascript: siirra_seuraavaan(this,2);");
   kortti.setAttribute("onClick", "javascript: nayta_vastarinta(this,2);");
+  kortti.classList.add('card--added');
   return kortti;
 }
 
@@ -134,6 +136,7 @@ var piirra_ryostokortti = function (data, back) {
     back
   );
   kortti.setAttribute("onClick", "javascript: siirra_seuraavaan(this,2);");
+  kortti.classList.add('card--added');
   return kortti;
 }
 
@@ -158,6 +161,7 @@ var piirra_yohyokkayskortti = function (data, back) {
   );
 
   kortti.setAttribute("onClick", "javascript: nayta_yohyokkays(this,2);");
+  kortti.classList.add('card--added');
   return kortti;
 }
 
