@@ -70,18 +70,24 @@ var korruptio =
       'id': '12',
       'mita': 'Trokaa viinaa',
       'ohje': 'Aloita känässä',
-      'paljonko': '150 $'
+      'paljonko': '50 $'
     },
     {
       'id': '13',
       'mita': 'Halpa strategisti',
       'ohje': 'Sekoita valitsemasti omat toimintakortit ennen pelin alkua',
-      'paljonko': '300 $'
+      'paljonko': '150 $'
     },
     {
       'id': '14',
       'mita': 'Ei strategistia',
       'ohje': 'Sen sijaan, että valitsisit omat toimintakortit, ota ne satunnaisesti',
-      'paljonko': '1000 $'
+      'paljonko': '300 $'
+    },
+    {
+      'id': '15',
+      'mita': 'Myy röökit',
+      'ohje': 'Joukko alottaa ilman tupakkia',
+      'paljonko': '100 $'
     }
   ];
