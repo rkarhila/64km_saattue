@@ -118,5 +118,12 @@ var ryosto_maaseutu =
       'muulloin': 'Muut: +2 bensaa\nVoit lainata traktoria',
       'niin': 'Hirmutekoja. +1 bensaa\nVoit lainata traktoria',
       'paikka': 'Maatila'
+    },
+    {
+      'Jos': 'Vihreä',
+      'id': '20',
+      'muulloin': 'Muut: 50 $, +3 ruokaa',
+      'niin': 'Ryöstösaalista 200 $, +2 ruokaa',
+      'paikka': 'Varakkaan henkilön maaseutuhuvila'
     }
   ];
