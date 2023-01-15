@@ -63,7 +63,7 @@ var nayta_yohyokkays = function (el, elid) {
 
 
 var siirra_yohyokkayksiin = function (el) {
-  console.log('from', el.parent.id);
+  //console.log('from', el.parent.id);
   el.classList.add('card');
   el.classList.remove("card--peek");
   el.querySelector('.card__back span').innerText = 'Yöhyökkäys';
