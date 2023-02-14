@@ -93,9 +93,12 @@ Peli on niin lyhyt, että tupakan haitat eivät ehdi vaikuttaa.
 ## Joukkojen jako
 
 Arpokaa pelaajavärit ja jakakaa statuslätkät sekä joukot.
+
 Asetelkaa saattue pöytää kiertäen niin, että aloittaja (pinkki pelaaja) laittaa yhden joukon pöydälle.
 Tämä on nyt jonon alku.
+
 Sen jälkeen kukin laittaa yhden tai kaksi joukkoa kerrallaan joko jonon eteen tai taakse. 
+
 Vaihtakaa suuntaa aina kun on tehty kokonainen kierros 
 -> pelaajilla A,B,C ja D järjestys olisi siis ABCD DCBA ABCD.
 
@@ -115,10 +118,116 @@ Lisäksi kukin pelaaja laittaa kaksi tupakkakortia jokaiselle joukolle, statusl�
 
 Jokainen pelaaja ottaa nyt kokemustasokortit:
 
-1 x märkäkorva 
-1 x perus jamppa isäm maam toivo
-1 x arpinaama
+* 1 x märkäkorva 
+* 1 x perus jamppa isäm maam toivo
+* 1 x arpinaama
 
 Kukin pelaaja asettaa jokaiselle joukolleen yhden näistä korteista. Se astetaan statuslätkän yläreunaan joukkotyypin kohdalle, siihen tupakkien päälle tai alle Kokemustasojen kuvauksen löydät kohdasta 7.3 sivulla 14 sekä lyhennelmänä itse korteista.
  
 Kokemuskortteja ei tarvitse paljastaa heti. Jos kokemuskortti ei ole näkyvillä, joukko toimii kuin se olisi perus jamppoja isäm maam toivoja, Voit paljastaa kokemuskortin milloin haluat, vaikkapa kesken ryöstelyn tai hyökkäyksen valitakseksi kortilta itseäsi enemmän miellyttävän vaihtoehdon.
+
+### 4.3 Esikähmintäkortit:
+Armeija marssii vatsallaan ja komentajat rikastuvat vetämällä ruokarahoista välistä. 
+
+Sekoita seuraavaksi esikähmintäkorttipakka. Aloita saattueen takapäästä ja jatka kohti kärkeä. Pelaaja ottaa kolme korttia esikähmintäpakasta ja pelaa niistä yhden joukolleen. Sitten pelaaja antaa jäljellä olevat kaksi korttia järjestyksessä seuraavan joukon pelaajalle (eli mahdollisesti itselleen). Tämä pelaaja ottaa pakasta yhden kortin lisää, ja valitsee taas kolmesta yhden omalle joukolleen, ja antaa jäljellä olevat taas eteenpäin.
+
+(Pelataanko avoimesti? Sähköisillä korteilla kyllä!)
+
+### Toimintapakan jako
+
+Seuraavaksi jokainen pelaaja ottaa oman toimintapakkansa. Kukin pelaaja, jos ei hänen esikähmintäkortisseissaan toisin sanota, valitsee 7 korttia omista toimintakorteistaan ja laittaa ne omaan pinoonsa. Tämä on pelaajan oma toimintapakka ja pelaaja valitsee niistä joka vuoron alussa yhden kortin.
+
+Loput toimntakortit kerätään kaikilta pelaajilta ja sekoitetaan yhteispakkaan. Yhteispakka laitetaan helposti saataville.
+
+Nyt voitte aloittaa pelin!
+
+
+# Kierros
+
+Yksi kierros on yksi päivä. 
+
+Päivällä nostetaan kortit ja tehdään toimintoja kierroksittain. Jokainen joukko toimii vuorollaan, alkaen saattueen kärjestä.  Kun on päästy saattueen loppuun, aloitetaan uusi toimintakierros taas kärjestä. Jatketaan kunnes mikään joukko ei enää voi tai halua toimia.
+
+Yöllä vihollinen hyökkää: Vedetään yöhyökkäyskortteja ja katsotaan niiden aiheuttamat vahingot.
+
+Aamulla tarkistetaan ja päivitetään jokaisen joukon tila: Väsymys, ruoka, jne. 
+
+## Päivä: Toiminnot
+
+### Korttien nosto
+
+Kukin pelaaja nostaa korttinsa. Kukin pelaaja ottaa niin neljä (4) yhteispakasta. 
+
+Jos kortteja on kädessä nyt enemmän kuin 9, pyydä valitsemaasi vierustoveria nappaamaan kädestäsi sokkona ylimenevät kortit, näyttämään muille ja asettamaan poistopakkaan.
+
+Nyt pelaaja nostaa vielä yhden (1) kortin omasta toimintapakastaan. 
+
+Oman toimintapakan kortit on etukäteen valittu isommasta toimintakorttikokoelmasta. Oma toimintapakka on myös tapa laskea kierroksia. Peli loppuu kun pakasta ei voi enää vetää kortteja.
+
+### Toimintakierrokset
+
+#### Pelaajien toiminnot
+
+Pelaajat pelaavat toimintakortteja järjestyksessä alkaen saattueen kärjestä. Kun kaikille joukkoille on pelattu toiminto, aloitetaan uusi toimintakierros taas kärjestä. Tätä jatketaan kunnes kaikki joukot “siirtyvät sivuun”.
+
+Toiminta tehdään julistamalla toiminto ja pelaamalla sen hinnan verran kortteja kädestä. Nämä maksuna käytetyt kortit voivat olla mitä tahansa pelaajan kädestä. Laita pelatut kortit hylkypakkaan. Toiminta voi olla jokin perustoiminnoista, tai se voi olla jossakin pelattavista korteista kuvattu toiminta.
+
+Jos toiminnon hinta on vähintään kaksi, yhden maksukortin voi korvata nautintoainekortin käytöllä.
+
+Ensimmäisellä toimintakierroksella toiminnan perushinta on 1 kortti.
+
+Vaihtoehtona toiminnolle joukko voi nauttia jonkin kantamansa hyödykkeen (tupakkaa, viinaa tai kamaa). Tästä ei tarvitse maksaa, riittää että siirtää käytetyn hyödykkeen hylkypakkaan.
+
+Jos joukko ei jollain kierroksella tee toimintaa tai nautiskele, se pistää pillit pussiin päivän osalta eikä voi enää päivän aikana toimia. Se siirtyy sivuun väylältä, ja sen voi ohittaa minkä tahansa muun toiminnon yhteydessä. Siirrä merkiksi joukko hieman sivuun jonosta.
+
+Joukkojen perus- ja erikoistoiminnot on listattu kohdassa ....
+
+Toimintakortit on listattu kohdassa ...
+
+### Vastarinnan toiminto
+
+Jos vastarintakortti ei ole vielä toiminut tämän päivän aikana, ratkaistaan sen toiminto, joka on yleensä se paras puolustus.
+
+Kun vastarinnan toiminto on ratkaistu, käännetään kortti sivuttain muistutukseksi, että tämän päivän aikana sen toiminto on jo tehty.
+Jos vastarintaa ei ole, tarkistetaan eteneekö saattue ja käännetään tarvittaessa näkyviin seuraava vastarintakortti.
+Tämän jälkeen aloitetaan uusi toimintakierros saattueen kärjestä.
+
+## Yö: selviytyminen
+
+Yövuorolla käännetään yöhyökkäyspakasta päällimmäinen kortti ja tehdään siinä mainitus asiat. Yleensä yöhyökkäyskortissa on suora hyökkäys, mutta toisinaan siinä on vain yöunien häirintää.
+
+Jos kyse on suorasta hyökkäyksestä, ratkaistaan sen vaikutukset hyökkäyksen kohteeseen.
+
+Hyökkäyksen kohde ei voi nukkua. Jos se oli valmiudessa, se menettää valmiustilan ja lasketaan aamulla ei-nukkuneeksi.
+Hyökkäyksen kohteen viereiset joukot edessä ja takana eivät myöskään voi nukkua. Ne voivat olla valmiudessa ja välttää lisäväsymisen. Hyvät unet -kortilla välttää tämän vaikutuksen.
+
+## Aamu: Valmistautuminen uuteen päivään
+
+Käydään läpi seuraavat vaiheet:
+
+### Aamiainen
+
+Aamiainen on päivän tärkein ateria. Vähennä jokaista joukkoa kohden yksi yksikkö ruokaa varastosta. 
+
+Jos ruokaa on, sitä on pakko syödä. Jos ruokaa ei  ole tarpeeksi kaikille joukoille, pelaaja voi päättää mille hänen joukoistaan ruoka annetaan.
+Joukot, joille ei ole ruokaa, eivät ole voinut nukkua.
+
+### Palautuminen
+
+Sitten päivitetään vireystila. Oliko joukko varuillaan yöllä, nukkuiko se vai pysyikö se hereillä?
+
+Kännissä, kamoissa tai nälkäisenä ei nukuta.
+
+Pääsääntöisesti, jos joukko nukkui yön aikana, siltä poistetaan yksi väsymysmerkki. Jos se ei nukkunut, sille lisätään yksi. Jos väsymysmerkkejä on nyt 5, joukko poistetaan pelistä.
+
+Varuillaan oleville joukoille ei lisätä väsymysmerkkiä, mikäli niillä on jo yksi väsymysmerkki.
+
+Jos joukko on kännissä tai kamoissa, ja sillä on vielä lisää samaa onnetonta nautintoainetta, se käyttää aamulla nautintoainekortin ja jatkaa vaikutuksen alaisena. Poikkeuksena umpituubassa eli kahden väsymysmerkin kännissä olevat joukot, jotka eivät enää jaksa tenuttaa, vaan vaihtavat kännimerkin kolmanteen väsymysmerkkiin.
+
+Tarkemmat palautumissäännöt kohdassa ...
+
+### Hyvät unet
+
+Jotkin ryöstelykortit tarjoavat joukolle hyvät unet. Tällöin joukko voi poistaa kakdi väsymysmerkkiä. Tämä on ainoa sallittu tapa poistaa joukolta viimeinen väsymysmerkki!
+
+Hyvät unet saa myös vaikka naapurijoukkoa vastaan hyökätään. Hyvät unet menetetään, jos itse joukko joutuu yöhyökkäyksen kohteeksi.
