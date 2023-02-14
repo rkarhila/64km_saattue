@@ -231,3 +231,25 @@ Tarkemmat palautumissäännöt kohdassa ...
 Jotkin ryöstelykortit tarjoavat joukolle hyvät unet. Tällöin joukko voi poistaa kakdi väsymysmerkkiä. Tämä on ainoa sallittu tapa poistaa joukolta viimeinen väsymysmerkki!
 
 Hyvät unet saa myös vaikka naapurijoukkoa vastaan hyökätään. Hyvät unet menetetään, jos itse joukko joutuu yöhyökkäyksen kohteeksi.
+
+# Pisteiden keräys ja pelin loppu
+
+Peli voi loppua kolmella tavalla:
+
+1. Saattueessa on jäljellä enää yhden pelaajan joukkoja. Tämä on joukkuepeli, yksin ei saa jäädä pelaamaan. Hävisitte kaikki. Vähiten hävisi se, jonka joukko on jäljellä.
+
+2. Saattue selviää juhlapäivään, mutta ei pääse perille. Bonuksia ei jaeta, palkkarahat jäävät byrokratian rattaisiin joten palkat on maksettava ryöstökassasta. Hävisitte kaikki, mutta vähiten hävisi se pelaaja, jolle jää eniten rahaa.
+
+3. Saattue pääsee perille pääkaupungin lähelle ennen suurta juhlapäivää. Voititte pelin! Jaetaan bonukset, maksestaan palkat ja lasketaan rahat:  Todellinen voittaja on se pelaaja, jolle jää eniten rahaa. Rahaa siis pitää jäädä. Miinuksilla oleva ei voi voittaa. Onneksi olkoon voittajalle! Muut jäävät vaatimaan uusintapeliä. Heille onnea seuraavaan erään!
+
+## Rahan kerääminen pelin aikana
+
+Toiminnoissa ilmoitetaan 
+
+## Juhlapäiväksi perille päässeiden palkka ja bonukset
+
+Jokainen pelaaja, jonka joukkoja on selvinnyt perille asti saaa yhteensä 5 tR käytettäväksi joukkojen palkkoihin. (Vaihtorahat omaan taskuun.) 
+
+## Hirmutekijät
+
+Eniten hirmutekoja tehnyt joukko korotetaan lopussa kultaisen käytöksen kunniakaartilaisiksi. Palkkio 6 tR. Tasatilanteessa palkkio jaetaan ja jakojäännös jää pankille.
