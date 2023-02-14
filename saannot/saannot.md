@@ -244,7 +244,11 @@ Peli voi loppua kolmella tavalla:
 
 ## Rahan kerääminen pelin aikana
 
-Toiminnoissa ilmoitetaan 
+Joissakin toiminnoissa ilmoitetaan niiden suorittamisesta saatava rahamäärä.
+
+* Pyssyttely: 1 Tr. Ammusvarastojen täydentäminen mahdollistaa välistävetämisen.
+* Rynnäköinti: 2 Tr. Jalkaväki saa bonukset etulinjassa olemisesta.
+* Korjaaminen: 1 Tr. Uusien osien hankkiminen käytettyjen tilalle mahdollistaa välistävetämisen.
 
 ## Juhlapäiväksi perille päässeiden palkka ja bonukset
 
