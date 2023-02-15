@@ -46,6 +46,14 @@ Kun kaikki on ryöstetty ja saattueen keskellä ei ole vahingoittuneita yksiköi
 
 # Pöydän asettelu ja pelin aloittaminen
 
+## Rahat
+
+Laittakaa rahat yhteiskassaan kaikkien helposti saataville. Tästä pinosta pelaajat siirtävät rahaa omiin pankkeihinsa pelin aikana. Jolla on lopussa eniten rahaa omassa pankissaan voittaa, jos voittajaa tällä pelikerralla oli.
+
+Rahoja on 20 x 1, 20 x 3, 20 x 5, 20 x 10. Vaihtakaa oman pankin rahoja isompiin kun pienemmät loppuvat yhteiskassasta. 
+
+Rahasummat saattavat näytttää pieniltä, mutta eivät ole: Hyperinflaation takia raha lasketaan triljoonissa rahayksiköissä (tR).
+
 ## Korttipakat
 
 ### Alueet & vastarinta
@@ -256,7 +264,9 @@ Myös etenemisestä palkitaan:
 
 * Aina edetessä jonon ensimmäisen joukon komentaja saa 2 Tr.
 
-Joissain ryöstelykorteissa ilmoitetaan heti lunastettavan käteisen määrä (💰) - Tämä on komentajan osuus ja sen saa heti pelaajan pankkin. Joissain ilmoitetaan ryöstettävästä tavarasta (📦) - Nämä rahat sijoitetaan joukon kortille. Ne siirretään pelin lopussa pelaajan pankkiin, jos joukko ei ole tuhoutunut. Tavararahoja voi olla korkeintaan 3. Niitä ei voi siirtää joukolta mihinkään ja ne on pakko ottaa ryöstötoiminnan aikana. Jos joukolla ei ole tilaa kaikille ryöstössä tuleville tavararahoille, täytyy vanhoja rahoja korvata uusilla. Esimerkiksi: Joukolla on 2 kpl 3 tR. rahoja. Joukko ryöstää koulun, ja saa saaliikseen wc-kalusteita (2 x 1 tR.). Joukon on pakko ottaa nämä rahat. Koska molemmille rahoille ei ole tilaa, täytyy pelaajan korvata yksi arvokkaampi raha arvottomammalla. Sellainen on ihminen: Innostuu uusista asioista, vaikka vanhat olisivat parempia.
+Joissain ryöstelykorteissa ilmoitetaan heti lunastettavan käteisen määrä (💰) - Tämä on komentajan osuus ja sen saa heti pelaajan pankkin.
+
+Joissain ilmoitetaan ryöstettävästä tavarasta (📦) - Nämä rahat sijoitetaan joukon kortille. Ne siirretään pelin lopussa pelaajan pankkiin, jos joukko ei ole tuhoutunut. Tavararahoja voi olla korkeintaan 3. Niitä ei voi siirtää joukolta mihinkään ja ne on pakko ottaa ryöstötoiminnan aikana. Jos joukolla ei ole tilaa kaikille ryöstössä tuleville tavararahoille, täytyy vanhoja rahoja korvata uusilla. Esimerkiksi: Joukolla on 2 kpl 3 tR. rahoja. Joukko ryöstää koulun, ja saa saaliikseen wc-kalusteita (2 x 1 tR.). Joukon on pakko ottaa nämä rahat. Koska molemmille rahoille ei ole tilaa, täytyy pelaajan korvata yksi arvokkaampi raha arvottomammalla. Sellainen on ihminen: Innostuu uusista asioista, vaikka vanhat olisivat parempia.
 
 ## Juhlapäiväksi perille päässeiden palkka ja bonukset
 
