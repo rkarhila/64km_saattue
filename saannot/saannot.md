@@ -246,9 +246,17 @@ Peli voi loppua kolmella tavalla:
 
 Joissakin toiminnoissa ilmoitetaan niiden suorittamisesta saatava rahamäärä.
 
-* Pyssyttely: 1 Tr. Ammusvarastojen täydentäminen mahdollistaa välistävetämisen.
-* Rynnäköinti: 2 Tr. Jalkaväki saa bonukset etulinjassa olemisesta.
-* Korjaaminen: 1 Tr. Uusien osien hankkiminen käytettyjen tilalle mahdollistaa välistävetämisen.
+Aina kun varastoja täydennetään, tulee mahdollisuus välistävetoon. Eturintamassa taistelusta ja etenemisestä maksetaan lisäpalkkaa, josta osan voi kavaltaa.
+
+* Pyssyttely: 1 Tr.
+* Rynnäköinti: 2 Tr. 
+* Korjaaminen: 1 Tr.
+
+Myös etenemisestä palkitaan:
+
+* Aina edetessä jonon ensimmäisen joukon komentaja saa 2 Tr.
+
+Joissain ryöstelykorteissa ilmoitetaan heti lunastettavan käteisen määrä (💰) - Tämä on komentajan osuus ja sen saa heti pelaajan pankkin. Joissain ilmoitetaan ryöstettävästä tavarasta (📦) - Nämä rahat sijoitetaan joukon kortille. Ne siirretään pelin lopussa pelaajan pankkiin, jos joukko ei ole tuhoutunut. Tavararahoja voi olla korkeintaan 3. Niitä ei voi siirtää joukolta mihinkään ja ne on pakko ottaa ryöstötoiminnan aikana. Jos joukolla ei ole tilaa kaikille ryöstössä tuleville tavararahoille, täytyy vanhoja rahoja korvata uusilla. Esimerkiksi: Joukolla on 2 kpl 3 tR. rahoja. Joukko ryöstää koulun, ja saa saaliikseen wc-kalusteita (2 x 1 tR.). Joukon on pakko ottaa nämä rahat. Koska molemmille rahoille ei ole tilaa, täytyy pelaajan korvata yksi arvokkaampi raha arvottomammalla. Sellainen on ihminen: Innostuu uusista asioista, vaikka vanhat olisivat parempia.
 
 ## Juhlapäiväksi perille päässeiden palkka ja bonukset
 
