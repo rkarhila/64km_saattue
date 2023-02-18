@@ -266,6 +266,14 @@ Myös etenemisestä palkitaan:
 
 Joissain ryöstelykorteissa ilmoitetaan heti lunastettavan käteisen määrä (💰) - Tämä on komentajan osuus ja sen saa heti pelaajan pankkin.
 
+Ryöstettävien tavroiden arvo:
+
+* Wc-kalusteeet: 1
+* 
+* Kodin elektroniikka: 3
+* Arvotavara: Taideteokset, uslonnolliset reliikit
+
+
 Joissain ilmoitetaan ryöstettävästä tavarasta (📦) - Nämä rahat sijoitetaan joukon kortille. Ne siirretään pelin lopussa pelaajan pankkiin, jos joukko ei ole tuhoutunut. Tavararahoja voi olla korkeintaan 3. Niitä ei voi siirtää joukolta mihinkään ja ne on pakko ottaa ryöstötoiminnan aikana. Jos joukolla ei ole tilaa kaikille ryöstössä tuleville tavararahoille, täytyy vanhoja rahoja korvata uusilla. Esimerkiksi: Joukolla on 2 kpl 3 tR. rahoja. Joukko ryöstää koulun, ja saa saaliikseen wc-kalusteita (2 x 1 tR.). Joukon on pakko ottaa nämä rahat. Koska molemmille rahoille ei ole tilaa, täytyy pelaajan korvata yksi arvokkaampi raha arvottomammalla. Sellainen on ihminen: Innostuu uusista asioista, vaikka vanhat olisivat parempia.
 
 ## Juhlapäiväksi perille päässeiden palkka ja bonukset
