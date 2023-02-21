@@ -402,7 +402,7 @@ Poista hajonnut silta -kortti pelistä. Joukon on oltava hajonneen sillan vieres
 
 ## Joukkojen kunto
 
-### Vireystila
+## Vireystila
 
 Väsyminen merkitään asettamalla väsymysmerkkejä jonossa olevan joukkokortin tai miniatyyrin päälle. Pelin alussa kaikilla joukoilla on yksi väsymysmerkki, jos ei toisin mainita. 
 
@@ -412,7 +412,7 @@ Jokainen väsymysmerkki lisää yhden kortin minkä tahansa toiminnon hintaan.
 
 Tila päivitetään aina aamuisin. Katso prosessi kohdasta ... sivulta ....
 
-### Päihtyminen
+## Päihtyminen
 
 Jos selvin päin oleva joukko saa viinaa, sille asetetaan “kännissä”-merkki.
 
@@ -422,25 +422,32 @@ Kännissä-merkki vaikuttaa vastustajien hyökkäyksiin ja ryöstelykorttien vai
 
 Kamoissa-merkkii vaikuttaa hieman eri tavalla: Kamoissa olevan joukon päivän jokaisen toiminnon hinta on 2, toimintakierroksen perushinnasta huolimatta.
 . 
-7.2.3 Palautuminen
-Jos joukko oli varuillaan yön aikana, kukin torkkuu pienen hetken ja joukon tila pysyy samana. Poikkeuksena, jos joukolla ei ollut yhtään väsymystä, se saa yhden väsymysmerkin.
+## Palautuminen
 
-Jos joukko nukkui yön aikana, silta poistetaan yksi väsymysmerkki, kuitenkin niin, että viimeistä väsymysmerkkiä ei poisteta. Muutamat ryöstökortit sisältävät majapaikan, joka mahdollistaa tehokkaamman palautumisen, katso kohta 5.3.3.
+Jos joukko oli varuillaan yön aikana, kukin torkkuu pienen hetken ja joukon tila pysyy samana.
+
+Jos joukko nukkui yön aikana, siltä poistetaan yksi väsymysmerkki, kuitenkin niin, että viimeistä väsymysmerkkiä ei poisteta. Muutamat ryöstökortit sisältävät majapaikan, joka mahdollistaa viimeisen väsymysmerkin poistamisen, katso kohta ...
 
 Jos joukko ei nukkunut yön aikana, sille laitetaan yksi väsymysmerkki lisää.
 
-Jos joukko oli kännissä, tarkista onko sillä vielä viinaa ja korkeintaan kaksi väsymysmerkkiä. Jos molemmat pätevät, joukko jatkaa tenuttamista. Heitä viinakortti poistopakkaan ja lisää yksi väsymysmerkki.
+Jos joukko oli kännissä, tarkista onko sillä vielä viinaa. Jos on, joukko jatkaa tenuttamista. Heitä viinakortti poistopakkaan ja lisää yksi väsymysmerkki.
 
-Jos kännissä olevalla joukolla ei ole viinaa, tai sillä on jo 2 väsymysmerkkiä, on aika kärsiä dagenefeterit: Poista “kännissä” merkki ja lisää yksi väsymysmerkki.
+Jos kännissä olevalla joukolla ei ole viinaa, on aika kärsiä dagenefeterit: Korvaa “kännissä” merkki väsymysmerkillä.
 
 Jos kamoissa olevalla joukolla on kamaa, heitä kamakortti poistopakkaan ja pidä joukon tila. Jos kamaa ei ole, korvaa “kamoissa” merkki kolmella väsymysmerkillä.
 
 Vastustajakin palautuu. Jos pöydässä on vastarinakortti, suorista se muistuksena siitä, että se toimii ensimmäisen toimintakierroksen lopussa.
-7.2.4 Ja vielä pari mahdollista olotilaa: Valmiudessa, vahingoittunut
-Pahimpaan varautunut
+
+## Ja vielä pari mahdollista olotilaa: 
+
+### Valmiudessa
+
 Selvin päin oleva joukko voi käyttää toimimmon varautuakseen pahimpaan. Tällä on kaksi vaikutusta: (1) Yön aikana joukkue ei palaudu mutta ei myöskään väsy enempää, lisäksi (2) moni hyökkäyskortti vaikuttaa eri tavalla valmiustilassa oleviin joukkoihin. (Esim. “Valmiustilassa oleva ehjä joukko vahingoittuu; Muut tuhoutuvat.”)
+
 Valmiustila merkitään kääntämällä joukon kortti 45 asteen kulmaan menosuuntaan nähden.
-Ehjä / Vahingoittunut / tuhoutunut
+
+### Ehjä / Vahingoittunut / tuhoutunut
+
 Ehjä joukko toimii normaalisti. Pelin alussa kaikki joukot ovat ehjiä, jos ei jokin kortti toisin määrää.
 
 Vahingoittunut joukko ei voi hyökätä eikä liikkua. Se voi käydä vaihtokauppaa ja suorittaa korjauksia, tai hylätä ajoneuvot. Jos saattueen edessä tai keskellä on vahingoittunut joukko, saattue ei voi edetä ennen kuin vahingoittunut joukko on korjattu tai kaikki ehjät joukot ovat ohittaneet sen. Korjaus tapahtuu korjaus-toiminnolla. Sen voi pelata viereinen joukko tai vahingoittunut joukko itse. 
@@ -448,83 +455,138 @@ Vahingoittuminen merkitään kääntämällä joukon kortti 90 asteen kulmaan me
 
 Tuhoutunut joukko käännetään ympäri. Sen viereinen joukko voi käyttää “raivaa tie” toiminnon poistaakseen tuhoutuneet joukon pelistä. Muussa tapauksessa kaikkien perässä tulevien on ohitettava se, jotta saattue voi jatkaa matkaa. Tuhoutuneen joukon edessä olevat joukko ei voi käyttää “anna tietä”-toimintoa.
 
-7.3 Joukkojen kokemustaso
+## Joukkojen kokemustaso
+
 Osa joukoista on toisia kokeneempia. Pelin lopussa täytyy kunkin pelaajan maksaa palkat kaikille perille selvinneille yksiköilleen. Kokeneemmille on maksettava enemmän.
 
-7.3.1 Märkäkorvat 
-- Sotilaalliseen erikoisoperaatioon lähetetään vain ammattisotilaita. Kokemattomia varusmiehiä ei sinne komenneta. Ja jos komennetaan, samoilla päivärahoilla saavat pärjätä, vaikka palkkarahat olikin varattu budjettiin.
-- Erikoissääntö: Märkäkorvilla ei ole liiaksi aloitekykyä. Jos märkäkorvajoukko tekee eri toiminnon kuin edellä ajava, sen toiminnon hinta on +1. (Koskee myös tilannetta jossa märkäkorva on kärjessä.)
-- Pelin loppuun asti selvinneelle märkäkorvajoukolle ei tarvitse maksaa. Eihän heitä ole tähän hommaan palkattu.
+### Märkäkorvat 
+
+* Sotilaalliseen erikoisoperaatioon lähetetään vain ammattisotilaita. Kokemattomia varusmiehiä ei sinne komenneta. Ja jos komennetaan, samoilla päivärahoilla saavat pärjätä, vaikka palkkarahat olikin varattu budjettiin.
+* Erikoissääntö: Märkäkorvilla ei ole liiaksi aloitekykyä. Jos märkäkorvajoukko tekee eri toiminnon kuin edellä ajava, sen toiminnon hinta on +1. (Koskee myös tilannetta jossa märkäkorva on kärjessä.)
+* Pelin loppuun asti selvinneelle märkäkorvajoukolle ei tarvitse maksaa. Eihän heitä ole tähän hommaan palkattu.
 
 Suunnitteluperiaate: n. 25% ryöstökorteista antaa märkäkorville enemmän rahaa kuin muille joukkotyypeille.
-7.3.2 perus jamppa isäm maam toivo
-- Hyvä sotilas ottaa sen, mikä ei ole liian lujasti kiinni, mutta muistaa maksaa kymmenyksensä sadanpäämiehelle
-- Pelin loppuun asti selvinneelle perus jamppa joukolle on maksettava joukkotyypin peruspalkka.
 
-7.3.3 arpinaama
-- Monessa grillissä kypsennetut sotilaat tietävät, miten taisteluista selvitään, miten ryöstösaalis kätketään komentajalta ja osaavat vieläpä vaatia palkkarahansa: Pelin loppuun asti selvinneelle arpinaamajoukolle on maksettava tuplapalkka
-- Arpinaamat osaavat tuhota: Arpinaama voi hyökätessään käyttää yhden ylimääräisen ammuksen tuplatakseen vahigon määrä. Laske tuplaus viimeisenä (esim. rynnäkköjoukot hyökkäävät kahdella ammuksella, vahinko on 3; mekanisoitu jalkaväki ohjaa tulta, joten vahinkoon lisätään 1; Hyökkääjä on arpinaama, ja päättää käyttää ylimääräisen ammuksen, joten koko vahinko on (3 +1) x 2 = 8.)
+### perus jamppa isäm maam toivo
+* Hyvä sotilas ottaa sen, mikä ei ole liian lujasti kiinni, mutta muistaa maksaa kymmenyksensä sadanpäämiehelle
+* Pelin loppuun asti selvinneelle perus jamppa joukolle on maksettava joukkotyypin peruspalkka.
+
+###  arpinaama
+* Monessa grillissä kypsennetut sotilaat tietävät, miten taisteluista selvitään, miten ryöstösaalis kätketään komentajalta ja osaavat vieläpä vaatia palkkarahansa: Pelin loppuun asti selvinneelle arpinaamajoukolle on maksettava tuplapalkka
+* Arpinaamat osaavat tuhota: Arpinaama voi hyökätessään käyttää yhden ylimääräisen ammuksen tuplatakseen vahigon määrä. Laske tuplaus viimeisenä (esim. rynnäkköjoukot hyökkäävät kahdella ammuksella, vahinko on 3; mekanisoitu jalkaväki ohjaa tulta, joten vahinkoon lisätään 1; Hyökkääjä on arpinaama, ja päättää käyttää ylimääräisen ammuksen, joten koko vahinko on (3 +1) x 2 = 8.)
 
 Suunnitteluperiaate: n. 25% ryöstökorteista tuo arpinaamoille vähemmän rahaa kuin muille joukoille.
 
-7.4 Varastot
+## Varastot
+
 Bensaa, ruokaa ja ammuksia seurataan pelaajatasolla. Joukot siis jakavat nämä hyödykkeet, ja ne ovat aina kaikkien pelaajan joukkojen käytettävissä. Vastapelaajat voivat myös ostaa näitä kaupankäynnillä miltä tahansa joukolta.
+
 Valtaosa varastoista on huoltojoukkojen matkassa. Jos huoltojoukot tuhoutuvat, pelaajalle jää vain menettää pelaaja kaikki huoltojoukkojen kantamat varastot, ja hänelle jää korkeintaan 5 yksikköä kutakin hyödykettä.
-7.5 Vastarinnan tuhoaminen
+
+
+## Vastarinnan tuhoaminen
+
 Jokaisessa vastarintakortissa on mainittu, kuinka paljon vahinkoa vastustaja kestää. Vahinkoa on kahta tyyppiä, kuten on ammuksiakin: Tykistövahinkoa ja rynnäkkövahinkoa. Vastarintakortissa voi olla myös maininta “mitä tahansa vahinkoa” - Tällöin kumpikin vahinkotyyppi kelpaa, ja tällöin vahinkoja voi myös sekoittaa.
+
 Vastarinnan tuhoamiseen riittää, että kortille tuotetaan pyssyttely- tai rynnäköintitoiminnoilla (tai erikoiskorteilla) näin monta vahinkoa kutakin vaadittua vahinkortyyppiä. Vahinko voidaan tuottaa eri kierroksilla tai jopa eri päivinä. Vastarinta ei siis korjaa itseään.
-7.6 Ryöstely
+
+## Ryöstely
+
 Kun vastarinta on nujerrettu, käännetään esille aluekortin määrittämä määtä ryöstelykortteja.
+
 Saattue ei etene, ennen kuin kaikki näkyvillä olevat kortit on ryöstetty.
+
 Ryöstely on jokaiselle joukkueelle perustoiminto. Ryöstelevä pelaaja valitsee ryöstelykohteista mieleisensä, ja kortin toiminta käydään läpi heti. Jos kortissa on mainittu jokin rahasumma, pelaaja ottaa kyseisen ryöstelykortin omaan ryöstelypinoonsa. Muussa tapauksessa noudatetaan kortin ohjeita, jonka jälkeen se poistetaan pelistä.
+
 Kun kaikki avoimet ryöstelykorit on pelata pöydältä, voi ryöstelyä edelleen jatkaa yksi kortti kerrallaan siihen asti, että saattue taas etenee.
-7.6.1 Vaisto käskee ryöstämään
-Jos pöydällä on käännettynä ryöstökortteja, mutta pelaaja haluaa joukon tekevän jotain muuta, täytyy joukin tehdä “ei ryöstelyä”-toiminta halutun toiminnon lisäksi. Kumpikin toiminto maksaa normaalin hinnan, eli pelaaja joutuu käyttämään kaksinkertaisen määrän kortteja.
-Jos joukko haluaa käyttää hyödykkeitä tai pistää pillit pussiin, on sen maksettava “ei ryöstelyä”-toiminnosta.
-Vain tupakaton Z-tilassa oleva joukko voi passata maksamatta ekstrahintaa.
-7.6.2 Jos ei voi ryöstää kaukaa, ryöstetään läheltä
-Jos ajoneuvot ovat huonossa kunnossa, ei ole varaa nirsoilla vaan ryöstetään mitä läheltä löytyy. Jos hajonnut joukko ryöstää, ja pöydällä on auki useampia ryöstökorttivaihtoehtoja, hajonneen joukon pelaaja ei saa itse valita ryöstökohdetta, vaan sen valitsee vasemmalla puolella oleva pelaajaa.
-7.6.3 Kavereille ei jätetä
+
+### Jos ei voi ryöstää kaukaa, ryöstetään läheltä
+
+Jos ajoneuvot ovat huonossa kunnossa, ei ole varaa nirsoilla vaan ryöstetään mitä läheltä löytyy. Jos hajonnut joukko ryöstää, ja pöydällä on auki useampia ryöstökorttivaihtoehtoja, hajonneen joukon pelaaja ei saa itse valita ryöstökohdetta, vaan sen valitsee vasemmalla puolella oleva pelaajaa. Jos vaihtoehtoja on vain yksi, vedetään ryöstelypakasta toinen sen rinnalle, ja vasemmalla puolella oleva pelaaja päättää, kumpi ryöstetään.
+
+### Kavereille ei jätetä
+
 Mikäli ryöstettäviä kortteja on yhtä paljon tai enemmän kuin ei-vielä-passanneita, ei-z-tilassa olevia joukkoja saattueen perässä, on joukon pakko ryöstää.  Jos pelaajalla ei ole tarpeeksi kortteja ryöstötoimintoon, hänen on käytettävä ensin kaikki korttinsa ja sitten puuttuvien korttien tilalla valintansa mukaan bensaa, ruokaa tai ammuksia 1:1 puuttuvien korttien mukaan. Jos nämäkään eivät riitä, käytetään kaikki mitä on ja lisäksi joukko vahingoittuu, mutta suorittaa silti ryöstelyn.
-Passanneet ja Z-tilassa olevat joukot ovat vapautettuja tästä säännöstä.
-7.6.4 Lisäryöstöt
+
+Vain passanneet joukot ovat vapautettuja tästä säännöstä.
+
+### Lisäryöstöt
+
 Kun kaikki avoimet ryöstelykortit on ryöstetty, on vielä mahdollisuus jatkaa ryöstelyä. Tällöin ryöstötoiminnassa nostetaan viimeiseksi voitetun vastarinnan mukaisesta ryöstelypakasta kortti ja ratkaistaan se heti.
+
 Jos ryöstäjäjoukko on ehjiä arpinaamoja, nostetaan kaksi korttia ja arpinaama saa valita kumman ryöstää. Toinen menee hylkyyn.
+
 Jos ryöstäjä on märkäkorva tai hajonnut joukko, nostetaan kaksi korttia ja ryöstäjän vasemmalla puolella oleva pelaaja päättää, kumpi ryöstetään. Toinen menee hylkyyn.
-7.6.5 Ryöstelykorttien ominaisuuksia
+
+### Ryöstelykorttien ominaisuuksia
+
 (I) Viinakortti, kamakortti, tupakkaa
+
 Ota nautintoainepakoista löytöä vastaava kortti ja aseta se joukkosi statuslätkän viereen. Nautintoaineita voi nauttia, ja lisäksi viinalla voi käydä kauppaa.
+
 (II) Hyvät unet
+
 Tässä ryöstelykohteessa on kutsuvat sängyt ja peseytymismahdollisuus, ehkä minibaarikin. Joukko jää nukkumaan. Jätä tämä kortti joukkosi statuslätkän viereen muistuttamaan tästä. Ryöstäessään tämän kortin joukko (1)  pistää loppupäiväksi pillit pussiin ja (2) jos saattue etenee tämän päivän aikana, tämä joukko siirtyy saattueen viimeiseksi. Yön tapahtumia koskevat säännöt luvussa 5.3.2 sivulla 8.
+
 (III) Traktorin lainaaminen
-Maatiloilla on traktoreita, joita panssarijoukot ja mekanisoitu jalkaväki voivat ottaa luvatta käyttöön ja suorittaa “raivaa tie” toiminnon ryöstelyn yhteydessä.
-7.7 Nautintoaineet ja kaupankäynti
+
+Maatiloilla on traktoreita, joita voi ottaa luvatta käyttöön ja suorittaa “raivaa tie” toiminnon ryöstelyn yhteydessä.
+
+### Nautintoaineet ja kaupankäynti
+
 Joukot voivat löytää ryöstöretkillään nautintoaineita tai heillä on saattanut olla niitä ennestään mukana, ja toimintakortilla voi tällaisen piilon paljastaa.
+
 Kun tällainen ryöstö tai toiminta tapahtuu, aseta joukon statuslätkän viereen ainetta vastaava merkki (kortti tai nappula).
-7.7.1 Aineiden vaikutukset
+
+### Aineiden vaikutukset
+
 (I) Savukkeet
+
 Röökiä, spaddua, mahorkkaa, norttia. Nikotiinipitoisia kasvinosia teollisesti pakattuina. Syöpäriski kasvaa, mutta ei niin nopeasti, että se tämän pelin aikana näkyisi.
+
 Savukekortin voi käyttää selvin päin kerran päivässä.
+
 (II) Viina
+
 Brenkkua, lekaa, pontikkaa, tuulilasinpesunestettä, käsidesiä...  Viisasten juomaksi lasketaan mikä vain tarpeeksi vahva etanoliliuos. Mietoja tai satunnaisia huikkia ei tässä pelissä lasketa, vaan kun joukot ottavat, ne ottavat kunnolla.
+
 Viinakortin voi käyttää, kun on selvinpäin, ja silloin joukko menee känniin. Kännissä hölmöillään. Tässä pelissä se näkyy siinä, kuinka joukot käyttäytyvät ryöstäessään tai joutuessaan hyökkäyksen kohteeksi.
+
 (III) Kama
+
 Pervitiinit, höökipulverit, kasipallot, krokodiilit, erikeeperit ja tinnerit. Kun annostelu on kohdillaan ja riittävää, voi joukko esittää koko viikon baletin samoilla silmillä ilman väliaikaa tai järkeä.
+
 Kamakortin voi käyttää, kun on selvin päin tai kännissä. Kamoista menee kamoihin, ja se näkyy taas ryöstelyn ja hyökkäysten aikana. 
+
 Lisäksi virtaa riittää vaikka koordinaatio välillä pettäisikin: Joukon jokaisen toiminnon hinta on 2, riippumatta siitä, millä toimintakierroksella ollaan.
-7.7.2 Korttien käyttö
+
+
+### Korttien käyttö
+
 Joukolla pöydässä olevan nautintoaineen voi käyttää joko 
+
 (1) vaihtoehtona toiminnolle
+
 Tällöin joukon ei tarvitse passata mutta pelaajan ei tarvitse käyttää toimintakortteja kädestään. Esimerkkinä saattueen kärjessä oleva nääntynyt jalkaväki voi viettää päivän ensimmäisen toimintakierroksen seisoskellen hermosauhuilla, mahdollistaakseen pelaajan korttien riittämiseen toimintaan seuraavalla toimintakierroksella.
+
 (2)  yhtenä korttina osana toiminnon hintaa
+
 Pöydässä olevan nautintoainekortin voi käyttää myös yhtenä korttina toiminnon maksamiseen. Korkeintaan yksi kortti pöydästä toimintoa kohden. Tällöin myös kortin vaikutus joukkoon huomioidaan ennen varsinaisen toiminnon tekemsitä. Esimerkiksi siis tuo nääntynyt jalkaväki, voi tehdä 3 korttia maksavan toiminnon pelaamalla joukolta viinakortin ja pelaajan kädestä 2 toimintakorttia. 
+
 Kolmen väsymysmerkin joukkojen täytyy käyttää tupakkakortti yhtenä ekstrakorteistaan. Jos joukolla ei ole savukkeita, se ei voi toimia.
-7.7.3 Vaihtokauppa
+
+### Vaihtokauppa
+
 Jotkin toimintakortit mahdollistavat vaihtokaupan käymisen viinalla.
+
 Jos tulee mahdollisuus vaihtokauppaan, viinan voi vaihtaa 2 ammukseen tai 2 bensaan tai 2 ruokaan.
+
 Vaihtokauppakortin pelaaja valitsee, käydäänkö kauppaa ammuksista, bensasta vai ruoasta. Kohteelta ei kysytä mielipidettä, mutta viimeisiä yksikköjään bensaa, ruokaa tai ammuksia kohde ei luovuta. Kaupankäynnin uhrille on jäätävä kaupankäynnin jälkeen vähintään 3 yksikköä hyödykettä, johon nautintoaine vaihdetaan. Alennuksia ei köyhille anneta: Kauppa joko toteutuu täysihintaisena tai se ei toteudu.
-7.8 Saattueen eteneminen
+
+## Saattueen eteneminen
+
 Saattue etenee toimintakierroksen lopussa jos
+
 (1) Vastarinta on kukistettu
 (2) Kaikki ryöstelykortit on käsitelty
 (3) Saattueen edessä tai keskellä ei ole
@@ -532,8 +594,11 @@ a) vahingoittuneita joukkoja
 b) tuhoutuneita joukkoja,
 c) joukkoja joilla ei ole bensaa jäljellä tai
 d) hajonnutta siltaa.
+
 Jos kaikki nämä ehdot toteutuvat, siirrä kukistettu vastarintakortti kärjessä olevalle joukolle (Eniten etenemisiä kerännyt joukko saa lopussa roiman bonuksen!) ja laita sen paikalle uusi vastarintakortti pakasta.
+
 Mikäli seuraavaa vastarintakorttia ei ole tiedusteltu, ratkaistaan sen hyökkäys saman tien ennen pelaajien seuraavaa toimintavuoroa. Jos vastarintakortti nyt toimii, käännetään se sivuttain muistutukseksi, että tämän päivän aikana sen toiminto on jo tehty.
-7.8.1 Kaveri jätetään
-Jos kaikki vahingoittuneet joukot sekä joukot, joilla on bensa loppu, ovat saattueen lopussa, saattue jatkaa matkaa ilman näitä.
-Kaveri jätetään: Jos kaikki vahingoittuneet ja tuhotut joukot ovat saattueen viimeisinä, saattue jatkaa matkaa, ja perässä olevat vahingoittuneet ja tuhoutuneet joukot jäävät kyydistä. Ne poistetaan pelistä.
+
+### Kaveri jätetään
+
+Jos kaikki vahingoittuneet ja tuhotut joukot ovat saattueen viimeisinä, saattue jatkaa matkaa, ja perässä olevat vahingoittuneet ja tuhoutuneet joukot jäävät kyydistä. Ne poistetaan pelistä.
