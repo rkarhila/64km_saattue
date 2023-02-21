@@ -22,8 +22,8 @@ Tavoitteenne on päästä sinne ennen suurta kansallista juhlapäivää, jolloin
 Peli loppuu kun saattue on päässyt perille tai on juhlapäivän aika. 
 Silloin maksetaan palkat ja lasketaan jäljelle jääneet rahat, ja voittaja on se, joka on saanut kerättyä eniten fyrkkaa.
 
-Jotta peli olisi pelattava, 64 km sotilasajoneuvoja on pelkistetty 9-18 joukkokorttiin, jotka 
-esittävät kolmea erityyppistä kyvykkyyttä: Panssarijoukot, mekanisoitu jalkaväki ja huoltojoukot.
+Jotta peli olisi pelattava, 64 km sotilasajoneuvoja on pelkistetty kolmeen joukkokorttiin pelaajaa kohden. Kortit  
+kuvaavat kolmea erityyppistä joukkoa: Panssarijoukot, mekanisoitu jalkaväki ja huoltojoukot.
 
 Panssarijoukot koostuvat taistelupanssarivaunuista ja liikkuvasta tykistöstä: 
 Ne voivat siis hyökätä sekä lähelle että kauas. 
@@ -33,14 +33,14 @@ ja tuhoavat taistelualeen lähellä vielä majailevien siviilien mahdollisuuden 
 
 Kun maasto tien ympärillä upottaa raskaat ajoneuvot, tarvitaan jalkaväkeä edesauttamaan panssarien tehokasta toimintaa.
 Mekanisoitu jalkaväki raportoi tulevasta maastosta ja vihollisten sijainnista ja voi huolehtia selustasta tai osallistua rynnäkköön.
+
 Armeija marssii vatsallaan ja ajaa varaosillaan. 
-Huoltojoukoilla on bensaa, ammuksia ja korjaustarpeita muun saattueen tueksi. 
+Huoltojoukoilla on muonaa, bensaa, ammuksia ja korjaustarpeita muun saattueen tueksi. 
 
 Jokainen pelaaja johtaa kolmea joukkoa, yhtä kutakin näistä joukkotyypeistä. 
 Kaikkien pelaajien joukot muodostavat yhdessä jonon, jonka etupää taistelee eteenpäin ja takana ryöstellään, ohitellaan, juopotellaan jne.
 
 Jono kohtaa aina yhden vastarintakortin kerrallaan. 
-Jonon etummaiset voivat rynnäköidä, taempaa tykistö voi tukea. 
 Kun vastarinta on nujerrettu, vaihdetaan vastarintakortti ryöstelykortteihin. 
 Kun kaikki on ryöstetty ja saattueen keskellä ei ole vahingoittuneita yksiköitä, saattue etenee seuraavalle vastarintapesäkkeelle.
 
