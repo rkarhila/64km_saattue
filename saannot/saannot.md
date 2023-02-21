@@ -256,9 +256,9 @@ Joissakin toiminnoissa ilmoitetaan niiden suorittamisesta saatava rahamäärä.
 
 Aina kun varastoja täydennetään, tulee mahdollisuus välistävetoon. Eturintamassa taistelusta ja etenemisestä maksetaan lisäpalkkaa, josta osan voi kavaltaa.
 
-* Pyssyttely: 1 Tr.
-* Rynnäköinti: 2 Tr. 
-* Korjaaminen: 1 Tr.
+* Pyssyttely: 2 Tr.
+* Rynnäköinti: 3 Tr. 
+* Korjaaminen: 2 Tr.
 
 Myös etenemisestä palkitaan:
 
@@ -266,27 +266,27 @@ Myös etenemisestä palkitaan:
 
 Joissain ryöstelykorteissa ilmoitetaan heti lunastettavan käteisen määrä (💰) - Tämä on komentajan osuus ja sen saa heti pelaajan pankkin.
 
+Joissain ilmoitetaan ryöstettävästä tavarasta (📦) - Nämä rahat sijoitetaan joukon kortille. Ne siirretään pelin lopussa pelaajan pankkiin, jos joukko ei ole tuhoutunut. Tavararahoja voi olla korkeintaan 3. Niitä ei voi siirtää joukolta mihinkään ja ne on pakko ottaa ryöstötoiminnan aikana. Jos joukolla ei ole tilaa kaikille ryöstössä tuleville tavararahoille, täytyy vanhoja rahoja korvata uusilla. Esimerkiksi: Joukolla on 2 kpl 3 tR. rahoja. Joukko ryöstää koulun, ja saa saaliikseen wc-kalusteita (2 x 1 tR.). Joukon on pakko ottaa nämä rahat. Koska molemmille rahoille ei ole tilaa, täytyy pelaajan korvata yksi arvokkaampi raha arvottomammalla. Sellainen on ihminen: Innostuu uusista asioista, vaikka vanhat silloin tällöin olisi parempi.
+
 Ryöstettävien tavaroiden arvo:
 
-* Huonekalut, Wc-kalusteeet: 1
-* Työkalut, varaosat, kattokupari: 2 
-* Kodin elektroniikka: 3
-* Arvotavara: Taideteokset, uskonnolliset reliikit: 5
+* Wc-kalusteeet, huonekalut: 📦1
+* Työkalut, kodinkoneet, varaosat, kupariputket: 📦3 
+* Kodin viihde-elektroniikka, taideteokset, keräilyesineet, uskonnolliset reliikit: 📦5
 
 Lunnaat ja lahjukset:
 
-* Tavalliset ihmiset 1
-* Paikallinen merkkihenkilö 2
-* Kriittisen infrastruktuurin huoltohenkilökunta 3
-* Iskelmälaulaja, radiojuontaja, huumekauppaan sekaantunut fitness-malli, kansallisen tason poliitikko 5
+* Tavalliset ihmiset 💰1
+* Paikallinen merkkihenkilö 💰2
+* Kriittisen infrastruktuurin huoltohenkilökunta, iskelmälaulaja, radiojuontaja, kohudosentti, huumekauppaan sekaantunut fitness-malli: 💰3
 
 Muu käteinen:
 
-* Henkilökunnan kahvikassa: 1
-* Kioskin kassa: 2
-* Kaupan kassa: 3
+* Henkilökunnan kahvikassa: 💰1
+* Kioskin kassa: 💰2
+* Kaupan kassa: 💰3
 
-Joissain ilmoitetaan ryöstettävästä tavarasta (📦) - Nämä rahat sijoitetaan joukon kortille. Ne siirretään pelin lopussa pelaajan pankkiin, jos joukko ei ole tuhoutunut. Tavararahoja voi olla korkeintaan 3. Niitä ei voi siirtää joukolta mihinkään ja ne on pakko ottaa ryöstötoiminnan aikana. Jos joukolla ei ole tilaa kaikille ryöstössä tuleville tavararahoille, täytyy vanhoja rahoja korvata uusilla. Esimerkiksi: Joukolla on 2 kpl 3 tR. rahoja. Joukko ryöstää koulun, ja saa saaliikseen wc-kalusteita (2 x 1 tR.). Joukon on pakko ottaa nämä rahat. Koska molemmille rahoille ei ole tilaa, täytyy pelaajan korvata yksi arvokkaampi raha arvottomammalla. Sellainen on ihminen: Innostuu uusista asioista, vaikka vanhat silloin tällöin olisi parempi.
+_Tässä voi huomata, että tavaroilla on enemmän arvoa kuin käteisellä. Onko niin tai ei oikeassa maailmassa, tässä pelissä arvo on korkeampi riskin takia: Tavaroiden arvo on realisoitavissa vasta pelin lopussa, ja silloinkin vain jos joukko ei ole tuhoutunut!_
 
 ## Juhlapäiväksi perille päässeiden palkka ja bonukset
 
