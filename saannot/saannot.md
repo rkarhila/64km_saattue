@@ -3,7 +3,7 @@
 
 ### Anteeksipyyntö
 
-Käännän kauheudet vitsiksi. Jos kysyt, miksi, vastaan: se on veitseni. 
+Tämän pelin aiheet ovat ikäviä, mutta peli tämä kuitenkin on.
 Jos sinulla ei ole tätä peliä pelatessasi hauskaa, vika on minussa, pelisuunnittelijassa. 
 Jos sinulla on pelkästään hauskaa, vika on sinussa. 
 
