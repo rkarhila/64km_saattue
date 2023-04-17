@@ -110,6 +110,16 @@ Sen jälkeen kukin laittaa yhden tai kaksi joukkoa kerrallaan joko jonon eteen t
 Vaihtakaa suuntaa aina kun on tehty kokonainen kierros 
 -> pelaajilla A,B,C ja D järjestys olisi siis ABCD DCBA ABCD.
 
+### Joukkokortti:
+
+Sisältää paikat:
+
+- Hirmuteot
+- Ryöstösaalis #1
+- Ryöstösaalis #2
+- Ryöstösaalis #3
+- Väsymys / Päihtymys / huumaus
+
 ### Statuslätkät ja savukkeita
 
 Ottakaa statuslätkä jokaiselle pelaajalle. 
@@ -152,9 +162,9 @@ Nyt voitte aloittaa pelin!
 
 # Kierros
 
-Yksi kierros on yksi päivä. 
+Yksi pelikierros on yksi päivä.
 
-Päivällä nostetaan kortit ja tehdään toimintoja kierroksittain. Jokainen joukko toimii vuorollaan, alkaen saattueen kärjestä.  Kun on päästy saattueen loppuun, aloitetaan uusi toimintakierros taas kärjestä. Jatketaan kunnes mikään joukko ei enää voi tai halua toimia.
+Aamulla nostetaan kortit ja tehdään toimintoja kolmessa toimintakierroksessa. Jokainen joukko toimii vuorollaan, alkaen saattueen kärjestä.  Kun on päästy saattueen loppuun, aloitetaan uusi toimintakierros taas kärjestä. Jatketaan kunnes mikään joukko ei enää voi tai halua toimia.
 
 Yöllä vihollinen hyökkää: Vedetään yöhyökkäyskortteja ja katsotaan niiden aiheuttamat vahingot.
 
@@ -166,9 +176,9 @@ Aamulla tarkistetaan ja päivitetään jokaisen joukon tila: Väsymys, ruoka, jn
 
 Kukin pelaaja nostaa korttinsa. Kukin pelaaja ottaa niin neljä (4) yhteispakasta. 
 
-Jos kortteja on kädessä nyt enemmän kuin 9, pyydä valitsemaasi vierustoveria nappaamaan kädestäsi sokkona ylimenevät kortit, näyttämään muille ja asettamaan poistopakkaan.
+Jos pelaajalla on yli 9 korttia, on hänen laitettava ylimääräiset kortit poistopakkaan. 
 
-Nyt pelaaja nostaa vielä yhden (1) kortin omasta toimintapakastaan. 
+Pelaaja valitsee nyt yhden (1) kortin omasta toimintapakastaan. 
 
 Oman toimintapakan kortit on etukäteen valittu isommasta toimintakorttikokoelmasta. Oma toimintapakka on myös tapa laskea kierroksia. Peli loppuu kun pakasta ei voi enää vetää kortteja.
 
@@ -194,20 +204,19 @@ Toimintakortit on listattu kohdassa ...
 
 ### Vastarinnan toiminto
 
-Jos vastarintakortti ei ole vielä toiminut tämän päivän aikana, ratkaistaan sen toiminto, joka on yleensä se paras puolustus.
+Kun pelaajien toiminnot sekä saattueen järjestyksen vaihdokset on ratkaistu, käydään läpi vastarinnan toiminto.
 
-Kun vastarinnan toiminto on ratkaistu, käännetään kortti sivuttain muistutukseksi, että tämän päivän aikana sen toiminto on jo tehty.
-Jos vastarintaa ei ole, tarkistetaan eteneekö saattue ja käännetään tarvittaessa näkyviin seuraava vastarintakortti.
+### Eteneminen
+
+Jos vastarintaa ei ole, eikä saattueen edessä tai keskellä ole vahingoittuneita tai tuhoutuneita joukkoja, saattue etenee ja käännetään tarvittaessa näkyviin seuraava vastarintakortti.
+
 Tämän jälkeen aloitetaan uusi toimintakierros saattueen kärjestä.
 
 ## Yö: selviytyminen
 
-Yövuorolla käännetään yöhyökkäyspakasta päällimmäinen kortti ja tehdään siinä mainitus asiat. Yleensä yöhyökkäyskortissa on suora hyökkäys, mutta toisinaan siinä on vain yöunien häirintää.
+Yövuorolla käännetään yöhyökkäyspakasta päällimmäinen kortti ja tehdään siinä mainitut asiat. Yöhyökkäyskortilla on aina yksi tai useampi kohde. Hyökkäyksen kohde ei voi nukkua. Jos se oli valmiudessa, valmiustila otetaan nyt pois.
 
-Jos kyse on suorasta hyökkäyksestä, ratkaistaan sen vaikutukset hyökkäyksen kohteeseen.
-
-Hyökkäyksen kohde ei voi nukkua. Jos se oli valmiudessa, se menettää valmiustilan ja lasketaan aamulla ei-nukkuneeksi.
-Hyökkäyksen kohteen viereiset joukot edessä ja takana eivät myöskään voi nukkua. Ne voivat olla valmiudessa ja välttää lisäväsymisen. Hyvät unet -kortilla välttää tämän vaikutuksen.
+Hyökkäyksen kohteen viereiset joukot edessä ja takana eivät myöskään voi nukkua, mutta ne voivat olla valmiudessa ja välttää lisäväsymisen. Hyvät unet -kortilla välttää tämän vaikutuksen.
 
 ## Aamu: Valmistautuminen uuteen päivään
 
@@ -236,11 +245,11 @@ Tarkemmat palautumissäännöt kohdassa ...
 
 ### Hyvät unet
 
-Jotkin ryöstelykortit tarjoavat joukolle hyvät unet. Tällöin joukko voi poistaa kakdi väsymysmerkkiä. Tämä on ainoa sallittu tapa poistaa joukolta viimeinen väsymysmerkki!
+Jotkin ryöstelykortit tarjoavat joukolle hyvät unet. Tällöin joukko voi poistaa kaksi väsymysmerkkiä. Tämä on ainoa sallittu tapa poistaa joukolta viimeinen väsymysmerkki!
 
 Hyvät unet saa myös vaikka naapurijoukkoa vastaan hyökätään. Hyvät unet menetetään, jos itse joukko joutuu yöhyökkäyksen kohteeksi.
 
-# Pisteiden keräys ja pelin loppu
+# Pisteiden kerääminen ja pelin loppu
 
 Peli voi loppua kolmella tavalla:
 
@@ -256,8 +265,8 @@ Joissakin toiminnoissa ilmoitetaan niiden suorittamisesta saatava rahamäärä.
 
 Aina kun varastoja täydennetään, tulee mahdollisuus välistävetoon. Eturintamassa taistelusta ja etenemisestä maksetaan lisäpalkkaa, josta osan voi kavaltaa.
 
-* Pyssyttely: 2 Tr.
-* Rynnäköinti: 3 Tr. 
+* Pyssyttely: 1 Tr.
+* Rynnäköinti: 2 Tr. 
 * Korjaaminen: 2 Tr.
 
 Myös etenemisestä palkitaan:
@@ -446,14 +455,27 @@ Selvin päin oleva joukko voi käyttää toimimmon varautuakseen pahimpaan. Täl
 
 Valmiustila merkitään kääntämällä joukon kortti 45 asteen kulmaan menosuuntaan nähden.
 
-### Ehjä / Vahingoittunut / tuhoutunut
+### Vahingoittuminen
 
-Ehjä joukko toimii normaalisti. Pelin alussa kaikki joukot ovat ehjiä, jos ei jokin kortti toisin määrää.
+Pelin alussa, jos ei jokin kortti toisin määrää, kaikki joukot ovat täydessä kunnossa ja niillä on 3 ruutua ryöstösaaliin kuljetukseen.
 
-Vahingoittunut joukko ei voi hyökätä eikä liikkua. Se voi käydä vaihtokauppaa ja suorittaa korjauksia, tai hylätä ajoneuvot. Jos saattueen edessä tai keskellä on vahingoittunut joukko, saattue ei voi edetä ennen kuin vahingoittunut joukko on korjattu tai kaikki ehjät joukot ovat ohittaneet sen. Korjaus tapahtuu korjaus-toiminnolla. Sen voi pelata viereinen joukko tai vahingoittunut joukko itse. 
-Vahingoittuminen merkitään kääntämällä joukon kortti 90 asteen kulmaan menosuuntaan nähden.
+Kun joukko vahingoittuu, sen kuljetuskapasiteetti pienenee. Merkitse vapaavalintainen kuljetuskapasiteettiruutu vahingoittuneeksi (❌). Jos ruudussa oli ryöstösaalista, se poistetaan pelistä. Kuljetuskapasiteetin väheneminen yhteen tai kahteen ruutuun ei vaikuta joukon kyvykkyyteen toimia.
 
-Tuhoutunut joukko käännetään ympäri. Sen viereinen joukko voi käyttää “raivaa tie” toiminnon poistaakseen tuhoutuneet joukon pelistä. Muussa tapauksessa kaikkien perässä tulevien on ohitettava se, jotta saattue voi jatkaa matkaa. Tuhoutuneen joukon edessä olevat joukko ei voi käyttää “anna tietä”-toimintoa.
+Jos kuljetuskapasiteetti menee nollaan, joukko on **vahingoittunut**. Vahingoittuminen merkitään kääntämällä joukon kortti 90 asteen kulmaan menosuuntaan nähden. 
+
+Vahingoittunut joukko ei voi hyökätä eikä ohittaa. Se voi 
+
+- antaa tietä
+- käydä vaihtokauppaa
+- suorittaa korjauksia
+- ryöstellä tai
+- hylätä ajoneuvot. 
+ 
+Korjaus tapahtuu korjaus-toiminnolla. Sen voi pelata viereinen joukko tai vahingoittunut joukko itse. Jos vahingoittunut joukko korjataan, sen rysöstösaaliin kuljetuskapasiteetti nostetaan 1:een tonniin ja se on taas mukana pelissä.
+
+Jos saattueen edessä tai keskellä on vahingoittunut joukko, saattue ei voi edetä ennen kuin vahingoittunut joukko on korjattu tai kaikki ehjät joukot ovat ohittaneet sen.  
+
+Jos joukon kuljtuskapasiteetti menee alle nollan, se on **tuhoutunut**. Tuhoutunut joukko käännetään ympäri. Sen viereinen joukko voi käyttää “raivaa tie” toiminnon poistaakseen tuhoutuneet joukon pelistä. Muussa tapauksessa kaikkien perässä tulevien on ohitettava se, jotta saattue voi jatkaa matkaa. Tuhoutuneen joukon edessä olevat joukko ei voi käyttää “anna tietä”-toimintoa.
 
 ## Joukkojen kokemustaso
 
