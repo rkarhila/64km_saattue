@@ -50,13 +50,13 @@ Kun kaikki on ryöstetty ja saattueen keskellä ei ole vahingoittuneita yksiköi
 
 Arpokaa komentajat:
 
-**Frankki** Joku ruokaan liittyvä erikoisominaisuus *Napoleonin vuonna 1812 Venäjälle lähteneistä 600 000:sta sotilaasta palasi 75 000. *
+**Frankki** Joku ruokaan liittyvä erikoisominaisuus *Napoleonin vuonna 1812 Venäjälle lähteneistä 600 000:sta sotilaasta palasi 75 000.*
 
-**Hellenisti** Kerran vuorossa voi vähentää vastustajan tekemää vahinkoa yhdellä (ei kuitenkaan nollaan) *10400 kreikkalaista palkkasoturia lähti taistelemaan Persian kuninkaan veljen Kyyroksen rinnalla, todisti tämän häviön ja palasi vihamielisten maiden läpi takaisin kotiin 401-399 EAA. 6000 selvisi.*
+**Hellenisti** Kerran vuorossa voi vähentää vastustajan tekemää vahinkoa yhdellä (ei kuitenkaan nollaan), jos hyökkäyksen kohteen vieressä on omaa jalkaväkeä *10400 kreikkalaista palkkasoturia lähti taistelemaan Persian kuninkaan veljen Kyyroksen rinnalla, todisti tämän häviön ja palasi vihamielisten maiden läpi takaisin kotiin 401-399 EAA. 6000 selvisi.*
 
 **Toveri** Kerran vuorossa hyökkäys voi tehdä yhden vahingon enemmän. *Puna-armeijan 44. divisioonan motitettiin tammikuussa 1940 Raatteen tielle ja 13 962:sta sotilaasta kuoli, haavoittui tai katosi 4647 viikon kestäneiden taistelujen aikana.*
 
-**Karthagolainen** *Historioitsija Polybiuksen mukaan 218 EAA Hannibal johdatti yli 94000 sotilasta ja 37 norsua alppien yli, menettäen yli 68 000 sotilaistaan ja valtaosan norsuistaan. *
+**Karthagolainen** *Historioitsija Polybiuksen mukaan 218 EAA Hannibal johdatti yli 94000 sotilasta ja 37 norsua alppien yli, menettäen yli 68 000 sotilaistaan ja valtaosan norsuistaan.*
 
 
 ## Rahat
