@@ -46,6 +46,19 @@ Kun kaikki on ryöstetty ja saattueen keskellä ei ole vahingoittuneita yksiköi
 
 # Pöydän asettelu ja pelin aloittaminen
 
+## Komentajat
+
+Arpokaa komentajat:
+
+**Frankki** Joku ruokaan liittyvä erikoisominaisuus *Napoleonin vuonna 1812 Venäjälle lähteneistä 600 000:sta sotilaasta palasi 75 000. *
+
+**Hellenisti** Kerran vuorossa voi vähentää vastustajan tekemää vahinkoa yhdellä (ei kuitenkaan nollaan) *10400 kreikkalaista palkkasoturia lähti taistelemaan Persian kuninkaan veljen Kyyroksen rinnalla, todisti tämän häviön ja palasi vihamielisten maiden läpi takaisin kotiin 401-399 EAA. 6000 selvisi.*
+
+**Toveri** Kerran vuorossa hyökkäys voi tehdä yhden vahingon enemmän. *Puna-armeijan 44. divisioonan motitettiin tammikuussa 1940 Raatteen tielle ja 13 962:sta sotilaasta kuoli, haavoittui tai katosi 4647 viikon kestäneiden taistelujen aikana.*
+
+**Karthagolainen** *Historioitsija Polybiuksen mukaan 218 EAA Hannibal johdatti yli 94000 sotilasta ja 37 norsua alppien yli, menettäen yli 68 000 sotilaistaan ja valtaosan norsuistaan. *
+
+
 ## Rahat
 
 Laittakaa rahat yhteiskassaan kaikkien helposti saataville. Tästä pinosta pelaajat siirtävät rahaa omiin pankkeihinsa pelin aikana. Jolla on lopussa eniten rahaa omassa pankissaan voittaa, jos voittajaa tällä pelikerralla oli.
@@ -176,7 +189,7 @@ Aamulla tarkistetaan ja päivitetään jokaisen joukon tila: Väsymys, ruoka, jn
 
 Kukin pelaaja nostaa korttinsa. Kukin pelaaja ottaa niin neljä (4) yhteispakasta. 
 
-Jos pelaajalla on yli 9 korttia, on hänen laitettava ylimääräiset kortit poistopakkaan. 
+Jos pelaajalla on yli 7 korttia, on hänen laitettava ylimääräiset kortit poistopakkaan. 
 
 Pelaaja valitsee nyt yhden (1) kortin omasta toimintapakastaan. 
 
@@ -188,19 +201,20 @@ Oman toimintapakan kortit on etukäteen valittu isommasta toimintakorttikokoelma
 
 Pelaajat pelaavat toimintakortteja järjestyksessä alkaen saattueen kärjestä. Kun kaikille joukkoille on pelattu toiminto, aloitetaan uusi toimintakierros taas kärjestä. Tätä jatketaan kunnes kaikki joukot “siirtyvät sivuun”.
 
-Toiminta tehdään julistamalla toiminto ja pelaamalla sen hinnan verran kortteja kädestä. Nämä maksuna käytetyt kortit voivat olla mitä tahansa pelaajan kädestä. Laita pelatut kortit hylkypakkaan. Toiminta voi olla jokin perustoiminnoista, tai se voi olla jossakin pelattavista korteista kuvattu toiminta.
+Toiminnan voi tehdä kahdella eri tavalla:
 
-Jos toiminnon hinta on vähintään kaksi, yhden maksukortin voi korvata nautintoainekortin käytöllä.
+* Voit pelata toimintakortin ja tehdä siinä mainitun toiminnon.
+* Voit pelata joukkotyypin oman toiminnon pelaamalla joukon toimintahinnan verran kortteja kädestä. Nämä maksuna käytetyt kortit voivat olla mitä tahansa pelaajan kädestä. Laita pelatut kortit hylkypakkaan.
 
-Ensimmäisellä toimintakierroksella toiminnan perushinta on 1 kortti.
+Toimintahinta on joukolla olevien väsymys- ja päihtymismerkkien summa, paitsi jos joukko on kamoissa, jolloin sen hinta on 2.
 
-Vaihtoehtona toiminnolle joukko voi nauttia jonkin kantamansa hyödykkeen (tupakkaa, viinaa tai kamaa). Tästä ei tarvitse maksaa, riittää että siirtää käytetyn hyödykkeen hylkypakkaan.
+Kun teet toiminnon, joukot väsyvät. Laita joukolle yksi väsymysmerkki lisää.
 
-Jos joukko ei jollain kierroksella tee toimintaa tai nautiskele, se pistää pillit pussiin päivän osalta eikä voi enää päivän aikana toimia. Se siirtyy sivuun väylältä, ja sen voi ohittaa minkä tahansa muun toiminnon yhteydessä. Siirrä merkiksi joukko hieman sivuun jonosta.
+Toiminnan vaihtoehtona joukko voi nautiskella tai pistää pillit pussiin.
 
-Joukkojen perus- ja erikoistoiminnot on listattu kohdassa ....
+Nautiskellessaan se käyttää nautintoaineen joko omasta varastostaan tai pelaajan kädestä. Näutiskelu ei lisää väsymystä.
 
-Toimintakortit on listattu kohdassa ...
+Jos joukko pistää pillit pussiin, se ei tämän päivän osalta voi enää toimia. Se siirtyy sivuun väylältä, ja sen voi ohittaa minkä tahansa muun toiminnon yhteydessä. Siirrä merkiksi joukko hieman sivuun jonosta.
 
 ### Vastarinnan toiminto
 
@@ -231,17 +245,16 @@ Joukot, joille ei ole ruokaa, eivät ole voinut nukkua.
 
 ### Palautuminen
 
-Sitten päivitetään vireystila. Oliko joukko varuillaan yöllä, nukkuiko se vai pysyikö se hereillä?
+Päivitetään vireystila. 
 
-Kännissä, kamoissa tai nälkäisenä ei nukuta.
+* Jos joukkoa kohtaan hyökättiin suoraan, tai se on kännissä tai kamoissa, siltä ei poisteta väsymysmerkkiä.
+* Jos joukko oli varuillaan, ja sitä kohti ei hyökätty suoraan, siltä poistetaan yksi väsymysmerkki.
+* Jos joukko nukkui yön aikana ja sitä kohtaan, eikä sen naapureita kohtaan hyökätty, siltä poistetaan kaksi väsymysmerkkiä.
 
-Pääsääntöisesti, jos joukko nukkui yön aikana, siltä poistetaan yksi väsymysmerkki. Jos se ei nukkunut, sille lisätään yksi. Jos väsymysmerkkejä on nyt 5, joukko poistetaan pelistä.
+Viimeistä väsymysmerkkiä ei voi poistaa kuin "hyvät yöunet" kortilla.
 
-Varuillaan oleville joukoille ei lisätä väsymysmerkkiä, mikäli niillä on jo yksi väsymysmerkki.
-
-Jos joukko on kännissä tai kamoissa, ja sillä on vielä lisää samaa onnetonta nautintoainetta, se käyttää aamulla nautintoainekortin ja jatkaa vaikutuksen alaisena. Poikkeuksena umpituubassa eli kahden väsymysmerkin kännissä olevat joukot, jotka eivät enää jaksa tenuttaa, vaan vaihtavat kännimerkin kolmanteen väsymysmerkkiin.
-
-Tarkemmat palautumissäännöt kohdassa ...
+Jos joukko on kännissä tai kamoissa, ja sillä on vielä lisää samaa onnetonta nautintoainetta, se käyttää aamulla nautintoainekortin ja jatkaa vaikutuksen alaisena. Jos lisää ainetta ei ole, poistetaan "kännissä" ja "kamoissa" merkit.
+Kun "kamoissa"-merkki poistetaan, tilalle laitetaan 2 väsymysmerkkiä.
 
 ### Hyvät unet
 
@@ -307,15 +320,7 @@ Eniten hirmutekoja tehnyt joukko korotetaan lopussa kultaisen käytöksen kunnia
 
 # Loput tarvittavat säännöt
 
-## Toiminnot
-
-Toiminnot tehdään ilmoittamalla toiminto, joka voi olla yhteinen perustoiminto, oman tai muun joukkotyypin erikoistoiminto, tai pelattavassa toimintakortissa kuvattu toiminto.
-
-### Toiminnon hinta ja maksaminen
-
-Ilmoituksen lisäksi on maksettava hinta, joka on toimintakierroksen perushinta + joukon väsymystila. Hinta maksetaan pelaajan kädessä olevista toimintakorteista. Yhtä toimintoa kohden joukko voi myös käyttää yhden nautintoainekortin osana toiminnon maksua. Nautintoainetta ei siis saa käyttää koko maksun kuittaamiseen, eli toiminnon on maksettava vähintään 2, jotta nautintoainetta voi käyttää.
-
-### Perustoiminnot
+## Perustoiminnot
 
 Kaikille yhteiset toiminnot:
 
@@ -365,7 +370,7 @@ Poista tuhoutuneen joukon romu pois pelistä.
 Hajonnut joukko, tai joukko jolta on bensa loppu, ei voi raivata tietä.
 
 
-### Joukkotyyppien erikoistoiminnot. 
+## Joukkotyyppien erikoistoiminnot. 
 
 Tominnan hinta joukon omalle toiminnalle on 0, muiden joukkotyyppien toimnnoille +3
 Suunnitteluperiaate: Olisi ikävää, jos peli loppuu siihen, että joki pitäisi ylittää mutta kaikki huoltojoukot on tuhottu tai että eteneminen on mahdotonta koska tykistö on käyttänyt kaikki ammuksensa. Niinpä korkealla hinnalla jokin muu joukko voi jotenkin järjestää sillankorvauksen tai tykistökeskityksen. 
@@ -415,11 +420,8 @@ Poista hajonnut silta -kortti pelistä. Joukon on oltava hajonneen sillan vieres
 
 Väsyminen merkitään asettamalla väsymysmerkkejä jonossa olevan joukkokortin tai miniatyyrin päälle. Pelin alussa kaikilla joukoilla on yksi väsymysmerkki, jos ei toisin mainita. 
 
-Joukko voi olla selvin päin, kännissä tai kamoissa. Kännissä olevillä on kännimerkki. Kamoissa olevilla on kamamerkki. Selvin päin olevilla ei ole kumpaakaan. Yhdellä joukolla voi olla korkeintaan kolme väsymysmerkkiä. Jos joukolle tulee neljäs väsymysmerkki, se poistetaan pelistä.
+Joukko voi olla selvin päin, kännissä tai kamoissa. Kännissä olevillä on kännimerkki. Kamoissa olevilla on kamamerkki. Selvin päin olevilla ei ole kumpaakaan.
 
-Jokainen väsymysmerkki lisää yhden kortin minkä tahansa toiminnon hintaan.
-
-Tila päivitetään aina aamuisin. Katso prosessi kohdasta ... sivulta ....
 
 ## Päihtyminen
 
@@ -427,10 +429,10 @@ Jos selvin päin oleva joukko saa viinaa, sille asetetaan “kännissä”-merkk
 
 Jos missään tilassa oleva joukko vetää kamaa, sen väsymysmerkit poistetaan ja tilalle laitetaan “kamoissa”-merkki. Kamoissa-tilasta ei voi vaihtaa känniin muuten kuin selviämällä ensin.
 
-Kännissä-merkki vaikuttaa vastustajien hyökkäyksiin ja ryöstelykorttien vaikutuksiin, mutta ei vaikeuta toimimista muuten.
+Kännissä-merkki vaikuttaa vastustajien hyökkäyksiin ja ryöstelykorttien vaikutuksiin, ja aiheuttaa lisähintaa toimintoihin.
 
-Kamoissa-merkkii vaikuttaa hieman eri tavalla: Kamoissa olevan joukon päivän jokaisen toiminnon hinta on 2, toimintakierroksen perushinnasta huolimatta.
-. 
+Kamoissa-merkkii vaikuttaa hieman eri tavalla: Kamoissa olevan joukon päivän jokaisen toiminnon hinta on 2. Kamoissa olevat joukot eivät väsy.
+
 ## Palautuminen
 
 Jos joukko oli varuillaan yön aikana, kukin torkkuu pienen hetken ja joukon tila pysyy samana.
