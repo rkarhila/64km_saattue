@@ -1,0 +1,16 @@
+
+
+
+# Variables from unit.py:
+
+EMOJI_LOOT_1 = u'\u2460'
+EMOJI_LOOT_2 = u'\u2461'
+EMOJI_LOOT_3 = u'\u2462'
+EMOJI_LOOT_4 = u'\u2463'
+EMOJI_LOOT_5 = u'\u2464'
+EMOJI_LOOT_6 = u'\u2465'
+
+EMOJI_LUGGAGE = u'\u1F9F3'
+
+#EMOJI_DAMAGE = u'\u1F4A5'
+EMOJI_DAMAGE = u'\u2B59'
