@@ -80,59 +80,63 @@ class Action:
         if not self.gamestate.resistance.active:
           if messager: messager('  No target for attack')
           return False
+        
       elif actionstr[0] == 'B':
         # require position of the acting unit to allow bypass
         modifier=actionstr[1:3]
         if modifier == '=1' or modifier == '=2':
-          #print(f"check if {self.actor} < {int(modifier[1])}")
-          if self.actor < int(modifier[1]):
-            if messager: messager('  Cannot overtake')
-            return False
-        elif modifier == '-1':
-          # If unit is last in convoy, it cannot reverse:
-          if self.actor == len(self.convoy.units):
-            if messager: messager('  Cannot reverse')
-            return False
+          modifier=int(modifier[1])
+        elif modifier[0] == '-':
+          modifier=int(modifier)  
         else:
           raise ValueError(f'  Bad modifier for overtake action: {modifier}')
+        if not self.acting_unit.can_overtake(modifier, messager):
+          return False
+                           
       elif actionstr[0] == 'P':
         # Require pillage queue to have cards:
-        mod = int(actionstr[2])
-        if len(self.gamestate.pillage_queue.cards_and_visibilities) < mod:
+        print("CHECKING PILLAGE POSSIBLE:", len(self.gamestate.pillage_queue.cards_and_visibilities))
+        mod = int(actionstr[2])        
+        if len(self.gamestate.pillage_queue.cards_and_visibilities) < 1:
           if messager: messager('  Nothing to pillage')
           return False
+                           
       elif actionstr[0] == 'S':
         # Scout action: Require something to be scoutable:
-        can_scout = False
-        for queue in [ self.gamestate.pillage_queue.cards_and_visibilities,
-                       self.gamestate.mauling_queue.cards_and_visibilities,
-                       self.gamestate.resistance_queue.cards_and_visibilities ]:
-          if not can_scout:
-            for card_and_vis in queue:
-              if not card_and_vis[1]:
-                can_scout=True
-                break
+        can_scout = any([
+          self.gamestate.pillage_queue.contains_hidden_cards(),
+          self.gamestate.mauling_queue.contains_hidden_cards(),
+          self.gamestate.resistance_queue.contains_hidden_cards() ])
+        
         if not can_scout:
           if messager: messager('Nothing to scout')
+          print("could not scout")
           return False
+        else:
+          print("could scout")
+          
       elif actionstr[0] == 'Z':
-        if actionstr[0:2] == 'Z--':
+        if actionstr[0:3] == 'Z=0':
           if not self.acting_unit.can_rest():
             if messager: messager('  Not tired enough to rest')            
             return False
-        elif actionstr[0:2] == 'Z2c':
+        elif actionstr[0:3] == 'Z=2':
           if not self.acting_unit.can_rest_with_cards():
             if messager: messager('  Not tired enough to rest with extra cards')            
             return False
+        else:
+          print(f"WARNING: bad options for rest {actionstr[0:3]}")
+          
       actionstr=actionstr[3:] 
 
     if messager: messager('  Action possible')
     return True
   
-  def resolve(self):
+  def resolve(self, messager=None):
     actionstr = self.effect
+    resolve_arr = [f'Unit {self.actor} (Player {self.player.number}/{self.player.name}) resolved action {self.name}:']
     while len(actionstr)>0:
-      print("  Resolving actionstring ",actionstr)
+      #print("  Resolving actionstring ",actionstr)      
       if actionstr[0] == 'A':
         # require active resistance:
         modifier = actionstr[1:3]
@@ -140,63 +144,121 @@ class Action:
         reward, msg = self.gamestate.resistance.take_damage(self.acting_unit_type, modifier)
         self.player.get_cash(reward)
         self.acting_unit.tire()
-        # Broadcast message:
-        self.gamestate.broadcast(f"Unit {self.actor} (Player {self.player.number}/{self.player.name}) resolved action {self.name}: {msg}")
-        return True
-      if actionstr[0] == 'B':
+        resolve_arr.append(f"{msg}")
+        #return True
+      elif actionstr[0] == 'B':
         # require position of the acting unit to allow bypass
         modifier=actionstr[1:3]
         if modifier == '=1' or modifier == '=2':
           #print(f"check if {self.actor} < {int(modifier[1])}")
+          move=int(modifier[1])
           if self.actor < int(modifier[1]):
             if messager: messager('  Cannot overtake')
             return False
         elif modifier == '-1':
           # If unit is last in convoy, it cannot reverse:
+          move=int(modifier)
           if self.actor == len(self.convoy.units):
             if messager: messager('  Cannot reverse')
             return False
         else:
           raise ValueError(f'  Bad modifier for overtake action: {modifier}')
-        self.actor
-      if actionstr[0] == 'E':
+        old_position=self.actor
+
+        new_position = self.convoy.move_unit(self.actor, move)
+        resolve_arr.append(f"overtook from position {old_position} to position {new_position}")
+
+        
+      elif actionstr[0] == 'E':
         # escape!
         self.acting_unit.player.this_round_cash += sum(self.acting_unit.carry)
         self.convoy.units.pop(self.actor)
-        self.gamestate.broadcast(f"Unit {self.actor} (Player {self.player.number}/{self.player.name}) escaped with {sum(self.acting_unit.carry)} worth loot")
+        resolve_arr.append(f"escaped with {sum(self.acting_unit.carry)} worth loot")
         
       elif actionstr[0] == 'P':
+        
         # Require pillage queue to have cards:
-        mod = int(actionstr[2])
-        if len(self.gamestate.pillage_queue.cards_and_visibilities) < mod:
-          if messager: messager('  Nothing to pillage')
+        if actionstr[1] in ['+', '-']:
+          mod = int(actionstr[2]) 
+        else:
+          mod = 1
+        if len(self.gamestate.pillage_queue.cards_and_visibilities) < 2 + mod:
+          if messager: messager('  Not enough to pillage')
           return False
+        rewards = self.resolve_pillage(self.acting_unit, mod)
+        for r in rewards:
+          self.acting_unit.player.this_round_cash += r['reward']['cash']
+          self.acting_unit.gain_loot(r['reward']['loot'])
+          self.acting_unit.gain_atrocities(r['reward']['atrocities'])
+          resolve_arr.append(f"pillaged {r['name']} and gained {r['reward']['cash']} cash and {r['reward']['loot']} loot while committing {r['reward']['atrocities']} atrocities.")
+
       elif actionstr[0] == 'S':
         # Scout action: Require something to be scoutable:
-        can_scout = False
-        for queue in [ self.gamestate.pillage_queue.cards_and_visibilities,
-                       self.gamestate.mauling_queue.cards_and_visibilities,
-                       self.gamestate.resistance_queue.cards_and_visibilities ]:
-          if not can_scout:
-            for card_and_vis in queue:
-              if not card_and_vis[1]:
-                can_scout=True
-                break
+        can_scout = any( [
+          self.gamestate.pillage_queue.contains_hidden_cards(),
+          self.gamestate.mauling_queue.contains_hidden_cards(),
+          self.gamestate.resistance_queue.contains_hidden_cards() ] )
         if not can_scout:
           if messager: messager('Nothing to scout')
           return False
+
+        print("WARNING: scouting implementation is not finished yet")
+        modifier=actionstr[1:3]
+
+        # restriction can be "M" for mauling, "R" for resistance, "P" for pillage, "E" for everything
+        restrictions=modifier[0]
+        count=modifier[1]
+        scouted = self.resolve_scout( restrictions, count )
+        resolve_arr = []
+        
+        
+        
+      elif actionstr[0] == 'D':
+        modifier=actionstr[1:3]
+        defense_type = modifier[0]
+         self.acting_unit.resolve_defend(defense_type)
+        
+      elif actionstr[0] == 'W':
+        # You can always wait as your first action!
+        dummy=1
+      
+      elif actionstr[0] == 'O':
+        # Ordering requires neighbouring unit to be waiting:
+        print("WARNING: ordering not yet implemented")
+        # or the following unit's orders to be unknown!
+        
       elif actionstr[0] == 'Z':
-        if actionstr[0:2] == 'Z--':
+        if actionstr[0:3] == 'Z=0':
           if not self.acting_unit.can_rest():
             if messager: messager('  Not tired enough to rest')            
             return False
-        elif actionstr[0:2] == 'Z2c':
+          u = self.acting_unit.under_influence
+          old_t = self.acting_unit.tired
+          self.acting_unit.rest()
+          new_t = self.acting_unit.tired
+          if u:
+            resolve_arr.append(f"resting (No longer under influence)")
+          else:
+            resolve_arr.append(f"resting (from {old_t} to {new_t})")
+        elif actionstr[0:3] == 'Z=2':
           if not self.acting_unit.can_rest_with_cards():
             if messager: messager('  Not tired enough to rest with extra cards')            
             return False
-      actionstr=actionstr[3:] 
+          old_t = self.acting_unit.tired
+          self.acting_unit.rest_with_cards()
+          new_t = self.acting_unit.tired
+          resolve_arr.append(f"resting (from {old_t} to {new_t})")
+        else:
+          print(f"WARNING: Rest {actionstr[0:3]} not implemented") 
+      else:
+        print(f"WARNING: Action {actionstr[0:3]} not implemented") 
+      actionstr=actionstr[3:]
+      #if len(actionstr)> 0:
+        #print(actionstr)
+        #breakpoint()
 
-
+    # Broadcast message:
+    self.gamestate.broadcast(','.join(resolve_arr))
 
     return True
 
@@ -213,3 +275,95 @@ class Action:
       if c in '0123456789':
         cost += int(c)
     return cost
+
+
+
+  def resolve_pillage(self, acting_unit, modifier=0):
+    # in basic case, show player 2 cards to choose from.
+    
+    # Draw two + modifier cards from pillage deck:
+    
+    count = 2+modifier
+    pillage_cards = []
+    for c in range(count):
+      pillage_cards.append(        
+        self.gamestate.pillage_queue.remove_card(0)
+      )
+
+    
+
+    if len(pillage_cards) == 0:
+      raise(ValueError, 'No pillage cards for pillage action, some check has failed!')
+    description='Choose one pillage card:'  
+    for pc, vis in pillage_cards:
+      #  print(self.action_deck.describe(c))
+      #breakpoint()
+      description+= f'\n  {pc}: {self.gamestate.pillage_deck.describe(pc)}'
+    choicetaken = self.gamestate.demand_choice(self.acting_unit.player,
+                                       self.gamestate.choose_pillage_card_choice_type,
+                                       pillage_cards,
+                                       description=description,
+                                       num_choices=1)
+
+
+    pillaged = choicetaken
+    for p in pillaged:
+      pillage_cards.remove(p)
+    
+    for pc in pillage_cards:
+      self.gamestate.pillage_queue.return_card( pc[0], visible=pc[1] )
+    
+    return [self.gamestate.pillage_deck.describe(p) for p,vis in pillaged]
+  
+
+  def resolve_scout(self, restrictions, count):
+
+    scouted = []
+    
+    if restrictions != "E":
+      raise NotImplementedError("Only unrestricted scouting implemented for now!")
+
+    for c in range(int(count)):
+      description = "Choose card deck to scout:"
+      options = []
+      for card_and_vis in self.gamestate.pillage_queue.cards_and_visibilities:
+        if not card_and_vis[1]:
+          options.append(0)
+          description+= f'\n  0: pillage'
+          break
+      for card_and_vis in self.gamestate.mauling_queue.cards_and_visibilities:
+        if not card_and_vis[1]:
+          options.append(1)
+          description+= f'\n  1: mauling'
+          break
+
+      for card_and_vis in self.gamestate.resistance_queue.cards_and_visibilities:
+        if not card_and_vis[1]:
+          options.append(2)
+          description+= f'\n  2: resistance'
+          break
+
+      if len(options) > 1: 
+        choicetaken = self.gamestate.demand_choice(self.acting_unit.player,
+                                                   self.gamestate.choose_queue_to_scout_choice_type,
+                                                   options,
+                                                   description=description,
+                                                   num_choices=1)
+      else:
+        choicetaken=options
+
+      if choicetaken[0] == 0:
+        print("revealing pillage")
+        self.gamestate.pillage_queue.reveal_next_hidden()
+      elif choicetaken[0] == 1:
+        print("revealing mauling")
+        self.gamestate.mauling_queue.reveal_next_hidden()
+      elif choicetaken[0] == 2:
+        print("revealing resistance")
+        self.gamestate.resistance_queue.reveal_next_hidden()
+
+      
+            
+      scouted.append(choicetaken)
+
+    return scouted

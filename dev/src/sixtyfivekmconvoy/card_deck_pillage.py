@@ -1,7 +1,18 @@
 
+import random
 
 class CardDeckPillage:
 
+  deck = {}
+
+  for i in range(40):
+    deck[i] = { 'name' : f'pillage_{i}',
+                'reward' : {
+                  'cash' : random.choice([0,1,2]),
+                  'loot' : random.choice([ [], [],[1], [1,1], [1,1,1], [3], [3,1], [5]]),
+                  'atrocities' : random.choice([0,1]) } }
+    
+  """
   deck = { 0 : { 'name' : 'ruokala', 'effect' : [] },
            1 : { 'name' : 'sairaala', 'effect' : [] },
            2 : { 'name' : 'kauppa', 'effect' : [] },
@@ -26,3 +37,4 @@ class CardDeckPillage:
            21 : { 'name' : 'majatalo', 'effect' : [] },
            22 : { 'name' : 'kaupungintalo', 'effect' : [] },
            23 : { 'name' : 'kirkko', 'effect' : [] } } 
+  """

@@ -1,18 +1,6 @@
 #!/usr/bin/env python3
 
-
-EMOJI_LOOT_1 = u'\u2460'
-EMOJI_LOOT_2 = u'\u2461'
-EMOJI_LOOT_3 = u'\u2462'
-EMOJI_LOOT_4 = u'\u2463'
-EMOJI_LOOT_5 = u'\u2464'
-EMOJI_LOOT_6 = u'\u2465'
-
-EMOJI_LUGGAGE = u'\u1F9F3'
-
-#EMOJI_DAMAGE = u'\u1F4A5'
-EMOJI_DAMAGE = u'\u2B59'
-
+from .constants import *
 
 
 class UnitType:
@@ -68,6 +56,11 @@ class Unit:
     self.actiontaken = None
     self.secondactioncard = None
     self.secondactiontaken = None
+    self.convoy = None
+
+    self.defending=None
+    self.had_defended = False
+    self.defending_reward = None
     
     self.current_action_type = None
 
@@ -208,9 +201,54 @@ class Unit:
     return False
 
 
+  def position(self):
+    return self.convoy.get_unit_position(self)
+
+  def index(self):
+    return self.convoy.get_unit_index(self)
+
+  def zone(self):
+    return self.convoy.get_unit_zone(self)
+  
+  def get_neighbours(self):
+    index=self.convoy.get_unit_index(self)
+    if position > 0:
+      preceeding=self.convoy.units[index-1]
+    else:
+      preceeding=None
+
+    if position < len(self.convoy.units)-1:
+      following = self.convoy.units[index+1]
+    else:
+      following = None
+    return preceeding, following
+      
   ### /state related methods
   
-  def apply_damage(self, damage):
+  def apply_damage(self, damage, discards=0, damage_for_not_discarding=1):
+    if discards > 0 and len(self.player.action_cards) >= discards:
+      # Choose to discard or not:
+      description=f'Do you want to discard {discards} cards to avoid {damage_for_not_discarding} damage?'
+      description += f'\n 0: No'
+      description += f'\n 1: Yes'
+      choose_to_discard = self.gamestate.demand_choice(
+        self.player,
+        self.gamestate.choose_cards_to_discard,
+        [0,1],
+        description=description,
+        num_choices=1
+      )
+      if choose_to_discard[0] == 1:
+        choicetaken = self.gamestate.demand_choice(self.player,
+                                                   self.gamestate.choose_cards_to_discard,
+                                                   self.player.action_cards,
+                                                   description=description,
+                                                   num_choices=discards)
+        self.player.discard(self.gamestate.action_deck,
+                            choicetaken)
+        
+      else:
+        damage += damage_for_not_discarding
     if damage > len(self.carry):
       self.carry == None
       # Unit destroyed, return -1
@@ -223,18 +261,28 @@ class Unit:
     # Handle loot as arrays:
     if type(loot) == int:
       loot=[loot]
+    elif type(loot) == str:
+      loot = [int(loot)]
+    self.carry += loot
     # Loop with highest loot first:
-    loot.sort(reverse=True)
-    for i,l in enumerate(loot):
-      if l > self.carry[-1]:
-        self.carry[-1] = l
-        # sort loot array (highest first):
-        self.carry.sort(reverse=True)
-      else:
-        # These loot items could not be placed:
-        return loot[i:]
-    return []
+    self.carry.sort(reverse=True)
+    dropped = self.carry[3:]
+    self.carry = self.carry[:3]
 
+    return [ d for d in dropped if d > 0 ]
+    #for i,l in enumerate(loot):
+    #  if l > self.carry[-1]:
+    #    self.carry[-1] = l
+    #    # sort loot array (highest first):
+    #    self.carry.sort(reverse=True)
+    #  else:
+    #    # These loot items could not be placed:
+    #    return loot[i:]
+    #return []
+
+  def gain_atrocities(self, atrocity):
+    self.atrocities += atrocity
+  
   def tire(self):
     self.tired += 1
   
@@ -243,15 +291,11 @@ class Unit:
       self.under_influence = 1
     else:
       self.tired += 1
-      
-  def rest(self):
-    if self.under_influence > 0:
-      self.under_influence = 0
-    else:
-      self.tired = max(0, self.tired - 2)
 
-  def rest_with_cards(self):
-    self.tired = 0
+
+  #
+  #  Are actions possible?
+  # 
 
   def can_rest(self):
     if self.tired > 0 or self.under_influence > 0:
@@ -264,6 +308,39 @@ class Unit:
     else:
       return False
 
+  def can_overtake(self, modifier=1, messager=None):
+    if modifier > 0:
+      if self.position() > modifier:
+        return True
+      return False
+    elif modifier < 0:
+      if self.index() < len(self.convoy.units)+modifier:
+        return True
+      return False
+    else:
+      raise ValueError("Overtaking modifier cannot be 0")
+    
+  #
+  #  Doing actions
+  #
+      
+  def rest(self):
+    if self.under_influence > 0:
+      self.under_influence = 0
+    else:
+      self.tired = max(0, self.tired - 2)
+
+  def rest_with_cards(self):
+    self.tired = 0
+
+
+  #
+  # Resolving actions:
+  #
+
+
+  
+  """
   def can_attack(self):
     dummy = 1
 
@@ -277,9 +354,8 @@ class Unit:
     else:
       # unit is intoxicated
       dummy = 1
-
-  def resolve_pillage(self, modifier=0):
-    dummy = 1
+  """  
+             
 
   def resolve_rest(self, modifier=0):
     if self.can_rest():
@@ -291,11 +367,29 @@ class Unit:
   def resolve_scout(self, modifier=0):
     dummy = 1
 
-  def resolve_defend(self, modifier=0):
-    dummy = 1
+  def resolve_defend(self, defense_type=None, defense_reward=None):
+    if defense_type in 'AGS':
+      self.defending = defense_type
+      self.has_defended = False
+    else:
+      raise NotImplementedError("Defense type "+defense_type+ " not implemented")
+    self.defending_reward = defence_reward
+    return True
 
-  def resolve_bypass(self, modifier=0):
-    dummy = 1
+
+  def reward_defending(self):
+    r = self.defending_reward
+    if r.lower() == 'a':
+      self.atrocities += 1
+      self.player.cash_this_round += 1
+    elif r.lower() == 'c':
+      self.player.cash_this_round += 1
+    else:
+      raise NotImplementedError("defense reward type " + r + " not implemented")
+    
+  # This should be convoy level operation:
+  #def resolve_bypass(self, modifier=0):
+  #      dummy = 1
 
   def resolve_reverse(self, modifier=0):
     dummy = 1

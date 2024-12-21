@@ -94,7 +94,7 @@ class VerboseRandomClient:
       random.shuffle(options)
       choice = options[:choicecount]
       print(game_state['choice']['description'])
-      print(f"You choce {','.join([str(c) for c in choice])}")
+      print(f"You chose {','.join([str(c) for c in choice])}")
 
       #print("press return to continue")
       #input()

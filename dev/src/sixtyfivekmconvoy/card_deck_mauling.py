@@ -1,5 +1,22 @@
 class CardDeckMauling:
 
+  from random import choice
+  deck = {}
+  for i in range(20):
+    deck[i] = { 'name' : f'maul_{i}',
+                'effect' : {'damage' : [2,4],
+                            'target' : choice(['B',
+                                               'C',
+                                               'A-1',
+                                               'A1',
+                                               'B1',
+                                               'B-1',
+                                               'E1',
+                                               'E-1']),
+                            'atrocity_threshold' : 2,
+                            'type' : 'Ground' }}
+  
+  """
   deck = { 0 : { 'name' : 'Kiväärihenkilöitä/Panssarirynnäkkö',
                  'effect' : { 'type' : 'G',
                               'damage' : ['D1', 'D3'] } },
@@ -13,6 +30,9 @@ class CardDeckMauling:
                  'effect' : { 'type' : 'G',
                               'damage' : ['D1', 'D3'] } },
            4 : { 'name' : 'Nelikoptereita/Lennokki-isku',
+                 'effect' : { 'type' : 'A',
+                              'damage' : ['D1', 'D3'] } },
+           5 : { 'name' : 'Nelikoptereita/Lennokki-isku',
                  'effect' : { 'type' : 'A',
                               'damage' : ['D1', 'D3'] } },
            6 : { 'name' : 'Räjähtäviä lepakoita/Napalmia',
@@ -74,3 +94,4 @@ class CardDeckMauling:
                               'damage' : ['D1', 'D3'] } },
 
           }
+"""

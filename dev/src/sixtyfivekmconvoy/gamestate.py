@@ -138,11 +138,23 @@ class CardQueue:
     self.cards_and_visibilities.append([card, visible])
     
   def return_card(self, card, visible=False):
-    self.cards_and_visibilities = [card,visible] + self.cards_and_visibilities 
+    self.cards_and_visibilities = [[card,visible]] + self.cards_and_visibilities 
+  def contains_hidden_cards(self):
+    for card, visible in self.cards_and_visibilities:
+      if not visible:
+        return True
+    return False
 
+    
   def reveal_card(self, index=0):
     self.cards_and_visibilities[index][1] = True
-
+ 
+  def reveal_next_hidden(self):
+    for index, card_and_visible in enumerate(self.cards_and_visibilities):
+      if not card_and_visible[1]:        
+        self.cards_and_visibilities[index][1] = True
+        break
+    
   def to_arr(self):
     if self.deck is not None and self.deck.names_and_effects is not None:
       queuearr = [ self.deck.get_name( self.deck.deck[i] ) if c[1] else '?' for i,c in enumerate(self.cards_and_visibilities)]
@@ -209,6 +221,9 @@ class GameState:
   choose_action_choice_type = 1
   choose_cards_to_discard = 2
   cash_in_cards_choice_type = 3
+  choose_queue_to_scout_choice_type = 4
+  choose_pillage_card_choice_type = 5
+
   
   def __init__(self, playerconf, seed=3):
     self.playerconnector = PlayerConnector(playerconf)
@@ -266,7 +281,9 @@ class GameState:
 
       # 0 Deal cards:
       #self.phase = Phase.DEAL_CARDS
+      self.broadcast(f"============ Starting round {self.rounds.count} ==========")
 
+      
       for i in range(CARDS_TO_DEAL):
         for player in self.players:
           player.draw_card(self.action_deck, 1)
@@ -289,6 +306,7 @@ class GameState:
         if len(units) > 0:
           description='Choose one action card for each troop '+','.join(units)
           for c in player.action_cards:
+            #  print(self.action_deck.describe(c))
             description+= f'\n  {c}: '+ '/'.join([f['name'] for f in self.action_deck.describe(c)])
           choicetaken = self.demand_choice(player,
                                            GameState.choose_card_choice_type,
@@ -358,25 +376,47 @@ class GameState:
         self.convoy.move_resting_and_damaged_units()
         # Reveal new resistance:
         self.resistance_queue.remove_card(0)
+        # TODO: safety check if there is less than 3 cards in resistance queue!
         self.resistance_queue.put_card(self.resistance_deck.get_card())
         if self.resistance_queue.cards_and_visibilities[0][1] == False:
           self.resistance_queue.reveal_card(0)
           self.resistance = Resistance(self.resistance_queue.describe(0), self)
-          advance_msg += self.resistance.attack()
+          advance_msg += ". Convoy advances into ambush: "+self.resistance.attack()
         else:
           self.resistance = Resistance(self.resistance_queue.describe(0), self)
-          advance_msg = 'Convoy moves, new active restitance {self.resistance.name}' + advance_msg
+        advance_msg = f'Convoy moves, new active resistance "{self.resistance.name}"' + advance_msg
       else:
         advance_msg = 'Convoy stuck because of resistance.'
       self.broadcast(advance_msg)
         
       next_stage = self.rounds.next_stage()
-      print(f"Advance done, move on to {next_stage}")
+      #print(f"Advance done, move on to {next_stage}")
 
 
       # 4 Mauling
+
+      mauling = self.mauling_deck.describe(self.mauling_queue.remove_card()[0])
+      mauling_target= mauling['effect']['target']
+      if mauling_target in 'ABCE':
+        mauled_zone = mauling_target[0]
+        mauled_unit = None
+        atrocities = sum([ self.convoy.units[u].atrocities for u in self.convoy.zones[mauled_zone] ])
+      else:
+        mauled_zone = mauling_target[0]
+        mauled_unit = int(mauling_target[1:])
+        atrocities = self.convoy.units[self.convoy.zones[mauled_zone][mauled_unit]].atrocities 
+      mauling_damage = mauling['effect']['damage']
+      mauling_type = mauling['effect']['type'][0]
+      mauling_threshold = mauling['effect']['atrocity_threshold']
+      
+      # TODO: All damage under atrocity threshold for now
+      mauling_msg = f"Convoy attacked by {mauling['name']}: "
+      mauling_msg += self.convoy.apply_damage(mauling_damage[0], unit=mauled_unit, zone=mauled_zone, attack_type=mauling_type)
+      self.broadcast(mauling_msg)
+      self.mauling_queue.put_card(self.mauling_deck.get_card())
+      
       next_stage = self.rounds.next_stage()
-      print(f"No mauling, move on to {next_stage}")
+      print(f"Mauling done, move on to {next_stage}")
 
 
       # 5 bookkkeeping
@@ -436,8 +476,8 @@ class GameState:
         #pprint( [ pl.  sorted_pl)
         print( '\n'.join([f"Player {pl['number']}: {pl['promotion_points']} promotion points, {pl['total_cash']} total cash" for pl in sorted_pl])  )  
         sys.exit()
-          
-      print(f"Bookkeeping done, move on to next round")
+        
+      #print(f"Bookkeeping done, move on to next round")
       for unit in self.convoy.units:
         if unit.actioncard:
           self.action_deck.discard.append(unit.actioncard)

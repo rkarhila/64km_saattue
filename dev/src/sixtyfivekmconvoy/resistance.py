@@ -18,7 +18,7 @@ EMOJI_DAMAGE = u'\u2B59'
 class Resistance:
   
   def __init__(self, name_and_description, gamestate):
-    print("Initialising resisintace")
+    #print("Initialising resisintace")
     if name_and_description is None:
       self.name = None
     else:
@@ -63,8 +63,8 @@ class Resistance:
         return 1, f'Resistance took {damage} damage and is left with {self.durability}. Player gains 1 money.'
 
   def attack(self):
-    print("New resistance attacks!")
-    msg = self.gamestate.convoy.apply_damage(3, unit=1)
+    #print("New resistance attacks!")
+    msg = self.gamestate.convoy.apply_damage(3, unit=0)
     return msg #self.gamestate.broadcast(msg)
     
   def distribute_loot(self):

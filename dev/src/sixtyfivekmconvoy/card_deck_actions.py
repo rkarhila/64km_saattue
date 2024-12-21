@@ -2,6 +2,7 @@
     # Actions string:
     #   B=1 bypass : move forward 1
     #   B=2 bypass : move forward 2
+    #   B-1  reverse : move backward 1
     #   P+0  pillage
     #   P+1 pillage, with extra card
     #   A+2  attack with +2 damage
@@ -9,16 +10,17 @@
     #   A+0    normal attack
     #   A-1  attack with -1 damage
     #   A=4  fixed 4 damage (independent of troop type)
-    #   R=1  reverse : move backward 1
     #   S+1 scout, reveal and reorder 1-4 card
     #   S+0   scout, reveal and reorder 1-3 cards
     #   S-1 scout, reveal and reorder 1-2 cards
     #   Z..  rest ('zzz')
+    #   W..  wait
+    #   O..  order (waiting troop)
     #   Dr. defend against resistance
     #   Da. defend against aerial attacks
     #   Dg. defend against ground attack
     #   Dt. defend against traps
-    #   Dg. defend against guerilla activity
+    #   Ds. defend against saboteur activity
 
 
 
@@ -35,7 +37,7 @@ class CardDeckActions:
                            'name': 'Ohita'}
 
   basic_scout_action = {'cost': 'TUUU',
-                        'effect': 'S+0',
+                        'effect': 'SE2',
                         'limits': {'I': 'A'},
                         'name': 'Tiedustele'}
 
@@ -43,7 +45,111 @@ class CardDeckActions:
                           'effect': 'P+0',
                           'limits': {'I': 'ABCE', 'P': 'ABCE', 'L':'ABCE'},
                           'name': 'Ryöstele'}
+
+  basic_wait_action =  {'cost': 'TUU',
+                         'effect': 'W..',
+                         'limits': {'I': 'ABCE', 'L': 'ABCE', 'P': 'ABCE'},
+                         'name': 'Körssitauko' }
+
+  basic_rest_action = {'cost': '',
+                       'effect': 'Z=0',
+                       'limits': {'I': 'ABCE', 'L': 'ABCE', 'P': 'ABCE'},
+                       'name': 'Lepo'}
+
+  enhanced_rest_action =   {'cost': '2',
+                            'effect': 'Z=2',
+                            'limits': {'I': 'ABCE', 'ABCE': 'ABCE'},
+                            'name': 'Tuplalepo'}
   
+  other_attack_action_0 = {'cost': '4',
+                           'effect': 'A=4',
+                           'limits': {'I': 'ABCE', 'L': 'ABCE', 'P': 'ABCE'},
+                           'name': 'Ilmaiskuja'}
+
+  other_attack_action_1 = {'cost': 'TUU',
+                           'effect': 'B=1A+0',
+                           'limits': {'I': 'AB', 'P': 'AB'},
+                           'name': 'Rynnäkkö!'}
+
+  other_attack_action_2 = {'cost': 'TUU',
+                           'effect': 'B-1A+0',
+                           'limits': {'I': 'AB', 'P': 'AB'},
+                           'name': 'Suojatulta!'}
+  
+  other_overtake_action_0 = {'cost': 'T1U',
+                             'effect': 'B=2',
+                             'limits': {'I': 'ABCE', 'L': 'ABCE', 'P': 'ABCE'},
+                             'name': 'Törkeä liikenteen vaarantaminen'}
+
+
+  other_overtake_action_1 = {'cost': 'T1U',
+                             'effect': 'B-1',
+                             'limits': {'I': 'ABCE', 'L': 'ABCE', 'P': 'ABCE'},
+                             'name': 'Sekaannus etenemissuunnasta'}
+
+  other_overtake_action_2 ={'cost': 'T2U',
+                            'effect': 'ESC',
+                            'limits': {'I': 'E', 'L': 'E', 'P': 'E'},
+                            'name': 'Sayonara, suckers!'}
+  
+
+  other_pillage_action_0 = {'cost': 'TU',
+                            'effect': 'P=3',
+                            'limits': {'I': 'ABCE', 'L': 'ABCE', 'P': 'ABCE'},
+                            'name': 'Laaja toimintasäde'}
+
+  other_pillage_action_1 = {'cost': 'TUU',
+                           'effect': 'P=1',
+                           'limits': {'I': 'ABCE', 'L': 'ABCE', 'P': 'ABCE'},
+                           'name': 'Erikoisen kurinalaista toimintaa'}
+
+  
+  other_pillage_action_2 = {'cost': 'TUU',
+                            'effect': 'O=0',
+                            'limits': {'I': 'ABCE', 'L': 'ABCE', 'P': 'ABCE'},
+                            'name': 'Nakita'}
+
+
+  other_scout_action_0 =  {'cost': 'TUU',
+                           'effect': 'DS_',
+                           'limits': {'I': 'ABCE', 'L': 'ABCE', 'P': 'ABCE'},
+                           'name': 'Vartioi'}
+
+  other_scout_action_1 =  {'cost': 'TUU',
+                           'effect': 'DG_',
+                           'limits': {'I': 'ABCE'},
+                           'name': 'Partioi'}
+
+  other_scout_action_2 =  {'cost': 'TUU',
+                           'effect': 'DA_',
+                           'limits': {'I': 'ABCE'},
+                           'name': 'Ihmiskilpiä'}
+
+
+  deck = { 0: [basic_attack_action, other_scout_action_0 ],
+           1: [basic_attack_action, other_pillage_action_0 ],
+           2: [basic_attack_action, other_overtake_action_0 ],
+           3: [basic_scout_action, other_attack_action_0 ],
+           4: [basic_scout_action, other_pillage_action_1 ],
+           5: [basic_scout_action, other_overtake_action_1 ],
+           6: [basic_pillage_action, other_attack_action_1 ],
+           7: [basic_pillage_action, other_scout_action_1 ],
+           8: [basic_pillage_action, other_overtake_action_2 ],
+           9: [basic_overtake_action, other_attack_action_2 ],
+           10: [basic_overtake_action, other_scout_action_2 ],
+           11: [basic_overtake_action, other_pillage_action_2 ],
+           12: [basic_wait_action],
+           13: [basic_wait_action],
+           14: [basic_rest_action, enhanced_rest_action],
+           15: [basic_rest_action, enhanced_rest_action],
+           16: [basic_rest_action, enhanced_rest_action] }
+
+  for i in range(2):
+    for n in range(17):
+      deck[len(deck)] = deck[n]
+
+    
+  """
   deck = {0: [{'cost': 'T2UU',
                'effect': 'A+2',
                'limits': {'I': 'A'},
@@ -507,3 +613,4 @@ class CardDeckActions:
                 'limits' : [{'P':'ABCE', 'I':'ABCE', 'L': 'ABCE'}, {'I':'A', 'P':'AB'}],
                 'cost' : ['TUU','TUU'] },
 }
+"""

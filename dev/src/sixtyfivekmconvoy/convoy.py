@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 
+from .constants import *
+
 from .unit import Unit, UnitType
+
+
 
 class Convoy:
   base_units = {
@@ -25,9 +29,12 @@ class Convoy:
     if state is None:
       num_players = len(players)
       num_units = num_players * 3
-      self.units = [ Convoy.base_units[i] for i in range(1,num_units+1) ]
+      self.units = [
+        Convoy.base_units[i] for i in range(1,num_units+1)
+      ]
       for u in self.units:
         u.player = players[u.player-1]
+        u.convoy = self
     else:
       self.units = state
 
@@ -59,23 +66,114 @@ class Convoy:
 
   def to_json(self, playerview=None):
     return [ u.to_json(playerview=playerview) for u in self.units ]
+
+  #
+  # Accessing unit position and unit itself:
+  #
   
-  def apply_damage(self, damage, unit=None, zone=None):
+  def get_unit_position(self, unit):
+    return self.units.index(unit)+1
+  
+  def get_unit_index(self, unit):
+    return self.units.index(unit)  
+
+  def get_unit_zone(self, unit):
+    position = self.get_unit_position(unit)
+    if position in [ len(self.units) + e for e in self.zones['E'] ]:
+      return 'E'
+    for zone in 'ABC':
+      if position in self.zones[zone]:
+        return zone
+    raise NotImplementedError('Unit has no zone!')
+  
+  def get_unit_at(self, place):
+    # Game uses indexing starting at 1;
+    # Arrays use indexing starting at 0.
+    return self.units[place-1]
+  
+  def get_units_in_zone(self, zone):
+    assert( zone in 'ABCE')
+    zone_units = [ u for u in self.zones[zone] if u < len(self.units) ]
+    #return [self.units[u] for u in zone_units ]
+    #list(range(1,len(self.units)+1))[u] for u in zone_units ]
+    return [ self.get_unit_at(u) for u in zone_units ]
+
+
+  #
+  #   Apply damage to convoy:
+  #
+  #
+                   
+  def apply_damage(self, damage, cards=0, damage_for_not_discarding=1, unit=None, zone=None, attack_type=None):
     assert(unit is not None or zone is not None)
+    msg = ''
     if zone is not None and unit is None:            
       # Apply damage to all unit is zone:
-      for unit in self.zones[zone]:
-        self.apply_damage(damage,unit=unit)
+      print(self.get_units_in_zone(zone))
+      for unit in self.get_units_in_zone(zone):
+        msg += self.apply_damage(damage,
+                                 cards=cards,
+                                 damage_for_not_discarding=damage_for_not_discarding,
+                                 unit=unit, attack_type=attack_type)
+        
     elif zone is not None and unit is not None:
-      unit_in_zone = self.zones[zone][unit]
-      self.apply_damage(damage, unit=unit_in_zone)
+      units_in_zone = self.get_units_in_zone(zone)
+      # In zone targeting, unit can be -2, -1, 1 or 2
+      # These are mapped for zone size
+      #        1   2   3   4 
+      #      ----------------
+      # -2   | 1   1   2   3
+      # -1   | 1   2   3   4      
+      #  1   | 1   1   1   1
+      #  2   | 1   2   2   2
+      while len(units_in_zone) < abs(unit):
+        if unit < 0: unit +=1
+        else: unit -= 1
+      unit_in_zone = units_in_zone[unit]
+      # TODO: Figure out what to do if zone C is empty!
+      msg += self.apply_damage(damage,
+                               cards=cards,
+                               damage_for_not_discarding=damage_for_not_discarding,
+                               unit=unit_in_zone,
+                               attack_type=attack_type)
+      
     else:
+
+      
       # let's say target is index in unit list:
-      new_unit_status = self.units[unit].apply_damage(damage)
-      msg = f"Unit {unit} takes {damage} damage"
+      if type(unit) == int:
+        unit = self.get_unit_at(unit)
+      elif type(unit) != Unit:
+        raise ValueError("Target unit needs to be int or unit: Got "+type(unit))
+      msg = ""
+      # Is there a defender to lessen the damage?
+      defend_soak=0
+      for u in [unit] + unit.get_neighbours():
+        if u.defending is not None and u.defending == attack_type:
+          defend_soak +1
+          u.reward_defending()
+
+      if defense_soak > 0:
+        if damage + cards <= defend_soak:
+          msg = f"Defense soaks up all damage."
+          return msg
+        else:
+          soaked_damage = 0
+          soaked_cards = 0
+          while damage > 0 and defense_soak > 0:
+            damage -= 1
+            soaked_damage += 1
+          while cards > 0 and defense_soak > 0:
+            cards -= 1
+            soaked_cards += 1
+          msg += f"Defense soaks {damage} damage and {cards} discards"
+      
+      new_unit_status = unit.apply_damage(damage, discards=cards,damage_for_not_discarding=damage_for_not_discarding)
+      
+      msg += f"Unit {unit} takes {damage} damage, player loses {cards} cards"
       if new_unit_status < 0:
         msg += " and is removed from convoy"
-        self.units.pop(unit)
+        self.units.pop( unit.index() )
       else:
         msg += f" and is left with {new_unit_status} capacity"
     return msg
@@ -151,16 +249,29 @@ class Convoy:
   #def resolve_action(self, unitnumber, actionstr, second=False):
   #  unit = self.units[unitnumber]
 
+  def move_unit(self, position, move):
+    new_position=position - move
+
+    # Simple but I'm writing it down:
+    # convoy is: 0 1 2 3 4
+    # move 2 forward:
+    # pop item at 2:  0 1 3 4 then insert item at 2-1: 0 2 1 3 4
+    # move 2 backward:
+    # pop item at 2:  0 1 3 4 then insert item at 2+1: 0 1 3 2 4
+    moving_unit = self.units.pop(position)
+    self.units.insert(new_position, moving_unit)
+    return new_position
+  
   def resolve_action(self, action, second=False):
 
     if action is None:
-      print(f"{self.units[self.current_actor].to_str()} becomes frustrated")
+      #print(f"{self.units[self.current_actor].to_str()} becomes frustrated")
       self.units[self.current_actor].become_frustrated()
       self.set_next_actor()
       return True
 
 
-    print("Resolve action", action.name, "for unit", action.actor)
+    #print("Resolve action", action.name, "for unit", action.actor)
     
 
     # We know the action was possible since is was vetted before;
