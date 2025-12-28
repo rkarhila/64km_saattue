@@ -26,7 +26,6 @@ from .card_deck_mauling import CardDeckMauling
 from .card_deck import CardDeck
 from .card_queue import CardQueue
 
-from .playerconnector import PlayerConnector
 
 NUM_ACTION_CARDS = 50
 NUM_MAULING_CARDS = 24
@@ -115,10 +114,15 @@ class GameState:
   choose_pillage_card_choice_type = 5
 
   
-  def __init__(self, playerconf, seed=3):
-    self.playerconnector = PlayerConnector(playerconf)
-
-
+  def __init__(self, playerconnector, seed=3):
+    """
+    Initialize GameState with a PlayerConnector.
+    
+    Args:
+        playerconnector: PlayerConnector instance that manages player connections
+        seed: Random seed for game initialization (optional)
+    """
+    self.playerconnector = playerconnector
     self.players = self.playerconnector.players
     
     self.rounds = None

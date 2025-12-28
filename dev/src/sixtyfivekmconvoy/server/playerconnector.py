@@ -157,17 +157,26 @@ class SocketServer:
 
 class PlayerConnector:
 
-  def __init__(self,playerconf2, port):
-
+  def __init__(self, playerconf2, port=None):
+    """
+    Initialize PlayerConnector.
+    
+    Args:
+        playerconf2: List of player configurations
+        port: Port number for socket server (None for local clients)
+    """
     assert(type(playerconf2) == list),('conf should be list, but is', type(playerconf2))
     assert(len(playerconf2)>=1)
     assert(len(playerconf2)<=5)
 
     self.num_players = len(playerconf2)
+    self.server = None
 
-    self.server = SocketServer(port, self.num_players)
+    # If port is provided, start socket server (for remote clients)
+    if port is not None:
+      self.server = SocketServer(port, self.num_players)
 
-
+    # Create local Player objects
     self.players = []
     for i,pl in enumerate(playerconf2):
       self.players.append(Player(i+1,pl))

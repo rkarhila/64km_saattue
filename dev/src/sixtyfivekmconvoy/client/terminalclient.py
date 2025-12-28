@@ -5,6 +5,7 @@ This module contains the TerminalClient class for terminal-based local gameplay.
 """
 
 import re
+import argparse
 from .socketclient import SocketClient
 
 
@@ -158,7 +159,12 @@ class TerminalClient(SocketClient):
     
     return ascii_state
 
-  def push_info(self, game_state):
+  def push_info(self, game_state=None):
+    # If game_state is None, read from socket (socket client mode)
+    read_from_socket = (game_state is None)
+    if read_from_socket:
+      game_state = self._receive_json()
+    
     # Convert JSON game state to ASCII for display
     ascii_state = self._json_to_ascii(game_state)
     
@@ -175,6 +181,7 @@ class TerminalClient(SocketClient):
     if 'message' in game_state:
       print('BROADCAST:', game_state['message'])
     
+    # If there's a choice, handle it
     if 'choice' in game_state:
       print(game_state['choice']['description'])
       options = game_state['choice']['options']
@@ -183,6 +190,13 @@ class TerminalClient(SocketClient):
       while not self.verify_input(choice, options, choicecount):
         print(f"Choose {choicecount} values from:", ','.join([str(c) for c in options]))
         choice = self.get_choice(input())
+      
+      # If we read from socket, send choice back via socket
+      if read_from_socket:
+        self._send_json(choice)
+        return None  # Don't return choice dict in socket mode
+      
+      # For local mode, return choice dict
       return { 'choicetype' : game_state['choice']['choicetype'],
                'choice' : choice }
     
@@ -240,4 +254,53 @@ class TerminalClient(SocketClient):
         choice = self.get_choice(input())
       return choice
     return None
+
+
+def main():
+    """Main function to connect to a game server and play via terminal."""
+    parser = argparse.ArgumentParser(description='Connect to a game server and play via terminal')
+    parser.add_argument('--host', type=str, default='localhost', help='Server hostname (default: localhost)')
+    parser.add_argument('--port', type=int, required=True, help='Server port number')
     
+    args = parser.parse_args()
+    
+    # Create TerminalClient
+    client = TerminalClient({'playertype': 'terminal'})
+    
+    try:
+        # Connect to server
+        print(f"Connecting to server at {args.host}:{args.port}...")
+        client.connect(args.host, args.port)
+        print("Connected successfully!")
+        
+        # Main game loop: receive game state, respond to choices
+        while True:
+            try:
+                # Receive game state from server and display it
+                # push_info handles reading from socket, displaying, and sending choices back
+                client.push_info()  # None means read from socket
+                    
+            except (ConnectionError, EOFError, OSError, BrokenPipeError) as e:
+                print(f"\nConnection closed: {e}")
+                break
+            except KeyboardInterrupt:
+                print("\n\nGame interrupted by user.")
+                break
+                
+    except ConnectionRefusedError:
+        print(f"Error: Could not connect to server at {args.host}:{args.port}")
+        print("Make sure the server is running and the port is correct.")
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        try:
+            client.disconnect()
+        except:
+            pass
+
+
+if __name__ == '__main__':
+    main()
+
