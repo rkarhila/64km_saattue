@@ -391,9 +391,7 @@ class GameState:
     # In setup, players choose position for their troops
     setup_states = []
     for player in self.players:
-      setup_states.append( { 'json' : {},
-                             'ascii' : {},
-                            } )
+      setup_states.append({})
     return setup_states
   
     
@@ -501,14 +499,10 @@ class GameState:
     if player is None:
       game_states = []
       for i,player in enumerate(self.players):
-        game_state = { 'json' : { 'convoy' : self.convoy.to_json(playerview=player),
-                                  'players' : self.players_to_json(playerview=player),
-                                  'decks': deck_state['json'],
-                                  'resistance' : self.resistance.to_json() },
-                       'ascii' : { 'convoy' : self.convoy.to_str(playerview=player),
-                                   'players' : self.players_to_str(playerview=player),
-                                   'decks' : deck_state['ascii'],
-                                  'resistance' : self.resistance.to_str()}}
+        game_state = { 'convoy' : self.convoy.to_json(playerview=player),
+                      'players' : self.players_to_json(playerview=player),
+                      'decks': deck_state,
+                      'resistance' : self.resistance.to_json() }
         if await_actions[i] is not None:
           game_state['choice'] = { 'options' : await_actions[i]['options'],
                                    'choicetype' : await_actions[i]['choicetype'],
@@ -517,14 +511,10 @@ class GameState:
         game_states.append(game_state)
       return game_states
     else:
-        game_state = { 'json' : { 'convoy' : self.convoy.to_json(playerview=player),
-                                  'players' : self.players_to_json(playerview=player),
-                                  'decks': deck_state['json'],
-                                  'resistance' : self.resistance.to_json() },
-                       'ascii' : { 'convoy' : self.convoy.to_str(playerview=player),
-                                   'players' : self.players_to_str(playerview=player),
-                                   'decks' : deck_state['ascii'],
-                                   'resistance' : self.resistance.to_str()}}
+        game_state = { 'convoy' : self.convoy.to_json(playerview=player),
+                      'players' : self.players_to_json(playerview=player),
+                      'decks': deck_state,
+                      'resistance' : self.resistance.to_json() }
         return game_state
         
   def get_deck_state(self):
@@ -536,30 +526,9 @@ class GameState:
     queue_state_json = { 'resistance' : self.resistance_queue.to_arr(),
                          'pillage' : self.pillage_queue.to_arr(),
                          'mauling' : self.mauling_queue.to_arr() }
-
-    deck_state_str = 'Decks: '+ ' '.join(['Action:', self.action_deck.to_str(),
-                                        'Resistance:',self.resistance_deck.to_str(),
-                                        'Pillage:', self.pillage_deck.to_str(),
-                                        'Mauling:', self.mauling_deck.to_str()])
-
-    queue_state_str = []
-    for i in range(max( len(queue_state_json['resistance']),
-                        len(queue_state_json['pillage']),
-                        len(queue_state_json['mauling']))):
-      q_linearr = [str(i+1)+':']
-      for q in ['resistance', 'pillage', 'mauling']:
-        if len(queue_state_json[q]) > i:
-          q_linearr.append( str(queue_state_json[q][i]).center(20))
-        else:
-          q_linearr.append( str('').center(20))
-      queue_state_str =  [' '.join(q_linearr)] + queue_state_str
-
-    que_state_str = ['  '+' '.join([q.center(20) for q in ['resistance', 'pillage', 'mauling']])] + queue_state_str
-    deck_and_queue_str = deck_state_str + '\n' + '\n'.join(que_state_str)
     
-    return { 'json' : {'decks' : deck_state_json,
-                       'queues' : queue_state_json },
-             'ascii' : deck_and_queue_str  }
+    return {'decks' : deck_state_json,
+            'queues' : queue_state_json }
     
   def finalize_score(self):
     dummy = 1
