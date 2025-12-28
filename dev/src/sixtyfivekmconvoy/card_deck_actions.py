@@ -20,7 +20,6 @@ The deck is used to generate the action cards for each player.
 """
 
 import csv
-import json
 import os
 
 
@@ -115,8 +114,15 @@ def _load_deck_from_csv():
       card_id = int(row['card_id'])
       action_index = int(row['action_index'])
       
-      # Parse the limits JSON string
-      limits = json.loads(row['limits'])
+      # Build the limits dictionary from separate I, P, L columns
+      # Only include keys that have non-empty values
+      limits = {}
+      if row['I'].strip():
+        limits['I'] = row['I'].strip()
+      if row['P'].strip():
+        limits['P'] = row['P'].strip()
+      if row['L'].strip():
+        limits['L'] = row['L'].strip()
       
       # Create the action dictionary
       action = {

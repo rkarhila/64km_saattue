@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
 
+"""
+This module contains the main game loop and tracks the state for the game.
+
+The stateof the game is tracked in the GameState class. The game state can be
+- saved and loaded from a file.
+
+The game states is broadcasted to the players. The players can then send their actions to the game state.
+
+The players can be either human players or AI players.
+
+
+"""
+
 import numpy as np
 import random
 
@@ -10,6 +23,8 @@ from .card_deck_pillage import CardDeckPillage
 from .card_deck_resistance import CardDeckResistance
 from .card_deck_actions import CardDeckActions
 from .card_deck_mauling import CardDeckMauling
+from .card_deck import CardDeck
+from .card_queue import CardQueue
 
 from .playerconnector import PlayerConnector
 
@@ -68,105 +83,6 @@ from .action import Action
 #       # Add loot to queue!
     
 
-class CardDeck:
-  NO_CARD=0
-
-  def __init__(self, number_of_cards, shuffled=True, names_and_effects=None):
-    self.number_of_cards = number_of_cards
-    #self.deck =  list(range(1,number_of_cards+1))
-    self.deck =  list(range(number_of_cards))
-    self.discard = []
-    if shuffled:
-      random.shuffle(self.deck)
-    self.names_and_effects = names_and_effects
-                      
-  def get_card(self,shuffle_if_necessary = True):
-    if len(self.deck) == 0:
-      print("Shuffling deck")
-      self.reshuffle()
-    card = self.deck.pop(0)
-    return card
-  
-  def return_card(self, card):
-    self.deck = [card] + self.deck
-                      
-  def discard(self,card):
-    self.discard.append(card)
-
-  def reshuffle(self):
-    assert (len(self.deck) == 0)
-    self.deck = self.discard
-    print(f"Reshuffling, deck size is {len(self.deck)}")
-    random.shuffle(self.deck)
-    self.discard = []
-
-  def get_sizes(self):
-    return len(self.deck), len(self.discard)
-
-  def to_json(self):
-    deckjson = { 'deck' : len(self.deck),
-                 'discard' : len(self.discard) }
-    return deckjson
-  
-  def to_str(self):
-    deckstr = f"{len(self.deck)}D{len(self.discard)}"
-    return deckstr
-
-  def get_name(self, card):
-    if self.names_and_effects:
-      return self.names_and_effects[card]['name']
-
-  def get_effect(self,card):
-    if self.names_and_effects:
-      return self.names_and_effects[card]['effect']
-
-  def describe(self, card):
-    return self.names_and_effects[card]
-    
-    
-class CardQueue:
-  
-  def __init__(self, number_of_cards, deck=None):
-    self.cards_and_visibilities = []
-    self.deck = deck
-
-  def remove_card(self, index=0):
-    card, visibility = self.cards_and_visibilities.pop(index)
-    return card, visibility
-  
-  def put_card(self, card, visible=False):
-    self.cards_and_visibilities.append([card, visible])
-    
-  def return_card(self, card, visible=False):
-    self.cards_and_visibilities = [[card,visible]] + self.cards_and_visibilities 
-  def contains_hidden_cards(self):
-    for card, visible in self.cards_and_visibilities:
-      if not visible:
-        return True
-    return False
-
-    
-  def reveal_card(self, index=0):
-    self.cards_and_visibilities[index][1] = True
- 
-  def reveal_next_hidden(self):
-    for index, card_and_visible in enumerate(self.cards_and_visibilities):
-      if not card_and_visible[1]:        
-        self.cards_and_visibilities[index][1] = True
-        break
-    
-  def to_arr(self):
-    if self.deck is not None and self.deck.names_and_effects is not None:
-      queuearr = [ self.deck.get_name( self.deck.deck[i] ) if c[1] else '?' for i,c in enumerate(self.cards_and_visibilities)]
-    else:
-      queuearr = [ c[0] if c[1] else '?' for c in self.cards_and_visibilities]
-
-    return queuearr
-
-  def describe(self, index):
-    if self.deck is not None:
-      return self.deck.describe(self.cards_and_visibilities[index][0])
-    
 class Rounds:
 
   stages= { 0 : 'Deal cards',
