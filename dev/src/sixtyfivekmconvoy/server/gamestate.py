@@ -56,32 +56,6 @@ from .resistance import Resistance
 
 from .action import Action
 
-# class Resistance:
-#   def __init__(self, card):
-#     self.name = card['name']
-
-#     description = card['effect']
-#     self.durability = description['durability']
-#     self.attack_damage = description['attack']
-#     self.attack_target = description['target']
-#     self.susceptibility = description['damage']
-
-#     self.status = 'active'
-
-#   def take_damage(self, damagetype):
-#     if damagetype in self.susceptibility.keys():
-#       self.durability -= self.susceptibility[damagetype]
-#     elif type(damagetype) == int:
-#       self.durability -= damagetype
-#     elif damagetype in '0123456789':
-#       self.durability -= int(damagetype)
-#     else:
-#       raise ValueError(f'Cannot interpret "{damagetype}" as damage')
-
-#     if self.durability <= 0:
-#       self.status = 'destroyed'
-#       # Add loot to queue!
-    
 
 class Rounds:
 
@@ -143,6 +117,8 @@ class GameState:
   
   def __init__(self, playerconf, seed=3):
     self.playerconnector = PlayerConnector(playerconf)
+
+
     self.players = self.playerconnector.players
     
     self.rounds = None

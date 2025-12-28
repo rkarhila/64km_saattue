@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
+"""
+This module contains the PlayerConnector class for connecting players to the game.
+
+It starts a tcp server and listens for connections from players. 
+It waits for a connection from each player and then creates a Player object for each player.
+
+The SocketServer class is responsible for sending and receiving messages to and from the player.
+"""
 
 
-from .convoyclients import TerminalClient, MLClient, VerboseRandomClient
-
-
+import socket
+import json
 
 class Player:
   number = -1
@@ -81,15 +88,85 @@ class Player:
     return playerjson
   
 
+class SocketPlayer:
+  def __init__(self, client_socket):
+    self.client_socket = client_socket
+    # Make socket non-blocking and set timeout for receive operations
+    self.client_socket.settimeout(None)
+
+  def _send_json(self, data):
+    """Send JSON-encoded data over the socket."""
+    json_str = json.dumps(data) + '\n'
+    self.client_socket.sendall(json_str.encode('utf-8'))
+
+  def _receive_json(self):
+    """Receive and parse JSON data from the socket."""
+    # Read line-by-line to handle JSON messages
+    buffer = ''
+    while True:
+      data = self.client_socket.recv(4096)
+      if not data:
+        raise ConnectionError("Socket connection closed")
+      buffer += data.decode('utf-8')
+      if '\n' in buffer:
+        line, buffer = buffer.split('\n', 1)
+        return json.loads(line)
+
+  def push_info(self, info):
+    """Send game state information as JSON to the client."""
+    self._send_json(info)
     
+  def await_choice(self, candidates):
+    """Send candidates as JSON and receive a list of integers as the choice."""
+    self._send_json(candidates)
+    choice = self._receive_json()
+    # Ensure the response is a list of integers
+    if isinstance(choice, list):
+      return [int(x) for x in choice]
+    elif isinstance(choice, int):
+      return [choice]
+    else:
+      raise ValueError(f"Expected list of integers, got {type(choice)}: {choice}")
+
+class SocketServer:
+  def __init__(self, port, num_players):
+    self.port = port
+    self.players = []
+    self.num_players = num_players
+    self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    self.server.bind(('0.0.0.0', port))
+    self.server.listen(5)
+    
+    while len(self.players) < self.num_players:
+      client, address = self.server.accept()
+      self.players.append(SocketPlayer(client))
+
+  def get_players(self):
+    return self.players
+
+  def push_info(self, player, info):
+    self.players[player].push_info(info)
+
+  def await_choice(self, player, candidates):
+    return self.players[player].await_choice(candidates)
+
+  def get_choice(self, player, choice):
+    return self.players[player].get_choice(choice)
+
+
+
 class PlayerConnector:
 
-  def __init__(self,playerconf2):
+  def __init__(self,playerconf2, port):
+
     assert(type(playerconf2) == list),('conf should be list, but is', type(playerconf2))
     assert(len(playerconf2)>=1)
     assert(len(playerconf2)<=5)
 
     self.num_players = len(playerconf2)
+
+    self.server = SocketServer(port, self.num_players)
+
 
     self.players = []
     for i,pl in enumerate(playerconf2):

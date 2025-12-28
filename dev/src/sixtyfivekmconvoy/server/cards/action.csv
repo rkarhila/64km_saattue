@@ -1,0 +1,97 @@
+card_id,action_index,cost,effect,I,P,L,name
+0,0,TUU,A+0,A,AB,,Hyökkää
+0,1,TUU,DS_,ABCE,ABCE,ABCE,Vartioi
+1,0,TUU,A+0,A,AB,,Hyökkää
+1,1,TU,P=3,ABCE,ABCE,ABCE,Laaja toimintasäde
+2,0,TUU,A+0,A,AB,,Hyökkää
+2,1,T1U,B=2,ABCE,ABCE,ABCE,Törkeä liikenteen vaarantaminen
+3,0,TUUU,SE2,A,,,Tiedustele
+3,1,4,A=4,ABCE,ABCE,ABCE,Ilmaiskuja
+4,0,TUUU,SE2,A,,,Tiedustele
+4,1,TUU,P=1,ABCE,ABCE,ABCE,Erikoisen kurinalaista toimintaa
+5,0,TUUU,SE2,A,,,Tiedustele
+5,1,T1U,B-1,ABCE,ABCE,ABCE,Sekaannus etenemissuunnasta
+6,0,T,P+0,ABCE,ABCE,ABCE,Ryöstele
+6,1,TUU,B=1A+0,AB,AB,,Rynnäkkö!
+7,0,T,P+0,ABCE,ABCE,ABCE,Ryöstele
+7,1,TUU,DG_,ABCE,,,Partioi
+8,0,T,P+0,ABCE,ABCE,ABCE,Ryöstele
+8,1,T2U,ESC,E,E,E,"Sayonara, suckers!"
+9,0,TU,B=1,ABCE,ABCE,ABCE,Ohita
+9,1,TUU,B-1A+0,AB,AB,,Suojatulta!
+10,0,TU,B=1,ABCE,ABCE,ABCE,Ohita
+10,1,TUU,DA_,ABCE,,,Ihmiskilpiä
+11,0,TU,B=1,ABCE,ABCE,ABCE,Ohita
+11,1,TUU,O=0,ABCE,ABCE,ABCE,Nakita
+12,0,TUU,W..,ABCE,ABCE,ABCE,Körssitauko
+13,0,TUU,W..,ABCE,ABCE,ABCE,Körssitauko
+14,0,,Z=0,ABCE,ABCE,ABCE,Lepo
+14,1,2,Z=2,ABCE,,,Tuplalepo
+15,0,,Z=0,ABCE,ABCE,ABCE,Lepo
+15,1,2,Z=2,ABCE,,,Tuplalepo
+16,0,,Z=0,ABCE,ABCE,ABCE,Lepo
+16,1,2,Z=2,ABCE,,,Tuplalepo
+17,0,TUU,A+0,A,AB,,Hyökkää
+17,1,TUU,DS_,ABCE,ABCE,ABCE,Vartioi
+18,0,TUU,A+0,A,AB,,Hyökkää
+18,1,TU,P=3,ABCE,ABCE,ABCE,Laaja toimintasäde
+19,0,TUU,A+0,A,AB,,Hyökkää
+19,1,T1U,B=2,ABCE,ABCE,ABCE,Törkeä liikenteen vaarantaminen
+20,0,TUUU,SE2,A,,,Tiedustele
+20,1,4,A=4,ABCE,ABCE,ABCE,Ilmaiskuja
+21,0,TUUU,SE2,A,,,Tiedustele
+21,1,TUU,P=1,ABCE,ABCE,ABCE,Erikoisen kurinalaista toimintaa
+22,0,TUUU,SE2,A,,,Tiedustele
+22,1,T1U,B-1,ABCE,ABCE,ABCE,Sekaannus etenemissuunnasta
+23,0,T,P+0,ABCE,ABCE,ABCE,Ryöstele
+23,1,TUU,B=1A+0,AB,AB,,Rynnäkkö!
+24,0,T,P+0,ABCE,ABCE,ABCE,Ryöstele
+24,1,TUU,DG_,ABCE,,,Partioi
+25,0,T,P+0,ABCE,ABCE,ABCE,Ryöstele
+25,1,T2U,ESC,E,E,E,"Sayonara, suckers!"
+26,0,TU,B=1,ABCE,ABCE,ABCE,Ohita
+26,1,TUU,B-1A+0,AB,AB,,Suojatulta!
+27,0,TU,B=1,ABCE,ABCE,ABCE,Ohita
+27,1,TUU,DA_,ABCE,,,Ihmiskilpiä
+28,0,TU,B=1,ABCE,ABCE,ABCE,Ohita
+28,1,TUU,O=0,ABCE,ABCE,ABCE,Nakita
+29,0,TUU,W..,ABCE,ABCE,ABCE,Körssitauko
+30,0,TUU,W..,ABCE,ABCE,ABCE,Körssitauko
+31,0,,Z=0,ABCE,ABCE,ABCE,Lepo
+31,1,2,Z=2,ABCE,,,Tuplalepo
+32,0,,Z=0,ABCE,ABCE,ABCE,Lepo
+32,1,2,Z=2,ABCE,,,Tuplalepo
+33,0,,Z=0,ABCE,ABCE,ABCE,Lepo
+33,1,2,Z=2,ABCE,,,Tuplalepo
+34,0,TUU,A+0,A,AB,,Hyökkää
+34,1,TUU,DS_,ABCE,ABCE,ABCE,Vartioi
+35,0,TUU,A+0,A,AB,,Hyökkää
+35,1,TU,P=3,ABCE,ABCE,ABCE,Laaja toimintasäde
+36,0,TUU,A+0,A,AB,,Hyökkää
+36,1,T1U,B=2,ABCE,ABCE,ABCE,Törkeä liikenteen vaarantaminen
+37,0,TUUU,SE2,A,,,Tiedustele
+37,1,4,A=4,ABCE,ABCE,ABCE,Ilmaiskuja
+38,0,TUUU,SE2,A,,,Tiedustele
+38,1,TUU,P=1,ABCE,ABCE,ABCE,Erikoisen kurinalaista toimintaa
+39,0,TUUU,SE2,A,,,Tiedustele
+39,1,T1U,B-1,ABCE,ABCE,ABCE,Sekaannus etenemissuunnasta
+40,0,T,P+0,ABCE,ABCE,ABCE,Ryöstele
+40,1,TUU,B=1A+0,AB,AB,,Rynnäkkö!
+41,0,T,P+0,ABCE,ABCE,ABCE,Ryöstele
+41,1,TUU,DG_,ABCE,,,Partioi
+42,0,T,P+0,ABCE,ABCE,ABCE,Ryöstele
+42,1,T2U,ESC,E,E,E,"Sayonara, suckers!"
+43,0,TU,B=1,ABCE,ABCE,ABCE,Ohita
+43,1,TUU,B-1A+0,AB,AB,,Suojatulta!
+44,0,TU,B=1,ABCE,ABCE,ABCE,Ohita
+44,1,TUU,DA_,ABCE,,,Ihmiskilpiä
+45,0,TU,B=1,ABCE,ABCE,ABCE,Ohita
+45,1,TUU,O=0,ABCE,ABCE,ABCE,Nakita
+46,0,TUU,W..,ABCE,ABCE,ABCE,Körssitauko
+47,0,TUU,W..,ABCE,ABCE,ABCE,Körssitauko
+48,0,,Z=0,ABCE,ABCE,ABCE,Lepo
+48,1,2,Z=2,ABCE,,,Tuplalepo
+49,0,,Z=0,ABCE,ABCE,ABCE,Lepo
+49,1,2,Z=2,ABCE,,,Tuplalepo
+50,0,,Z=0,ABCE,ABCE,ABCE,Lepo
+50,1,2,Z=2,ABCE,,,Tuplalepo
