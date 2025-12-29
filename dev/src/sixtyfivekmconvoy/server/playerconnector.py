@@ -12,6 +12,15 @@ The SocketServer class is responsible for sending and receiving messages to and 
 import socket
 import json
 
+# Import client classes for local player mode
+try:
+  from ..client import TerminalClient, VerboseRandomClient, MLClient
+except ImportError:
+  # Fallback if imports fail
+  TerminalClient = None
+  VerboseRandomClient = None
+  MLClient = None
+
 class Player:
   number = -1
   name = None
@@ -32,12 +41,23 @@ class Player:
     self.action_cards = []
 
     if conf['playertype'] == 'terminal':
-      self.client = TerminalClient(conf)
+      if TerminalClient is not None:
+        self.client = TerminalClient(conf)
+      else:
+        self.client = 'terminal'  # Fallback
     elif conf['playertype'] == 'random-terminal':
-      self.client = VerboseRandomClient(conf)
-      
+      if VerboseRandomClient is not None:
+        self.client = VerboseRandomClient(conf)
+      else:
+        self.client = 'random-terminal'  # Fallback
     elif conf['playertype'] == 'computer':
-      self.client = MLClient(conf)
+      if MLClient is not None:
+        self.client = MLClient(conf)
+      else:
+        self.client = 'computer'  # Fallback
+    elif conf['playertype'] == 'socket':
+      # Socket players don't have local clients - they use SocketServer
+      self.client = None
 
     
   def get_cash(self, cash):
@@ -104,13 +124,23 @@ class SocketPlayer:
     # Read line-by-line to handle JSON messages
     buffer = ''
     while True:
-      data = self.client_socket.recv(4096)
+      try:
+        data = self.client_socket.recv(4096)
+      except (ConnectionResetError, BrokenPipeError, OSError) as e:
+        raise ConnectionError(f"Socket connection error: {e}")
       if not data:
         raise ConnectionError("Socket connection closed")
       buffer += data.decode('utf-8')
       if '\n' in buffer:
         line, buffer = buffer.split('\n', 1)
-        return json.loads(line)
+        line = line.strip()
+        if not line:
+          # Skip empty lines
+          continue
+        try:
+          return json.loads(line)
+        except json.JSONDecodeError as e:
+          raise ValueError(f"Invalid JSON received: {line[:100]}... Error: {e}")
 
   def push_info(self, info):
     """Send game state information as JSON to the client."""
@@ -136,7 +166,8 @@ class SocketServer:
     self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self.server.bind(('0.0.0.0', port))
     self.server.listen(5)
-    
+    print(f"Waiting for {self.num_players} players on port {self.port}")
+
     while len(self.players) < self.num_players:
       client, address = self.server.accept()
       self.players.append(SocketPlayer(client))
@@ -175,11 +206,18 @@ class PlayerConnector:
     # If port is provided, start socket server (for remote clients)
     if port is not None:
       self.server = SocketServer(port, self.num_players)
-
-    # Create local Player objects
-    self.players = []
-    for i,pl in enumerate(playerconf2):
-      self.players.append(Player(i+1,pl))
+      # In socket mode, players will be SocketPlayer objects from the server
+      # We still need Player objects for game state, but they won't have clients
+      self.players = []
+      for i in range(self.num_players):
+        p = Player(i+1, {'playertype': 'socket'})
+        # Don't set client for socket players - they're handled by SocketServer
+        self.players.append(p)
+    else:
+      # Create local Player objects with their clients
+      self.players = []
+      for i,pl in enumerate(playerconf2):
+        self.players.append(Player(i+1,pl))
 
     """
     self.state = GameState(self.players)
@@ -203,10 +241,40 @@ class PlayerConnector:
     self.send_scores(self.state.scores)
     """
   def send_game_state(self, player, game_state):
-    for p in self.players:
-      if player == p or player == player.number:
-        choice = p.client.push_info(game_state)
-        return choice
+    # Find the player index
+    player_index = None
+    if hasattr(player, 'number'):
+      player_index = player.number - 1
+    elif isinstance(player, int):
+      player_index = player - 1
+    else:
+      # Try to find in players list
+      for i, p in enumerate(self.players):
+        if p == player or (hasattr(player, 'number') and p.number == player.number):
+          player_index = i
+          break
+    
+    # If we have a socket server, use it for communication
+    if self.server is not None:
+      if player_index is None or player_index < 0 or player_index >= len(self.server.get_players()):
+        raise ValueError(f"Invalid player index: {player_index}")
+      
+      # Send game state via socket
+      self.server.push_info(player_index, game_state)
+      
+      # If there's a choice, await it and return in expected format
+      if 'choice' in game_state:
+        choice_list = self.server.await_choice(player_index, game_state['choice'])
+        # Return in format expected by demand_choice: {'choice': [...]}
+        return {'choice': choice_list}
+      
+      return None
+    else:
+      # Local mode: use player's client
+      for p in self.players:
+        if player == p or (hasattr(player, 'number') and p.number == player.number):
+          choice = p.client.push_info(game_state)
+          return choice
         
     
   def broadcast_game_states(self, game_states):

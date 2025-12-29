@@ -41,13 +41,32 @@ class SocketClient:
     # Read line-by-line to handle JSON messages
     buffer = ''
     while True:
-      data = self.socket.recv(4096)
+      try:
+        data = self.socket.recv(4096)
+      except (ConnectionResetError, BrokenPipeError, OSError) as e:
+        raise ConnectionError(f"Socket connection error: {e}")
       if not data:
         raise ConnectionError("Socket connection closed")
       buffer += data.decode('utf-8')
-      if '\n' in buffer:
+      
+      # Process complete lines from the buffer
+      while '\n' in buffer:
         line, buffer = buffer.split('\n', 1)
-        return json.loads(line)
+        line = line.strip()
+        if not line:
+          # Skip empty lines
+          continue
+        
+        # Only try to parse lines that look like JSON (start with { or [)
+        if line.startswith('{') or line.startswith('['):
+          try:
+            return json.loads(line)
+          except json.JSONDecodeError:
+            # If this looks like JSON but parsing failed, it might be incomplete
+            # Put it back in buffer and wait for more data
+            buffer = line + '\n' + buffer
+            break
+        # Otherwise, skip this line (might be debug output or other non-JSON text)
 
   def push_info(self, state=None):
     """Receive game state information as JSON from the server.

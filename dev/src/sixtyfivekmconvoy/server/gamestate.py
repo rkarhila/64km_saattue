@@ -203,7 +203,15 @@ class GameState:
           description='Choose one action card for each troop '+','.join(units)
           for c in player.action_cards:
             #  print(self.action_deck.describe(c))
-            description+= f'\n  {c}: '+ '/'.join([f['name'] for f in self.action_deck.describe(c)])
+            card_desc = self.action_deck.describe(c)
+            # card_desc is a list of action dictionaries when using action_deck
+            if isinstance(card_desc, list):
+              description+= f'\n  {c}: '+ '/'.join([f['name'] for f in card_desc if isinstance(f, dict) and 'name' in f])
+            elif isinstance(card_desc, dict) and 'name' in card_desc:
+              # Single action dictionary
+              description+= f'\n  {c}: {card_desc["name"]}'
+            else:
+              description+= f'\n  {c}: {str(card_desc)}'
           choicetaken = self.demand_choice(player,
                                            GameState.choose_card_choice_type,
                                            player.action_cards,

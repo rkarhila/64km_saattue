@@ -53,12 +53,38 @@ class CardDeck:
 
   def get_name(self, card):
     if self.names_and_effects:
-      return self.names_and_effects[card]['name']
+      card_data = self.names_and_effects[card]
+      # If it's a card object with a name attribute, return it
+      if hasattr(card_data, 'name'):
+        return card_data.name
+      # Otherwise assume it's a dictionary
+      elif isinstance(card_data, dict) and 'name' in card_data:
+        return card_data['name']
+    return None
 
-  def get_effect(self,card):
+  def get_effect(self, card):
     if self.names_and_effects:
-      return self.names_and_effects[card]['effect']
+      card_data = self.names_and_effects[card]
+      # If it's a card object with an effect attribute, return it
+      if hasattr(card_data, 'effect'):
+        return card_data.effect
+      # Otherwise assume it's a dictionary
+      elif isinstance(card_data, dict) and 'effect' in card_data:
+        return card_data['effect']
+      # For ActionCard, get effect from actions
+      elif hasattr(card_data, 'get_actions'):
+        return None  # ActionCard doesn't have a single effect
+    return None
 
   def describe(self, card):
-    return self.names_and_effects[card]
+    """Describe a card by calling its describe() method if available, otherwise return the card data."""
+    card_data = self.names_and_effects[card]
+    
+    # If the card has a describe() method, call it
+    if hasattr(card_data, 'describe'):
+      return card_data.describe()
+
+    
+    # Otherwise return as-is (should be a dict or list for backward compatibility)
+    return card_data
     

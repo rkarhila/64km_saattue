@@ -153,17 +153,17 @@ class Convoy:
           defend_soak +1
           u.reward_defending()
 
-      if defense_soak > 0:
+      if defend_soak > 0:
         if damage + cards <= defend_soak:
           msg = f"Defense soaks up all damage."
           return msg
         else:
           soaked_damage = 0
           soaked_cards = 0
-          while damage > 0 and defense_soak > 0:
+          while damage > 0 and defend_soak > 0:
             damage -= 1
             soaked_damage += 1
-          while cards > 0 and defense_soak > 0:
+          while cards > 0 and defend_soak > 0:
             cards -= 1
             soaked_cards += 1
           msg += f"Defense soaks {damage} damage and {cards} discards"
@@ -286,7 +286,15 @@ class Convoy:
       else:
         description=f'Choose {action_cost} action cards to discard for action {action.name}'
         for c in action.acting_unit.player.action_cards:
-          description+= f'\n  {c}: '+ '/'.join([f['name'] for f in action.gamestate.action_deck.describe(c)])
+          card_desc = action.gamestate.action_deck.describe(c)
+          # card_desc is a list of action dictionaries when using action_deck
+          if isinstance(card_desc, list):
+            description+= f'\n  {c}: '+ '/'.join([f['name'] for f in card_desc if isinstance(f, dict) and 'name' in f])
+          elif isinstance(card_desc, dict) and 'name' in card_desc:
+            # Single action dictionary
+            description+= f'\n  {c}: {card_desc["name"]}'
+          else:
+            description+= f'\n  {c}: {str(card_desc)}'
         choicetaken = action.gamestate.demand_choice(action.acting_unit.player,
                                            action.gamestate.choose_cards_to_discard,
                                            action.acting_unit.player.action_cards,

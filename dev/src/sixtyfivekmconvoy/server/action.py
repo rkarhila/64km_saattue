@@ -216,7 +216,8 @@ class Action:
       elif actionstr[0] == 'D':
         modifier=actionstr[1:3]
         defense_type = modifier[0]
-         self.acting_unit.resolve_defend(defense_type)
+        defense_reward = modifier[1]
+        self.acting_unit.resolve_defend(defense_type, defense_reward)
         
       elif actionstr[0] == 'W':
         # You can always wait as your first action!

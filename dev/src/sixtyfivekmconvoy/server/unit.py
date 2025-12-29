@@ -212,16 +212,16 @@ class Unit:
   
   def get_neighbours(self):
     index=self.convoy.get_unit_index(self)
-    if position > 0:
+    if self.position() > 0:
       preceeding=self.convoy.units[index-1]
     else:
       preceeding=None
 
-    if position < len(self.convoy.units)-1:
+    if self.position() < len(self.convoy.units)-1:
       following = self.convoy.units[index+1]
     else:
       following = None
-    return preceeding, following
+    return [ preceeding, following ]
       
   ### /state related methods
   
@@ -373,11 +373,12 @@ class Unit:
       self.has_defended = False
     else:
       raise NotImplementedError("Defense type "+defense_type+ " not implemented")
-    self.defending_reward = defence_reward
+    self.defending_reward = defense_reward
     return True
 
 
   def reward_defending(self):
+    assert self.defending_reward is not None, "Defending reward is None"
     r = self.defending_reward
     if r.lower() == 'a':
       self.atrocities += 1

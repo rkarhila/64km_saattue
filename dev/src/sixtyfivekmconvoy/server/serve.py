@@ -26,6 +26,7 @@ def serve(port, num_players, seed=None):
     # Create PlayerConnector which will start SocketServer and wait for connections
     connector = PlayerConnector(playerconf, port)
     
+    
     # Create GameState with the connector
     game = GameState(connector, seed=seed)
     

@@ -1,20 +1,71 @@
+#! /usr/bin/env python3
+
+"""
+This module contains the deck of mauling cards for the game.
+"""
+
+from random import choice
+
+
+class CardMauling:
+  """A single mauling action/effect."""
+  
+  def __init__(self, name, effect):
+    self.name = name
+    self.effect = effect
+  
+  def __str__(self):
+    return f"{self.name}: {self.effect}"
+  
+  def __repr__(self):
+    return self.__str__()
+  
+  def describe(self):
+    """Return a dictionary describing this mauling action."""
+    return {
+      'name': self.name,
+      'effect': self.effect
+    }
+
+
+class MaulingCard:
+  """A mauling card containing mauling actions (currently just one effect)."""
+  
+  def __init__(self, id, name, effect):
+    self.id = id
+    self.name = name
+    self.effect = effect
+    # Store as a list of CardMauling for consistency with ActionCard pattern
+    self.maulings = [CardMauling(name, effect)]
+  
+  def __str__(self):
+    return f"MaulingCard({self.id}): {self.name}"
+  
+  def __repr__(self):
+    return self.__str__()
+  
+  def describe(self):
+    """Return a dictionary describing this mauling card."""
+    return {
+      'name': self.name,
+      'effect': self.effect
+    }
+
+
 class CardDeckMauling:
 
-  from random import choice
   deck = {}
   for i in range(20):
-    deck[i] = { 'name' : f'maul_{i}',
-                'effect' : {'damage' : [2,4],
-                            'target' : choice(['B',
-                                               'C',
-                                               'A-1',
-                                               'A1',
-                                               'B1',
-                                               'B-1',
-                                               'E1',
-                                               'E-1']),
-                            'atrocity_threshold' : 2,
-                            'type' : 'Ground' }}
+    deck[i] = MaulingCard(
+      id=i,
+      name=f'maul_{i}',
+      effect={
+        'damage': [2, 4],
+        'target': choice(['B', 'C', 'A-1', 'A1', 'B1', 'B-1', 'E1', 'E-1']),
+        'atrocity_threshold': 2,
+        'type': 'Ground'
+      }
+    )
   
   """
   deck = { 0 : { 'name' : 'Kiväärihenkilöitä/Panssarirynnäkkö',

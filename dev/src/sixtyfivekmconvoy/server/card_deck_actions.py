@@ -33,7 +33,7 @@ Each action is a class with following variables:
   - name: the name of the action
 """
 
-class Action:
+class CardAction:
   def __init__(self, cost, effect, limits, name):
     self.cost = cost
     self.effect = effect
@@ -45,6 +45,15 @@ class Action:
 
   def __repr__(self):
     return self.__str__()
+  
+  def describe(self):
+    """Return a dictionary describing this action."""
+    return {
+      'name': self.name,
+      'cost': self.cost,
+      'effect': self.effect,
+      'limits': self.limits
+    }
 
 
 """
@@ -53,17 +62,25 @@ Actioncard is a holding class for a list of action class objects.
 Each actioncard has a list of actions.
 
 """
-def ActionCard(actions):
+class ActionCard():
+
+  def __init__(self, id, actions):
+    self.id = id
     self.actions = actions
 
-    def get_actions(self):
-        return self.actions
+  def get_actions(self):
+      return self.actions
 
-    def __str__(self):
-        return f"{self.name} ({self.cost}) {self.effect} {self.limits}"
+  def __str__(self):
+      action_names = '/'.join([action.name for action in self.actions])
+      return f"ActionCard({self.id}): {action_names}"
 
-    def __repr__(self):
-        return self.__str__()
+  def __repr__(self):
+      return self.__str__()
+  
+  def describe(self):
+    """Return a list of action dictionaries describing this card."""
+    return [action.describe() for action in self.actions]
 
 
 
@@ -125,12 +142,12 @@ def _load_deck_from_csv():
         limits['L'] = row['L'].strip()
       
       # Create the action dictionary
-      action = {
-        'cost': row['cost'],
-        'effect': row['effect'],
-        'limits': limits,
-        'name': row['name']
-      }
+      action = CardAction(
+        cost=row['cost'],
+        effect=row['effect'],
+        limits=limits,
+        name=row['name']
+      )
       
       # Initialize the card's action list if needed
       if card_id not in deck:
@@ -145,7 +162,7 @@ def _load_deck_from_csv():
   # Clean up: remove None placeholders and convert to list of actions
   result = {}
   for card_id in sorted(deck.keys()):
-    result[card_id] = [action for action in deck[card_id] if action is not None]
+    result[card_id] = ActionCard(actions=[action for action in deck[card_id] if action is not None], id=card_id)
   
   return result
 

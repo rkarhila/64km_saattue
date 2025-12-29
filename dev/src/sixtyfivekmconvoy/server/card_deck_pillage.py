@@ -1,16 +1,48 @@
+#! /usr/bin/env python3
+
+"""
+This module contains the deck of pillage cards for the game.
+"""
 
 import random
+
+
+class PillageCard:
+  """A pillage card."""
+  
+  def __init__(self, id, name, reward):
+    self.id = id
+    self.name = name
+    self.reward = reward
+  
+  def __str__(self):
+    return f"PillageCard({self.id}): {self.name}"
+  
+  def __repr__(self):
+    return self.__str__()
+  
+  def describe(self):
+    """Return a dictionary describing this pillage card."""
+    return {
+      'name': self.name,
+      'reward': self.reward
+    }
+
 
 class CardDeckPillage:
 
   deck = {}
 
   for i in range(40):
-    deck[i] = { 'name' : f'pillage_{i}',
-                'reward' : {
-                  'cash' : random.choice([0,1,2]),
-                  'loot' : random.choice([ [], [],[1], [1,1], [1,1,1], [3], [3,1], [5]]),
-                  'atrocities' : random.choice([0,1]) } }
+    deck[i] = PillageCard(
+      id=i,
+      name=f'pillage_{i}',
+      reward={
+        'cash': random.choice([0, 1, 2]),
+        'loot': random.choice([[], [], [1], [1, 1], [1, 1, 1], [3], [3, 1], [5]]),
+        'atrocities': random.choice([0, 1])
+      }
+    )
     
   """
   deck = { 0 : { 'name' : 'ruokala', 'effect' : [] },
@@ -22,7 +54,7 @@ class CardDeckPillage:
            6 : { 'name' : 'patsas', 'effect' : [] },
            7 : { 'name' : 'verstas', 'effect' : [] },
            8 : { 'name' : 'hääjuhlat', 'effect' : [] },
-           9 : { 'name' : 'leipomo', 'effect' : [] },
+           9 : { 'name' : 'leipamo', 'effect' : [] },
            10 : { 'name' : 'hautajaiset', 'effect' : [] },
            11 : { 'name' : 'työmaa', 'effect' : [] },
            12 : { 'name' : 'hautausmaa', 'effect' : [] },
