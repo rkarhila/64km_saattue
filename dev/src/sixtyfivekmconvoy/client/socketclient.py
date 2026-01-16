@@ -16,6 +16,7 @@ class SocketClient:
   def __init__(self, conf):
     self.conf = conf
     self.socket = None 
+    self._receive_buffer = ''  # Buffer for receiving JSON messages
 
   def connect(self, host, port):
     """Connect to the server."""
@@ -24,8 +25,9 @@ class SocketClient:
 
   def disconnect(self):
     if self.socket:
-      self.socket.close()
+    self.socket.close()
       self.socket = None
+    self._receive_buffer = ''
 
   def _send_json(self, data):
     """Send JSON-encoded data over the socket."""
@@ -38,8 +40,8 @@ class SocketClient:
     """Receive and parse JSON data from the socket."""
     if not self.socket:
       raise ConnectionError("Not connected to server")
-    # Read line-by-line to handle JSON messages
-    buffer = ''
+    # Read line-by-line to handle JSON messages, using instance buffer to preserve data
+    buffer = self._receive_buffer
     while True:
       try:
         data = self.socket.recv(4096)
@@ -60,13 +62,19 @@ class SocketClient:
         # Only try to parse lines that look like JSON (start with { or [)
         if line.startswith('{') or line.startswith('['):
           try:
-            return json.loads(line)
+            json_obj = json.loads(line)
+            # Save remaining buffer for next call
+            self._receive_buffer = buffer
+            return json_obj
           except json.JSONDecodeError:
             # If this looks like JSON but parsing failed, it might be incomplete
             # Put it back in buffer and wait for more data
             buffer = line + '\n' + buffer
             break
         # Otherwise, skip this line (might be debug output or other non-JSON text)
+    
+    # Save buffer for next call (no complete message yet)
+    self._receive_buffer = buffer
 
   def push_info(self, state=None):
     """Receive game state information as JSON from the server.
@@ -104,7 +112,7 @@ class SocketClient:
     
     # Send back the choice as a list of integers
     self._send_json(choice)
-    return choice
+    return choice 
   
   def send_choice(self, choice):
     """Send a choice (list of integers) as JSON to the server."""

@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+from .constants import ActionName
+from .card_deck_officers import OfficerCardDeck
+
 class Action:
 
   def __init__(self, gamestate, convoy, actor, action, cardnumber):
@@ -7,33 +10,65 @@ class Action:
     self.convoy = convoy
     self.actor = actor
     self.player = self.convoy.units[self.actor].player
-    self.effect = action['effect']
-    self.cost = action['cost']
-    self.limits = action['limits']
-    self.name = action['name']
     self.cardnumber = cardnumber
     self.acting_unit = self.convoy.units[self.actor]
     self.acting_unit_type = self.acting_unit.type_to_str[self.acting_unit.unittype][0]
     self.player = self.acting_unit.player
+    
+    # New format: action_name, action_modifier, zone, tire, intoxicate
+    if 'action_name' in action:
+      self.action_name = action['action_name']
+      self.action_modifier = action['action_modifier']  # Numeric value
+      self.zone = action.get('zone', '')
+      self.tire = action.get('tire', 0)
+      self.intoxicate = action.get('intoxicate', 0)
+    # Backward compatibility: old format
+    elif 'actions' in action:
+      # Old format: list of (action_type, modifier) tuples
+      # Convert to new format (take first action)
+      if len(action['actions']) > 0:
+        old_action_type, old_modifier = action['actions'][0]
+        # Map old ActionType to new ActionName (this is a transition helper)
+        # For now, we'll assume it's already normalized
+        self.action_name = old_action_type if isinstance(old_action_type, str) else ActionName.normalize(str(old_action_type))
+        # Convert modifier string to numeric
+        if isinstance(old_modifier, str):
+          if old_modifier.startswith('='):
+            self.action_modifier = int(old_modifier[1:])
+          elif old_modifier.startswith('+'):
+            self.action_modifier = int(old_modifier[1:])
+          elif old_modifier.startswith('-'):
+            self.action_modifier = int(old_modifier)
+          else:
+            self.action_modifier = 0
+        else:
+          self.action_modifier = old_modifier
+      else:
+        raise ValueError("Actions list is empty")
+      self.zone = action.get('zone', '')
+      self.tire = action.get('tire', 0)
+      self.intoxicate = action.get('intoxicate', 0)
+    else:
+      raise ValueError("Action must have 'action_name' or 'actions' field")
+    
+    self.cost = action['cost']
+    self.limits = action['limits']
+    self.name = action['name']
 
     self.possible = self.is_possible()
     self.cost = self.get_cost()
     
-  def is_possible(self,messager=None):
+  def is_possible(self, messager=None):
     
-    #messager = print
     if messager: messager(f'  Check if action {self.name} is possible')
-    # Start with the easy check:
-
+    
     # (1) Does the player have enough cards to pay for the action?
-
     required_cards = self.get_cost()
     if len(self.acting_unit.player.action_cards) < required_cards:
-      if messager: messager(f'  Not enough cards to pay for action, requires {required_cards} but player has {len(self.acting_unit.player.action_cards)}' )
+      if messager: messager(f'  Not enough cards to pay for action, requires {required_cards} but player has {len(self.acting_unit.player.action_cards)}')
       return False
     
     # (2) Are there unit and place limitations for the action?
-    
     if self.acting_unit_type not in self.limits:
       if messager: messager(f'  Action not available for unit type {self.acting_unit_type}, requires {",".join(self.limits.keys())}')
       return False
@@ -53,210 +88,359 @@ class Action:
       return False
             
     # (3) Is there a target for the action?
-    # Actions string:
-    #   B=1 bypass : move forward 1
-    #   B=2 bypass : move forward 2
-    #   P+0  pillage
-    #   P+1 pillage, with extra card
-    #   A+2  attack with +2 damage
-    #   A+1  attack with +1 damage
-    #   A+0    normal attack
-    #   A-1  attack with -1 damage
-    #   A=4  fixed 4 damage (independent of troop type)
-    #   R=1  reverse : move backward 1
-    #   S+1 scout, reveal and reorder 1-4 card
-    #   S+0   scout, reveal and reorder 1-3 cards
-    #   S-1 scout, reveal and reorder 1-2 cards
-    #   Z..  rest ('zzz')
-    #   Dr. defend against resistance
-    #   Da. defend against aerial attacks
-    #   Dg. defend against ground attack
-    #   Dt. defend against traps
-    #   Dg. defend against guerilla activity
-    actionstr = self.effect
-    while len(actionstr)>0:
-      if actionstr[0] == 'A':
-        # require active resistance:
-        if not self.gamestate.resistance.active:
-          if messager: messager('  No target for attack')
-          return False
+    action_name_lower = self.action_name.lower()
+    
+    if action_name_lower == ActionName.ATTACK:
+      # require active resistance:
+      if not self.gamestate.resistance.active:
+        if messager: messager('  No target for attack')
+        return False
         
-      elif actionstr[0] == 'B':
-        # require position of the acting unit to allow bypass
-        modifier=actionstr[1:3]
-        if modifier == '=1' or modifier == '=2':
-          modifier=int(modifier[1])
-        elif modifier[0] == '-':
-          modifier=int(modifier)  
-        else:
-          raise ValueError(f'  Bad modifier for overtake action: {modifier}')
-        if not self.acting_unit.can_overtake(modifier, messager):
-          return False
-                           
-      elif actionstr[0] == 'P':
-        # Require pillage queue to have cards:
-        print("CHECKING PILLAGE POSSIBLE:", len(self.gamestate.pillage_queue.cards_and_visibilities))
-        mod = int(actionstr[2])        
-        if len(self.gamestate.pillage_queue.cards_and_visibilities) < 1:
-          if messager: messager('  Nothing to pillage')
-          return False
-                           
-      elif actionstr[0] == 'S':
-        # Scout action: Require something to be scoutable:
-        can_scout = any([
-          self.gamestate.pillage_queue.contains_hidden_cards(),
-          self.gamestate.mauling_queue.contains_hidden_cards(),
-          self.gamestate.resistance_queue.contains_hidden_cards() ])
+    elif action_name_lower == ActionName.ASSAULT:
+      # Assault is similar to attack
+      if not self.gamestate.resistance.active:
+        if messager: messager('  No target for assault')
+        return False
         
-        if not can_scout:
-          if messager: messager('Nothing to scout')
-          print("could not scout")
-          return False
-        else:
-          print("could scout")
-          
-      elif actionstr[0] == 'Z':
-        if actionstr[0:3] == 'Z=0':
-          if not self.acting_unit.can_rest():
-            if messager: messager('  Not tired enough to rest')            
-            return False
-        elif actionstr[0:3] == 'Z=2':
-          if not self.acting_unit.can_rest_with_cards():
-            if messager: messager('  Not tired enough to rest with extra cards')            
-            return False
-        else:
-          print(f"WARNING: bad options for rest {actionstr[0:3]}")
-          
-      actionstr=actionstr[3:] 
+    elif action_name_lower == ActionName.BYPASS:
+      # require position of the acting unit to allow bypass
+      # Modifier is numeric, positive = forward, negative = backward
+      if not self.acting_unit.can_overtake(self.action_modifier, messager):
+        return False
 
+                        
+    elif action_name_lower == ActionName.PILLAGE:
+      # Require pillage queue to have cards:
+      # Modifier is extra cards (numeric)
+      if len(self.gamestate.pillage_queue.cards_and_visibilities) < 1:
+        if messager: messager('  Nothing to pillage')
+        return False
+                        
+    elif action_name_lower == ActionName.SCOUT:
+      # Scout action: Require something to be scoutable:
+      can_scout = any([
+        self.gamestate.pillage_queue.contains_hidden_cards(),
+        self.gamestate.mauling_queue.contains_hidden_cards(),
+        self.gamestate.resistance_queue.contains_hidden_cards()])
+      
+      if not can_scout:
+        if messager: messager('Nothing to scout')
+        return False
+        
+    elif action_name_lower == ActionName.SEARCH:
+      # Search action: Require something to be scoutable (similar to scout)
+      can_search = any([
+        self.gamestate.pillage_queue.contains_hidden_cards(),
+        self.gamestate.mauling_queue.contains_hidden_cards(),
+        self.gamestate.resistance_queue.contains_hidden_cards()])
+      
+      if not can_search:
+        if messager: messager('Nothing to search')
+        return False
+        
+    elif action_name_lower == ActionName.PATROL:
+      # Patrol action: Require something to be scoutable (similar to scout)
+      can_patrol = any([
+        self.gamestate.pillage_queue.contains_hidden_cards(),
+        self.gamestate.mauling_queue.contains_hidden_cards(),
+        self.gamestate.resistance_queue.contains_hidden_cards()])
+      
+      if not can_patrol:
+        if messager: messager('Nothing to patrol')
+        return False
+          
+    elif action_name_lower == ActionName.REST:
+      # Modifier: 0 = basic rest, 2 = rest with cards
+      if self.action_modifier == 0:
+        if not self.acting_unit.can_rest():
+          if messager: messager('  Not tired enough to rest')
+          return False
+      elif self.action_modifier == 2:
+        if not self.acting_unit.can_rest_with_cards():
+          if messager: messager('  Not tired enough to rest with extra cards')
+          return False
+      else:
+        print(f"WARNING: bad modifier for rest {self.action_modifier}")
+
+    elif action_name_lower == ActionName.ASSAULT:
+      # Assault is a combination of bypass by one and attack
+      if not self.acting_unit.can_overtake(1, messager):
+        if messager: messager('  Not enough space to assault')
+        return False
+      if not self.gamestate.resistance.active:
+        if messager: messager('  No target for assault')
+        return False
+
+    elif action_name_lower == ActionName.RETREAT:
+      # Retreat is a combination of bypass backwards by one and attack
+      if not self.acting_unit.can_overtake(-1, messager):
+        if messager: messager('  Not enough space to retreat')
+        return False
+      if not self.gamestate.resistance.active:
+        if messager: messager('  No target for retreat')
+        return False
+
+    elif action_name_lower == ActionName.SERVICE:
+      # Service action: require neighbouring unit to be tired
+      preceding_unit = self.convoy.get_preceding_unit(self.actor)
+      following_unit = self.convoy.get_following_unit(self.actor)
+      if (preceding_unit is not None or preceding_unit.tired == 0) and (following_unit is not None or following_unit.tired == 0):
+        if messager: messager('  No neighbouring units in need of service')
+        return False
+
+    elif action_name_lower == ActionName.DEFEND:
+      # you can always defend
+      pass
+    elif action_name_lower == ActionName.PROMOTE:
+      # you can always promote
+      pass
+    elif action_name_lower == ActionName.SOBER_UP:
+      # Sober up requires Officer 1
+      if not self._has_officer('sober_up'):
+        if messager: messager('  No sober up officer available')
+        return False
+      if self.acting_unit.under_influence == 0:
+        if messager: messager('  Unit is not under influence')
+        return False
+    elif action_name_lower == ActionName.ORDER:
+      # you can always try to order (unless you're the last in the convoy)
+      if self.actor == len(self.convoy.units) - 1:
+        if messager: messager('  You are the last unit in the convoy, you cannot order')
+        return False
+    elif action_name_lower == ActionName.WAIT:
+      # you can always wait
+      pass
     if messager: messager('  Action possible')
     return True
   
   def resolve(self, messager=None):
-    actionstr = self.effect
     resolve_arr = [f'Unit {self.actor} (Player {self.player.number}/{self.player.name}) resolved action {self.name}:']
-    while len(actionstr)>0:
-      #print("  Resolving actionstring ",actionstr)      
-      if actionstr[0] == 'A':
-        # require active resistance:
-        modifier = actionstr[1:3]
-        # Reward: 1 for damage done and another 1 if target destroyed.
-        reward, msg = self.gamestate.resistance.take_damage(self.acting_unit_type, modifier)
-        self.player.get_cash(reward)
-        self.acting_unit.tire()
-        resolve_arr.append(f"{msg}")
-        #return True
-      elif actionstr[0] == 'B':
-        # require position of the acting unit to allow bypass
-        modifier=actionstr[1:3]
-        if modifier == '=1' or modifier == '=2':
-          #print(f"check if {self.actor} < {int(modifier[1])}")
-          move=int(modifier[1])
-          if self.actor < int(modifier[1]):
-            if messager: messager('  Cannot overtake')
-            return False
-        elif modifier == '-1':
-          # If unit is last in convoy, it cannot reverse:
-          move=int(modifier)
-          if self.actor == len(self.convoy.units):
-            if messager: messager('  Cannot reverse')
-            return False
-        else:
-          raise ValueError(f'  Bad modifier for overtake action: {modifier}')
-        old_position=self.actor
-
-        new_position = self.convoy.move_unit(self.actor, move)
-        resolve_arr.append(f"overtook from position {old_position} to position {new_position}")
-
-        
-      elif actionstr[0] == 'E':
-        # escape!
-        self.acting_unit.player.this_round_cash += sum(self.acting_unit.carry)
-        self.convoy.units.pop(self.actor)
-        resolve_arr.append(f"escaped with {sum(self.acting_unit.carry)} worth loot")
-        
-      elif actionstr[0] == 'P':
-        
-        # Require pillage queue to have cards:
-        if actionstr[1] in ['+', '-']:
-          mod = int(actionstr[2]) 
-        else:
-          mod = 1
-        if len(self.gamestate.pillage_queue.cards_and_visibilities) < 2 + mod:
-          if messager: messager('  Not enough to pillage')
-          return False
-        rewards = self.resolve_pillage(self.acting_unit, mod)
-        for r in rewards:
-          self.acting_unit.player.this_round_cash += r['reward']['cash']
-          self.acting_unit.gain_loot(r['reward']['loot'])
-          self.acting_unit.gain_atrocities(r['reward']['atrocities'])
-          resolve_arr.append(f"pillaged {r['name']} and gained {r['reward']['cash']} cash and {r['reward']['loot']} loot while committing {r['reward']['atrocities']} atrocities.")
-
-      elif actionstr[0] == 'S':
-        # Scout action: Require something to be scoutable:
-        can_scout = any( [
-          self.gamestate.pillage_queue.contains_hidden_cards(),
-          self.gamestate.mauling_queue.contains_hidden_cards(),
-          self.gamestate.resistance_queue.contains_hidden_cards() ] )
-        if not can_scout:
-          if messager: messager('Nothing to scout')
-          return False
-
-        print("WARNING: scouting implementation is not finished yet")
-        modifier=actionstr[1:3]
-
-        # restriction can be "M" for mauling, "R" for resistance, "P" for pillage, "E" for everything
-        restrictions=modifier[0]
-        count=modifier[1]
-        scouted = self.resolve_scout( restrictions, count )
-        resolve_arr = []
-        
-        
-        
-      elif actionstr[0] == 'D':
-        modifier=actionstr[1:3]
-        defense_type = modifier[0]
-        defense_reward = modifier[1]
-        self.acting_unit.resolve_defend(defense_type, defense_reward)
-        
-      elif actionstr[0] == 'W':
-        # You can always wait as your first action!
-        dummy=1
+    action_name_lower = self.action_name.lower()
+    
+    if action_name_lower == ActionName.ATTACK:
+      # Reward: 1 for damage done and another 1 if target destroyed.
+      # Convert numeric modifier to string format for take_damage (which expects '=N' format)
+      # User said modifiers act as "=" (fixed value), so use '=N' format
+      damage_modifier = self.action_modifier
       
-      elif actionstr[0] == 'O':
-        # Ordering requires neighbouring unit to be waiting:
-        print("WARNING: ordering not yet implemented")
-        # or the following unit's orders to be unknown!
-        
-      elif actionstr[0] == 'Z':
-        if actionstr[0:3] == 'Z=0':
-          if not self.acting_unit.can_rest():
-            if messager: messager('  Not tired enough to rest')            
-            return False
-          u = self.acting_unit.under_influence
-          old_t = self.acting_unit.tired
-          self.acting_unit.rest()
-          new_t = self.acting_unit.tired
-          if u:
-            resolve_arr.append(f"resting (No longer under influence)")
-          else:
-            resolve_arr.append(f"resting (from {old_t} to {new_t})")
-        elif actionstr[0:3] == 'Z=2':
-          if not self.acting_unit.can_rest_with_cards():
-            if messager: messager('  Not tired enough to rest with extra cards')            
-            return False
-          old_t = self.acting_unit.tired
-          self.acting_unit.rest_with_cards()
-          new_t = self.acting_unit.tired
-          resolve_arr.append(f"resting (from {old_t} to {new_t})")
-        else:
-          print(f"WARNING: Rest {actionstr[0:3]} not implemented") 
+      # Check for Officer 2 (enhanced attack)
+      officer2 = self._has_officer('enhanced_attack')
+      if officer2:
+        description = f"Use {officer2.name} for +3 damage (but unit takes 1 damage)? 0: No, 1: Yes"
+        choicetaken = self.gamestate.demand_choice(self.acting_unit.player,
+                                                   self.gamestate.choose_cards_to_discard,
+                                                   [0, 1],
+                                                   description=description,
+                                                   num_choices=1)
+        if choicetaken[0] == 1:
+          damage_modifier += 3
+          self._discard_officer(officer2)
+          # Unit takes 1 damage
+          if len(self.acting_unit.carry) > 0:
+            self.acting_unit.carry.pop()
+          resolve_arr.append(f"used {officer2.name}: +3 damage but unit took 1 damage")
+      
+      modifier_str = f'={damage_modifier}'
+      result = self.gamestate.resistance.take_damage(self.acting_unit_type, modifier_str)
+      if isinstance(result, tuple):
+        reward, msg = result
       else:
-        print(f"WARNING: Action {actionstr[0:3]} not implemented") 
-      actionstr=actionstr[3:]
-      #if len(actionstr)> 0:
-        #print(actionstr)
-        #breakpoint()
+        reward = result
+        msg = f'Resistance took {damage_modifier} damage'
+      self.player.get_cash(reward)
+      resolve_arr.append(f"{msg}")
+      
+    elif action_name_lower == ActionName.ASSAULT:
+      # Assault is a combination of bypass by one and attack
+      old_position = self.actor
+      new_position = self.convoy.move_unit(self.actor, 1)
+      resolve_arr.append(f"overtook from position {old_position} to position {new_position}")
+      modifier_str = f'={self.action_modifier}'
+      result = self.gamestate.resistance.take_damage(self.acting_unit_type, modifier_str)
+      if isinstance(result, tuple):
+        reward, msg = result
+      else:
+        reward = result
+        msg = f'Resistance took {self.action_modifier} damage from assault'
+      self.player.get_cash(reward)
+      resolve_arr.append(f"{msg}")
+
+    elif action_name_lower == ActionName.RETREAT:
+      # Retreat is a combination of bypass backwards by one and attack
+      old_position = self.actor
+      new_position = self.convoy.move_unit(self.actor, -1)
+      resolve_arr.append(f"overtook from position {old_position} to position {new_position}")
+      result = self.gamestate.resistance.take_damage(self.acting_unit_type, self.action_modifier)
+      if isinstance(result, tuple):
+        reward, msg = result
+      else:
+        reward = result
+        msg = f'Resistance took {self.action_modifier} damage from retreat'
+      self.player.get_cash(reward)
+      resolve_arr.append(f"{msg}")
+
+    elif action_name_lower == ActionName.BYPASS:
+      # Modifier is numeric: positive = forward, negative = backward
+      old_position = self.actor
+      new_position = self.convoy.move_unit(self.actor, self.action_modifier)
+      resolve_arr.append(f"overtook from position {old_position} to position {new_position}")
+        
+    elif action_name_lower == ActionName.EXIT:
+      # Exit (escape): unit leaves convoy
+      self.acting_unit.player.this_round_cash += sum(self.acting_unit.carry)
+      self.convoy.units.pop(self.actor)
+      resolve_arr.append(f"exited with {sum(self.acting_unit.carry)} worth loot")
+      
+    elif action_name_lower == ActionName.PILLAGE:
+      # Modifier is extra cards (numeric)
+      if len(self.gamestate.pillage_queue.cards_and_visibilities) < 2 + self.action_modifier:
+        if messager: messager('  Not enough to pillage')
+        return False
+      rewards = self.resolve_pillage(self.acting_unit, self.action_modifier)
+      total_atrocities = 0
+      for r in rewards:
+        self.acting_unit.player.this_round_cash += r['reward']['cash']
+        self.acting_unit.gain_loot(r['reward']['loot'])
+        self.acting_unit.gain_atrocities(r['reward']['atrocities'])
+        total_atrocities += r['reward']['atrocities']
+        resolve_arr.append(f"pillaged {r['name']} and gained {r['reward']['cash']} cash and {r['reward']['loot']} loot while committing {r['reward']['atrocities']} atrocities.")
+      
+      # Check for Officer 4 (atrocity conversion) after pillage
+      officer4 = self._has_officer('atrocity_conversion')
+      if officer4 and total_atrocities > 0 and self.acting_unit.atrocities > 0:
+        description = f"Use {officer4.name} to convert 1 atrocity to 1 cash? 0: No, 1: Yes"
+        choicetaken = self.gamestate.demand_choice(self.acting_unit.player,
+                                                   self.gamestate.choose_cards_to_discard,
+                                                   [0, 1],
+                                                   description=description,
+                                                   num_choices=1)
+        if choicetaken[0] == 1:
+          self.acting_unit.atrocities -= 1
+          self.acting_unit.player.this_round_cash += 1
+          self._discard_officer(officer4)
+          resolve_arr.append(f"used {officer4.name}: converted 1 atrocity to 1 cash")
+
+    elif action_name_lower == ActionName.SCOUT:
+      # Scout action: modifier is count (numeric)
+      print("WARNING: scouting implementation is not finished yet")
+      restrictions = 'E'  # Default to everything
+      count = self.action_modifier if self.action_modifier > 0 else 2
+      scouted = self.resolve_scout(restrictions, count)
+      resolve_arr = []
+      
+    elif action_name_lower == ActionName.SEARCH:
+      # Search action: similar to scout
+      print("WARNING: search implementation is not finished yet")
+      restrictions = 'E'  # Default to everything
+      count = self.action_modifier if self.action_modifier > 0 else 2
+      scouted = self.resolve_scout(restrictions, count)
+      resolve_arr = []
+      
+      # Check for Officer 3 (search + pillage combo)
+      officer3 = self._has_officer('search_pillage_combo')
+      if officer3:
+        description = f"Use {officer3.name} to also pillage after search? 0: No, 1: Yes"
+        choicetaken = self.gamestate.demand_choice(self.acting_unit.player,
+                                                   self.gamestate.choose_cards_to_discard,
+                                                   [0, 1],
+                                                   description=description,
+                                                   num_choices=1)
+        if choicetaken[0] == 1:
+          # Perform pillage
+          if len(self.gamestate.pillage_queue.cards_and_visibilities) >= 2:
+            rewards = self.resolve_pillage(self.acting_unit, 0)
+            for r in rewards:
+              self.acting_unit.player.this_round_cash += r['reward']['cash']
+              self.acting_unit.gain_loot(r['reward']['loot'])
+              self.acting_unit.gain_atrocities(r['reward']['atrocities'])
+              resolve_arr.append(f"also pillaged {r['name']} and gained {r['reward']['cash']} cash and {r['reward']['loot']} loot while committing {r['reward']['atrocities']} atrocities.")
+            self._discard_officer(officer3)
+            resolve_arr.append(f"used {officer3.name}: combined search with pillage")
+      
+    elif action_name_lower == ActionName.PATROL:
+      # Patrol action: similar to scout
+      print("WARNING: patrol implementation is not finished yet")
+      restrictions = 'E'  # Default to everything
+      count = self.action_modifier if self.action_modifier > 0 else 2
+      scouted = self.resolve_scout(restrictions, count)
+      resolve_arr = []
+      
+    elif action_name_lower == ActionName.DEFEND:
+      # Defend: modifier is defense type (numeric, but we'll need to map it)
+      # For now, assume modifier 1 means basic defend
+      defense_type = 'S'  # Default
+      defense_reward = '_'
+      self.acting_unit.resolve_defend(defense_type, defense_reward)
+      
+    elif action_name_lower == ActionName.WAIT:
+      # You can always wait as your first action!
+      pass
+      
+    elif action_name_lower == ActionName.SOBER_UP:
+      # Sober up: remove under_influence (requires Officer 1)
+      officer1 = self._has_officer('sober_up')
+      if not officer1:
+        if messager: messager('  No sober up officer available')
+        return False
+      self.acting_unit.under_influence = 0
+      self._discard_officer(officer1)
+      resolve_arr.append(f"used {officer1.name}: removed under_influence condition")
+
+    elif action_name_lower == ActionName.PROMOTE:
+      # Promote: let player choose which officer to attach
+      available_officers = list(OfficerCardDeck.deck.keys())
+      description = "Choose an officer to promote this unit:"
+      for officer_id in available_officers:
+        officer = OfficerCardDeck.deck[officer_id]
+        description += f'\n  {officer_id}: {officer.name} - {officer.description}'
+      choicetaken = self.gamestate.demand_choice(self.acting_unit.player,
+                                                 self.gamestate.choose_cards_to_discard,  # Reuse choice type
+                                                 available_officers,
+                                                 description=description,
+                                                 num_choices=1)
+      officer_id = choicetaken[0]
+      officer = OfficerCardDeck.deck[officer_id]
+      self.acting_unit.officers.append(officer)
+      resolve_arr.append(f"promoted unit with {officer.name}: {officer.description}")
+
+    elif action_name_lower == ActionName.SERVICE:
+      resolve_arr.append(self.resolve_service())
+      
+    elif action_name_lower == ActionName.ORDER:
+      # Ordering requires neighbouring unit to be waiting:
+      print("WARNING: ordering not yet implemented")
+      
+    elif action_name_lower == ActionName.REST:
+      if self.action_modifier == 0:
+        if not self.acting_unit.can_rest():
+          if messager: messager('  Not tired enough to rest')
+          return False
+        u = self.acting_unit.under_influence
+        old_t = self.acting_unit.tired
+        self.acting_unit.rest()
+        new_t = self.acting_unit.tired
+        if u:
+          resolve_arr.append(f"resting (No longer under influence)")
+        else:
+          resolve_arr.append(f"resting (from {old_t} to {new_t})")
+      elif self.action_modifier == 2:
+        if not self.acting_unit.can_rest_with_cards():
+          if messager: messager('  Not tired enough to rest with extra cards')
+          return False
+        old_t = self.acting_unit.tired
+        self.acting_unit.rest_with_cards()
+        new_t = self.acting_unit.tired
+        resolve_arr.append(f"resting (from {old_t} to {new_t})")
+      else:
+        print(f"WARNING: Rest modifier {self.action_modifier} not implemented")
+    else:
+      print(f"WARNING: Action {self.action_name} not implemented")
+
+    # Apply tire and intoxicate effects after action resolution
+    if self.tire:
+      self.acting_unit.tire()
+    if self.intoxicate:
+      self.acting_unit.under_influence = 1
 
     # Broadcast message:
     self.gamestate.broadcast(','.join(resolve_arr))
@@ -264,18 +448,12 @@ class Action:
     return True
 
   def get_cost(self):
-    cost = 0
-    for c in self.cost:
-      if c == 'T':
-        # As many cards as acting unit has tired markers:
-        cost += self.acting_unit.tired
-      if c == 'U':
-        # extra cost for being under the influence:
-        if self.acting_unit.under_influence:
-          cost += 1
-      if c in '0123456789':
-        cost += int(c)
-    return cost
+    if self.cost == 'T':
+      # Cost is sum of tiredness and under_influence
+      return self.acting_unit.tired + (1 if self.acting_unit.under_influence else 0)
+    else:
+      # Numeric cost
+      return int(self.cost)
 
 
 
@@ -316,6 +494,7 @@ class Action:
     
     return [self.gamestate.pillage_deck.describe(p) for p,vis in pillaged]
   
+
 
   def resolve_scout(self, restrictions, count):
 
@@ -368,3 +547,49 @@ class Action:
       scouted.append(choicetaken)
 
     return scouted
+
+  def _has_officer(self, ability_type):
+    """Check if the acting unit has an officer with the given ability type."""
+    for officer in self.acting_unit.officers:
+      if officer.ability_type == ability_type:
+        return officer
+    return None
+  
+  def _discard_officer(self, officer):
+    """Discard an officer from the acting unit."""
+    if officer in self.acting_unit.officers:
+      self.acting_unit.officers.remove(officer)
+      return True
+    return False
+
+  def resolve_service(self, modifier=1):
+    # service action removes one point of tiredness from a neighbouring unit
+
+    # get neighbouring units:
+    preceding_unit = self.convoy.get_preceding_unit(self.actor)
+    following_unit = self.convoy.get_following_unit(self.actor)
+
+
+    # check if they can be serviced:
+    if preceding_unit.tired > 0 and following_unit.tired > 0:
+      choice = self.gamestate.demand_choice(self.acting_unit.player,
+                                            self.gamestate.choose_service_choice_type,
+                                            [0, 1],
+                                            description=f"Choose neighbouring unit to service: 0 for preceding, 1 for following",
+                                            num_choices=1)
+
+      if choice[0] == 0:
+        neighbouring_unit = preceding_unit
+      else:
+        neighbouring_unit = following_unit
+    else:
+      if preceding_unit.tired > 0:
+        neighbouring_unit = preceding_unit
+      else:
+        neighbouring_unit = following_unit
+
+    neighbouring_unit.tired -= min(modifier, neighbouring_unit.tired)
+
+    return f"unit {self.actor} (player {self.player.number}/{self.player.name}) serviced neighbouring unit {neighbouring_unit.index()} (player {neighbouring_unit.player.number}/{neighbouring_unit.player.name})"
+
+    

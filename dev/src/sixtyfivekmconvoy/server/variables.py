@@ -1,36 +1,13 @@
 #!/usr/bin/env python3
 
+"""
+Action types and modifiers for the game.
 
-class Actions:  
-  ATTACK   = 0
-  OVERTAKE = 1
-  SCOUT    = 2
-  PILLAGE  = 3
-  ESCAPE   = 4
-  WAIT     = 5
-  REST     = 6  
+NOTE: ActionType, ModifierType, and parse_effect_string have been moved to constants.py.
+This file is kept for backward compatibility but re-exports from constants.
+"""
 
-  def __init__():
-    dummy = 1
+from .constants import ActionType, ModifierType, parse_effect_string
 
-class Modifiers:
-   DAMAGE   = 0
-   
-
-class CardEffect:
-  def __init__(actions, modifiers):
-    self.actions = actions
-    self.mod = modifiers  
-
-
-class ActionCard:
-  def __init__(base, special, effect):
-    self.base = base
-    self.special = special
-    self.effect = effect
-
-class ActionCards:
-  cards = { 0 : ActionCard(Actions.ATTACK,
-                           'koukkaa oikealta', 
-                           CardEffect(action=Actions.ATTACK,
-                                      modifiers={Modifiers.DAMAGE = '+2'} ) ) }
+# Re-export for backward compatibility
+__all__ = ['ActionType', 'ModifierType', 'parse_effect_string']

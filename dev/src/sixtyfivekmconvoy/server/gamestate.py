@@ -13,16 +13,17 @@ The players can be either human players or AI players.
 
 """
 
-import numpy as np
 import random
 
 import sys
 from copy import deepcopy
 
+from .constants import ChoiceType
 from .card_deck_pillage import CardDeckPillage
 from .card_deck_resistance import CardDeckResistance
 from .card_deck_actions import CardDeckActions
 from .card_deck_mauling import CardDeckMauling
+from .card_deck_officers import OfficerCardDeck
 from .card_deck import CardDeck
 from .card_queue import CardQueue
 
@@ -91,27 +92,28 @@ class GameState:
   phase = Phase.PRE_START
   action_phase_counter = -1
 
-  treasury = np.zeros(5)
-  victory_points = np.zeros(5)
+  treasury = [0] * 5
+  victory_points = [0] * 5
 
-  units = np.zeros(15)
+  units = [0] * 15
   
-  selected_actions = np.zeros(30)
+  selected_actions = [0] * 30
 
-  player_hands = np.zeros([5,10])
+  player_hands = [[0] * 10 for _ in range(5)]
 
   players = None
   
-  active_resistance = np.zeros(1)
+  active_resistance = [0]
 
   history = []
 
-  choose_card_choice_type = 0
-  choose_action_choice_type = 1
-  choose_cards_to_discard = 2
-  cash_in_cards_choice_type = 3
-  choose_queue_to_scout_choice_type = 4
-  choose_pillage_card_choice_type = 5
+  # Choice type constants (from constants.ChoiceType, kept for backward compatibility)
+  choose_card_choice_type = ChoiceType.choose_card_choice_type
+  choose_action_choice_type = ChoiceType.choose_action_choice_type
+  choose_cards_to_discard = ChoiceType.choose_cards_to_discard
+  cash_in_cards_choice_type = ChoiceType.cash_in_cards_choice_type
+  choose_queue_to_scout_choice_type = ChoiceType.choose_queue_to_scout_choice_type
+  choose_pillage_card_choice_type = ChoiceType.choose_pillage_card_choice_type
 
   
   def __init__(self, playerconnector, seed=3):
@@ -129,7 +131,7 @@ class GameState:
     
     # Shuffle decks
     if seed is not None:
-      np.random.seed(seed)
+      random.seed(seed)
 
     self.action_deck = CardDeck(len(CardDeckActions.deck),
                                 names_and_effects = CardDeckActions.deck)
@@ -512,7 +514,7 @@ class GameState:
       game_states = []
       for i,player in enumerate(self.players):
         game_state = { 'convoy' : self.convoy.to_json(playerview=player),
-                      'players' : self.players_to_json(playerview=player),
+                                  'players' : self.players_to_json(playerview=player),
                       'decks': deck_state,
                       'resistance' : self.resistance.to_json() }
         if await_actions[i] is not None:
@@ -524,7 +526,7 @@ class GameState:
       return game_states
     else:
         game_state = { 'convoy' : self.convoy.to_json(playerview=player),
-                      'players' : self.players_to_json(playerview=player),
+                                  'players' : self.players_to_json(playerview=player),
                       'decks': deck_state,
                       'resistance' : self.resistance.to_json() }
         return game_state
@@ -538,7 +540,7 @@ class GameState:
     queue_state_json = { 'resistance' : self.resistance_queue.to_arr(),
                          'pillage' : self.pillage_queue.to_arr(),
                          'mauling' : self.mauling_queue.to_arr() }
-    
+
     return {'decks' : deck_state_json,
             'queues' : queue_state_json }
     

@@ -63,6 +63,9 @@ class Unit:
     self.defending_reward = None
     
     self.current_action_type = None
+    
+    # Officer cards attached to this unit
+    self.officers = []
 
     
   def __str__(self):
@@ -266,8 +269,14 @@ class Unit:
     self.carry += loot
     # Loop with highest loot first:
     self.carry.sort(reverse=True)
-    dropped = self.carry[3:]
-    self.carry = self.carry[:3]
+    # Check for Officer 5 (extra carry capacity)
+    carry_capacity = 3
+    for officer in self.officers:
+      if officer.ability_type == 'extra_carry_capacity':
+        carry_capacity = 4
+        break
+    dropped = self.carry[carry_capacity:]
+    self.carry = self.carry[:carry_capacity]
 
     return [ d for d in dropped if d > 0 ]
     #for i,l in enumerate(loot):
@@ -368,7 +377,7 @@ class Unit:
     dummy = 1
 
   def resolve_defend(self, defense_type=None, defense_reward=None):
-    if defense_type in 'AGS':
+    if defense_type in 'AGSP':  # attack type is either Air, Ground, Saboteur; Patrol defends against all attacks.
       self.defending = defense_type
       self.has_defended = False
     else:
@@ -378,7 +387,8 @@ class Unit:
 
 
   def reward_defending(self):
-    assert self.defending_reward is not None, "Defending reward is None"
+    assert self.defending_reward is not None, "Unit.defending_reward is None"
+
     r = self.defending_reward
     if r.lower() == 'a':
       self.atrocities += 1

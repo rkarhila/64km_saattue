@@ -21,27 +21,58 @@ The deck is used to generate the action cards for each player.
 
 import csv
 import os
+from .constants import ActionName
 
 
 """
 Action is a class for an action card.
 
 Each action is a class with following variables:
-  - cost: the cost of the action in cards
-  - effect: the effect of the action
-  - limits: the limits of the action
-  - name: the name of the action
+  - cost: the cost of the action in cards (string like 'T' or '0' or '1')
+  - action_name: the normalized action name (string)
+  - action_modifier: the numeric modifier value (int)
+  - zone: the zone where the action can be used (string like 'AB', 'ABCE')
+  - troop_type: the troop type this action is for ('P', 'I', 'L', or 'A' for all)
+  - tire: whether the action causes the unit to tire (0 or 1)
+  - intoxicate: whether the action causes the unit to become intoxicated (0 or 1)
+  - limits: dictionary with keys 'I', 'P', 'L' for unit type limits (derived from troop_type)
+  - name: the display name of the action
 """
 
 class CardAction:
-  def __init__(self, cost, effect, limits, name):
+  def __init__(self, cost, action_name, action_modifier, zone, troop_type, tire, intoxicate, name):
+    """
+    Initialize a CardAction.
+    
+    Args:
+      cost: the cost of the action (string 'T', '0', '1', etc.)
+      action_name: the normalized action name (string)
+      action_modifier: the numeric modifier value (int)
+      zone: the zone where the action can be used (string)
+      troop_type: the troop type this action is for ('P', 'I', 'L', or 'A')
+      tire: whether the action causes the unit to tire (0 or 1)
+      intoxicate: whether the action causes the unit to become intoxicated (0 or 1)
+      name: the display name of the action
+    """
     self.cost = cost
-    self.effect = effect
-    self.limits = limits
+    self.action_name = action_name
+    self.action_modifier = action_modifier
+    self.zone = zone
+    self.troop_type = troop_type
+    self.tire = tire
+    self.intoxicate = intoxicate
     self.name = name
+    
+    # Build limits dictionary from troop_type
+    # If troop_type is 'A', action is available to all troop types
+    self.limits = {}
+    if troop_type == 'A':
+      self.limits = {'I': zone, 'P': zone, 'L': zone}
+    else:
+      self.limits = {troop_type: zone}
 
   def __str__(self):
-    return f"{self.name} ({self.cost}) {self.effect} {self.limits}"
+    return f"{self.name} (cost:{self.cost}, {self.action_name}={self.action_modifier}, zone:{self.zone}, troop:{self.troop_type}, tire:{self.tire}, intox:{self.intoxicate})"
 
   def __repr__(self):
     return self.__str__()
@@ -51,7 +82,12 @@ class CardAction:
     return {
       'name': self.name,
       'cost': self.cost,
-      'effect': self.effect,
+      'action_name': self.action_name,
+      'action_modifier': self.action_modifier,
+      'zone': self.zone,
+      'troop_type': self.troop_type,
+      'tire': self.tire,
+      'intoxicate': self.intoxicate,
       'limits': self.limits
     }
 
@@ -116,8 +152,21 @@ def _load_deck_from_csv():
   """
   Load the action deck from the CSV file.
   
-  Returns a dictionary where keys are card IDs and values are lists of action dictionaries.
-  Each action dictionary has the keys: 'cost', 'effect', 'limits', 'name'
+  The CSV format has:
+    - card_id: the card ID
+    - action_index: the index of the action within the card (0, 1, 2, 3)
+    - troop_type: 'P' (Pioneer/Panzer), 'I' (Infantry), 'L' (Logistics), or 'A' (All)
+    - zone: the zone where the action can be used (e.g., 'AB', 'ABCE', 'E')
+    - action_type: the action name (e.g., 'Attack', 'Rest', 'Pillage')
+    - action_modifier: numeric modifier value
+    - cost: 'T' (tiredness + under_influence) or numeric string like '0', '1'
+    - tire: 0 or 1 (whether action causes unit to tire)
+    - intoxicate: 0 or 1 (whether action causes unit to become intoxicated)
+    - name: display name for the action
+  
+  If zone is empty, the action is null and should be ignored.
+  
+  Returns a dictionary where keys are card IDs and values are ActionCard objects.
   """
   # Get the directory where this module is located
   module_dir = os.path.dirname(os.path.abspath(__file__))
@@ -131,38 +180,60 @@ def _load_deck_from_csv():
       card_id = int(row['card_id'])
       action_index = int(row['action_index'])
       
-      # Build the limits dictionary from separate I, P, L columns
-      # Only include keys that have non-empty values
-      limits = {}
-      if row['I'].strip():
-        limits['I'] = row['I'].strip()
-      if row['P'].strip():
-        limits['P'] = row['P'].strip()
-      if row['L'].strip():
-        limits['L'] = row['L'].strip()
+      # Skip null actions (zone is empty)
+      zone = row['zone'].strip() if 'zone' in row else ''
+      if not zone:
+        continue
       
-      # Create the action dictionary
+      # Get and normalize action name
+      action_type = row['action_type'].strip()
+      if not action_type:
+        continue
+      action_name = ActionName.normalize(action_type)
+      
+      # Get modifier (numeric value, acts as "=" in old system)
+      action_modifier = int(row['action_modifier'].strip()) if row['action_modifier'].strip() else 0
+      
+      # Get troop type
+      troop_type = row['troop_type'].strip()
+      
+      # Get cost (default to '0' if not present)
+      cost = row.get('cost', '0').strip()
+      if not cost:
+        cost = '0'
+      
+      # Get tire and intoxicate
+      tire = int(row['tire'].strip()) if row['tire'].strip() else 0
+      intoxicate = int(row['intoxicate'].strip()) if row['intoxicate'].strip() else 0
+      
+      # Get name
+      name = row['name'].strip() if row['name'].strip() else action_type
+      
+      # Create the CardAction object
       action = CardAction(
-        cost=row['cost'],
-        effect=row['effect'],
-        limits=limits,
-        name=row['name']
+        cost=cost,
+        action_name=action_name,
+        action_modifier=action_modifier,
+        zone=zone,
+        troop_type=troop_type,
+        tire=tire,
+        intoxicate=intoxicate,
+        name=name
       )
       
       # Initialize the card's action list if needed
       if card_id not in deck:
-        deck[card_id] = []
+        deck[card_id] = {}
       
-      # Append actions in order (they should be sorted by action_index in the CSV)
-      # For safety, ensure we insert at the correct index
-      while len(deck[card_id]) <= action_index:
-        deck[card_id].append(None)
+      # Store actions by action_index (we'll collect all actions for each card)
       deck[card_id][action_index] = action
   
-  # Clean up: remove None placeholders and convert to list of actions
+  # Convert to ActionCard objects
   result = {}
   for card_id in sorted(deck.keys()):
-    result[card_id] = ActionCard(actions=[action for action in deck[card_id] if action is not None], id=card_id)
+    # Get all actions sorted by action_index
+    actions = [deck[card_id][idx] for idx in sorted(deck[card_id].keys())]
+    result[card_id] = ActionCard(id=card_id, actions=actions)
   
   return result
 

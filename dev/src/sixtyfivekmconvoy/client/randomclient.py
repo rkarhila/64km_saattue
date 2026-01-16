@@ -1,109 +1,177 @@
 #!/usr/bin/env python3
 
 """
-This module contains the RandomClient class for a random client.
+This module contains random client classes for making random choices.
 """
 
 import random
-from .terminalclient import TerminalClient
+from .directclient import DirectClient
 from .socketclient import SocketClient
+from .displaymixin import DisplayMixin
 
 
-class RandomClient(TerminalClient):
+class QuietRandomClient(DirectClient, DisplayMixin):
     """
-    A random client that makes random choices in the game.
-    Can operate in quiet mode (no output) or verbose mode (displays game state).
+    A quiet random client that makes random choices with no output.
+    Used for direct/local communication.
     """
     
-    def __init__(self, conf, verbose=False):
-        """
-        Initialize the RandomClient.
-        
-        Args:
-            conf: Configuration dictionary
-            verbose: If True, displays game state. If False, operates silently.
-        """
-        super().__init__(conf)
-        self.verbose = verbose
+  def __init__(self, conf):
+        DirectClient.__init__(self, conf)
     
-    @classmethod
-    def quiet(cls, conf):
-        """Create a quiet RandomClient (no output)."""
-        return cls(conf, verbose=False)
-    
-    @classmethod
-    def verbose(cls, conf):
-        """Create a verbose RandomClient (displays game state)."""
-        return cls(conf, verbose=True)
-    
-    def push_info(self, game_state=None):
-        """Receive and optionally display game state, making random choices."""
-        # If game_state is None, read from socket (socket client mode)
-        read_from_socket = (game_state is None)
-        if read_from_socket:
-            game_state = self._receive_json()
+  def push_info(self, game_state):
+        """Receive game state and handle choices silently."""
+        if game_state is None:
+            raise ValueError("QuietRandomClient.push_info() requires game_state parameter")
         
-        # Display game state if in verbose mode
-        if self.verbose:
-            # Convert JSON game state to ASCII for display (using parent's method)
-            ascii_state = self._json_to_ascii(game_state)
-            
-            # Display ASCII representation
-            if 'players' in ascii_state:
-                print(ascii_state['players'])
-            if 'decks' in ascii_state:
-                print(ascii_state['decks'])
-            if 'resistance' in ascii_state:
-                print(ascii_state['resistance'])
-            if 'convoy' in ascii_state:
-                print(ascii_state['convoy'])
-            
-            if 'message' in game_state:
-                print('BROADCAST:', game_state['message'])
-        
-        # If there's a choice, make a random choice
-        if 'choice' in game_state:
-            if self.verbose:
-                print(game_state['choice']['description'])
-            
+        # Handle choice if present
+    if 'choice' in game_state:
             options = game_state['choice']['options']
             choicecount = game_state['choice']['num_choice']
-            # Make random choice
-            random.shuffle(options)
-            choice = options[:choicecount]
+            # Make random choice (shuffle to avoid always picking first)
+            options_copy = list(options)  # Don't modify original
+            random.shuffle(options_copy)
+            choice = options_copy[:choicecount]
             
-            if self.verbose:
-                print(f"You chose {','.join([str(c) for c in choice])}")
-            
-            # If we read from socket, send choice back via socket
-            if read_from_socket:
-                self._send_json(choice)
-                return None  # Don't return choice dict in socket mode
-            
-            # For local mode, return choice dict
-            return { 'choicetype' : game_state['choice']['choicetype'],
-                     'choice' : choice }
+            # Return choice dict for direct client
+            return {
+                'choicetype': game_state['choice']['choicetype'],
+                'choice': choice
+            }
         
         return None
     
-    def await_choice(self, candidates=None):
+    def await_choice(self, candidates):
         """Handle choice selection from candidates by making random choices."""
-        if candidates is None:
-            candidates = self._receive_json()
-        
         # Extract options from candidates dict and make random choice
         if isinstance(candidates, dict):
             if 'options' in candidates:
-                options = candidates['options']
+                options = list(candidates['options'])  # Don't modify original
+                num_choices = candidates.get('num_choice', 1)
+                random.shuffle(options)
+                return options[:num_choices]
+        # If candidates is a list, treat as options
+        elif isinstance(candidates, list) and len(candidates) > 0:
+            options_copy = list(candidates)  # Don't modify original
+            random.shuffle(options_copy)
+            return [random.choice(options_copy)]
+        
+        # Default: return empty choice
+        return []
+
+
+class TerminalRandomClient(DirectClient, DisplayMixin):
+    """
+    A terminal random client that makes random choices with ASCII output.
+    Used for direct/local communication.
+    """
+    
+    def __init__(self, conf):
+        DirectClient.__init__(self, conf)
+    
+    def push_info(self, game_state):
+        """Receive game state, display it, and handle choices."""
+        if game_state is None:
+            raise ValueError("TerminalRandomClient.push_info() requires game_state parameter")
+        
+        # Display game state
+        ascii_state = self._json_to_ascii(game_state)
+        
+        if 'players' in ascii_state:
+            print(ascii_state['players'])
+        if 'decks' in ascii_state:
+            print(ascii_state['decks'])
+        if 'resistance' in ascii_state:
+            print(ascii_state['resistance'])
+        if 'convoy' in ascii_state:
+            print(ascii_state['convoy'])
+        
+    if 'message' in game_state:
+      print('BROADCAST:', game_state['message'])
+
+        # Handle choice if present
+    if 'choice' in game_state:
+            print(game_state['choice']['description'])
+            options = game_state['choice']['options']
+            choicecount = game_state['choice']['num_choice']
+            # Make random choice
+            options_copy = list(options)  # Don't modify original
+            random.shuffle(options_copy)
+            choice = options_copy[:choicecount]
+            
+      print(f"You chose {','.join([str(c) for c in choice])}")
+
+            # Return choice dict for direct client
+            return {
+                'choicetype': game_state['choice']['choicetype'],
+                'choice': choice
+            }
+        
+        return None
+
+  def await_choice(self, candidates):
+        """Handle choice selection from candidates by making random choices."""
+        # Extract options from candidates dict and make random choice
+        if isinstance(candidates, dict):
+            if 'options' in candidates:
+                options = list(candidates['options'])  # Don't modify original
                 num_choices = candidates.get('num_choice', 1)
                 random.shuffle(options)
                 choice = options[:num_choices]
-                # Send back the choice as a list of integers
-                self._send_json(choice)
+                print(f"You chose {','.join([str(c) for c in choice])}")
                 return choice
         # If candidates is a list, treat as options
         elif isinstance(candidates, list) and len(candidates) > 0:
-            choice = [random.choice(candidates)]
+            options_copy = list(candidates)  # Don't modify original
+            random.shuffle(options_copy)
+            choice = [random.choice(options_copy)]
+            print(f"You chose {','.join([str(c) for c in choice])}")
+            return choice
+        
+        # Default: return empty choice
+        return []
+
+
+# Socket-based versions (for network connections)
+class QuietRandomSocketClient(SocketClient):
+    """
+    A quiet random client that makes random choices with no output.
+    Used for socket/network communication.
+    """
+    
+    def __init__(self, conf):
+        SocketClient.__init__(self, conf)
+    
+    def push_info(self, state=None):
+        """Receive game state from socket. Returns True if there was a choice."""
+        # In socket mode, read from socket
+        if state is None:
+            state = self._receive_json()
+        
+        # Store whether there was a choice
+        has_choice = 'choice' in state
+        
+        # In socket mode, return True if there was a choice (don't handle it here)
+        return has_choice
+    
+    def await_choice(self, candidates=None):
+        """Receive candidates from socket and send random choice back."""
+        if candidates is None:
+            candidates = self._receive_json()
+        
+        # Extract options and make random choice
+        if isinstance(candidates, dict):
+            if 'options' in candidates:
+                options = list(candidates['options'])  # Don't modify original
+                num_choices = candidates.get('num_choice', 1)
+                random.shuffle(options)
+                choice = options[:num_choices]
+                self._send_json(choice)
+                return choice
+        elif isinstance(candidates, list) and len(candidates) > 0:
+            options_copy = list(candidates)  # Don't modify original
+            random.shuffle(options_copy)
+            choice = [random.choice(options_copy)]
             self._send_json(choice)
             return choice
         
@@ -113,9 +181,89 @@ class RandomClient(TerminalClient):
         return choice
 
 
-# Backward compatibility aliases
-QuietRandomClient = lambda conf: RandomClient.quiet(conf)
-VerboseRandomClient = lambda conf: RandomClient.verbose(conf)
+class TerminalRandomSocketClient(SocketClient, DisplayMixin):
+    """
+    A terminal random client that makes random choices with ASCII output.
+    Used for socket/network communication.
+    """
+    
+    def __init__(self, conf):
+        SocketClient.__init__(self, conf)
+    
+    def push_info(self, state=None):
+        """Receive game state from socket, display it. Returns True if there was a choice."""
+        # In socket mode, read from socket
+        if state is None:
+            state = self._receive_json()
+        
+        # Display game state
+        ascii_state = self._json_to_ascii(state)
+        
+        if 'players' in ascii_state:
+            print(ascii_state['players'])
+        if 'decks' in ascii_state:
+            print(ascii_state['decks'])
+        if 'resistance' in ascii_state:
+            print(ascii_state['resistance'])
+        if 'convoy' in ascii_state:
+            print(ascii_state['convoy'])
+        
+        if 'message' in state:
+            print('BROADCAST:', state['message'])
+        
+        # Store whether there was a choice
+        has_choice = 'choice' in state
+        
+        if has_choice:
+            print(state['choice']['description'])
+        
+        # In socket mode, return True if there was a choice (don't handle it here)
+        return has_choice
+    
+    def await_choice(self, candidates=None):
+        """Receive candidates from socket and send random choice back."""
+        if candidates is None:
+            candidates = self._receive_json()
+        
+        # Extract options and make random choice
+        if isinstance(candidates, dict):
+            if 'options' in candidates:
+                options = list(candidates['options'])  # Don't modify original
+                num_choices = candidates.get('num_choice', 1)
+                random.shuffle(options)
+                choice = options[:num_choices]
+                print(f"You chose {','.join([str(c) for c in choice])}")
+                self._send_json(choice)
+                return choice
+        elif isinstance(candidates, list) and len(candidates) > 0:
+            options_copy = list(candidates)  # Don't modify original
+            random.shuffle(options_copy)
+            choice = [random.choice(options_copy)]
+            print(f"You chose {','.join([str(c) for c in choice])}")
+            self._send_json(choice)
+    return choice
+        
+        # Default: send empty choice
+        choice = []
+        self._send_json(choice)
+        return choice
+
+
+# Factory functions to choose between DirectClient and SocketClient versions
+def create_quiet_random_client(conf, use_socket=False):
+    """Factory function to create a QuietRandomClient (direct or socket)."""
+    if use_socket:
+        return QuietRandomSocketClient(conf)
+    else:
+        return QuietRandomClient(conf)
+
+
+def create_terminal_random_client(conf, use_socket=False):
+    """Factory function to create a TerminalRandomClient (direct or socket)."""
+    if use_socket:
+        return TerminalRandomSocketClient(conf)
+    else:
+        return TerminalRandomClient(conf)
 
 
 def main():
@@ -129,11 +277,11 @@ def main():
     
     args = parser.parse_args()
     
-    # Create client based on verbose flag
+    # Create socket-based client for network connection
     if args.verbose:
-        client = RandomClient.verbose({'playertype': 'random-terminal'})
+        client = TerminalRandomSocketClient({'playertype': 'random-terminal'})
     else:
-        client = RandomClient.quiet({'playertype': 'computer'})
+        client = QuietRandomSocketClient({'playertype': 'computer'})
     
     try:
         # Connect to server
@@ -149,9 +297,19 @@ def main():
         # Main game loop: receive game state, respond to choices
         while True:
             try:
-                # Receive game state from server and display it (for verbose client)
-                # push_info handles reading from socket, displaying, and sending choices back
-                client.push_info()  # None means read from socket
+                # Receive game state from server
+                # push_info returns True if there was a choice in the game state
+                has_choice = client.push_info()  # Returns True/False in socket mode
+                
+                # If there was a choice, the server will send the choice candidates separately
+                if has_choice:
+                    try:
+                        candidates = client._receive_json()
+                        # Make a random choice and send it back
+                        client.await_choice(candidates)
+                    except (ConnectionError, EOFError, OSError, BrokenPipeError) as e:
+                        print(f"\nConnection closed while receiving choice: {e}")
+                        break
                     
             except (ConnectionError, EOFError, OSError, BrokenPipeError) as e:
                 print(f"\nConnection closed: {e}")

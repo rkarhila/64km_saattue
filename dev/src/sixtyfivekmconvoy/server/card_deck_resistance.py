@@ -35,8 +35,8 @@ class CardDeckResistance:
       name='Peltoja ja PST-sissejä (1)',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -46,8 +46,8 @@ class CardDeckResistance:
       name='Peltoja ja PST-sissejä (2)',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -57,8 +57,8 @@ class CardDeckResistance:
       name='Metsää ja metsäsissejä (1)',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -68,8 +68,8 @@ class CardDeckResistance:
       name='Metsää ja metsäsissejä (2)',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -79,8 +79,8 @@ class CardDeckResistance:
       name='Käännetty kyltti ja jalkaväkeä (1)',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -90,8 +90,8 @@ class CardDeckResistance:
       name='Käännetty kyltti ja jalkaväkeä (2)',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -101,8 +101,8 @@ class CardDeckResistance:
       name='Käännetty kyltti ja jalkaväkeä (3)',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -112,8 +112,8 @@ class CardDeckResistance:
       name='Pieni kylä',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -123,8 +123,8 @@ class CardDeckResistance:
       name='Pieni kylä',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -134,8 +134,8 @@ class CardDeckResistance:
       name='Kirkonkylä',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -145,8 +145,8 @@ class CardDeckResistance:
       name='Kirkonkylä',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -156,8 +156,8 @@ class CardDeckResistance:
       name='Kirkonkylä',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -167,8 +167,8 @@ class CardDeckResistance:
       name="Käännetty kyltti ja tark'ampujia (1)",
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -178,8 +178,8 @@ class CardDeckResistance:
       name="Käännetty kyltti ja tark'ampujia (2)",
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -189,8 +189,8 @@ class CardDeckResistance:
       name="Käännetty kyltti ja tark'ampujia (3)",
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -200,8 +200,8 @@ class CardDeckResistance:
       name='Kaupunki',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -211,8 +211,8 @@ class CardDeckResistance:
       name='Kaupunki',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -222,8 +222,8 @@ class CardDeckResistance:
       name='Kaupunki',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                             'target': 'A1',
+                             'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
@@ -233,13 +233,13 @@ class CardDeckResistance:
       name='Kasarmi',
       effect={
         'attack': 3,
-        'target': 'A1',
-        'loot': 3,
+                              'target': 'A1',
+                              'loot': 3,
         'durability': 3,
         'damage': {'I': 1, 'P': 2}
       }
     ),
-  }
+          }
 
 
   # deck = { 0 : { 'name' : 'kaupunki',
@@ -260,4 +260,4 @@ class CardDeckResistance:
   #          8 : { 'name' : 'peltoja', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
   #          9 : { 'name' : 'metsää', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
   #          10 : { 'name' : 'kirkonkylä', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
-  #          11 : { 'name' : 'silta', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} } }
+  #          11 : { 'name' : 'silta', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} } } 

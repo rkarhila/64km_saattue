@@ -149,7 +149,7 @@ class Convoy:
       # Is there a defender to lessen the damage?
       defend_soak=0
       for u in [unit] + unit.get_neighbours():
-        if u.defending is not None and u.defending == attack_type:
+        if u is not None and u.defending is not None and u.defending == attack_type:
           defend_soak +1
           u.reward_defending()
 
@@ -206,7 +206,7 @@ class Convoy:
       state.append(unit_state)
     for not_u in range(len(self.units), 15):
         state.append([0]*len(unit_state))
-    return np.array(state)
+    return state
 
 
   def move_resting_and_damaged_units(self):

@@ -14,11 +14,12 @@ import json
 
 # Import client classes for local player mode
 try:
-  from ..client import TerminalClient, VerboseRandomClient, MLClient
+  from ..client import TerminalHumanClient, TerminalRandomClient, QuietRandomClient, MLClient
 except ImportError:
   # Fallback if imports fail
-  TerminalClient = None
-  VerboseRandomClient = None
+  TerminalHumanClient = None
+  TerminalRandomClient = None
+  QuietRandomClient = None
   MLClient = None
 
 class Player:
@@ -41,18 +42,18 @@ class Player:
     self.action_cards = []
 
     if conf['playertype'] == 'terminal':
-      if TerminalClient is not None:
-        self.client = TerminalClient(conf)
+      if TerminalHumanClient is not None:
+        self.client = TerminalHumanClient(conf)
       else:
         self.client = 'terminal'  # Fallback
     elif conf['playertype'] == 'random-terminal':
-      if VerboseRandomClient is not None:
-        self.client = VerboseRandomClient(conf)
+      if TerminalRandomClient is not None:
+        self.client = TerminalRandomClient(conf)
       else:
         self.client = 'random-terminal'  # Fallback
     elif conf['playertype'] == 'computer':
-      if MLClient is not None:
-        self.client = MLClient(conf)
+      if QuietRandomClient is not None:
+        self.client = QuietRandomClient(conf)
       else:
         self.client = 'computer'  # Fallback
     elif conf['playertype'] == 'socket':
@@ -113,6 +114,7 @@ class SocketPlayer:
     self.client_socket = client_socket
     # Make socket non-blocking and set timeout for receive operations
     self.client_socket.settimeout(None)
+    self._receive_buffer = ''  # Buffer for receiving JSON messages
 
   def _send_json(self, data):
     """Send JSON-encoded data over the socket."""
@@ -121,8 +123,8 @@ class SocketPlayer:
 
   def _receive_json(self):
     """Receive and parse JSON data from the socket."""
-    # Read line-by-line to handle JSON messages
-    buffer = ''
+    # Read line-by-line to handle JSON messages, using instance buffer to preserve data
+    buffer = self._receive_buffer
     while True:
       try:
         data = self.client_socket.recv(4096)
@@ -137,10 +139,22 @@ class SocketPlayer:
         if not line:
           # Skip empty lines
           continue
-        try:
-          return json.loads(line)
-        except json.JSONDecodeError as e:
-          raise ValueError(f"Invalid JSON received: {line[:100]}... Error: {e}")
+        # Only try to parse lines that look like JSON (start with { or [)
+        if line.startswith('{') or line.startswith('['):
+          try:
+            json_obj = json.loads(line)
+            # Save remaining buffer for next call
+            self._receive_buffer = buffer
+            return json_obj
+          except json.JSONDecodeError as e:
+            # If this looks like JSON but parsing failed, it might be incomplete
+            # Put it back in buffer and wait for more data
+            buffer = line + '\n' + buffer
+            break
+        # Otherwise, skip this line (might be debug output or other non-JSON text)
+    
+    # Save buffer for next call (no complete message yet)
+    self._receive_buffer = buffer
 
   def push_info(self, info):
     """Send game state information as JSON to the client."""
@@ -167,7 +181,7 @@ class SocketServer:
     self.server.bind(('0.0.0.0', port))
     self.server.listen(5)
     print(f"Waiting for {self.num_players} players on port {self.port}")
-
+    
     while len(self.players) < self.num_players:
       client, address = self.server.accept()
       self.players.append(SocketPlayer(client))
@@ -191,7 +205,7 @@ class PlayerConnector:
   def __init__(self, playerconf2, port=None):
     """
     Initialize PlayerConnector.
-    
+
     Args:
         playerconf2: List of player configurations
         port: Port number for socket server (None for local clients)
@@ -205,7 +219,7 @@ class PlayerConnector:
 
     # If port is provided, start socket server (for remote clients)
     if port is not None:
-      self.server = SocketServer(port, self.num_players)
+    self.server = SocketServer(port, self.num_players)
       # In socket mode, players will be SocketPlayer objects from the server
       # We still need Player objects for game state, but they won't have clients
       self.players = []
@@ -215,9 +229,9 @@ class PlayerConnector:
         self.players.append(p)
     else:
       # Create local Player objects with their clients
-      self.players = []
-      for i,pl in enumerate(playerconf2):
-        self.players.append(Player(i+1,pl))
+    self.players = []
+    for i,pl in enumerate(playerconf2):
+      self.players.append(Player(i+1,pl))
 
     """
     self.state = GameState(self.players)
@@ -271,10 +285,10 @@ class PlayerConnector:
       return None
     else:
       # Local mode: use player's client
-      for p in self.players:
+    for p in self.players:
         if player == p or (hasattr(player, 'number') and p.number == player.number):
-          choice = p.client.push_info(game_state)
-          return choice
+        choice = p.client.push_info(game_state)
+        return choice
         
     
   def broadcast_game_states(self, game_states):

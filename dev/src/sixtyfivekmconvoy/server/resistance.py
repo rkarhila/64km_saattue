@@ -36,11 +36,12 @@ class Resistance:
       
   def take_damage(self, damagetype, modifier):
     if modifier[0] == '=':
-      damage = int(modifier[1])
+      # Fixed damage: modifier format is '=N' where N can be multi-digit
+      damage = int(modifier[1:])
     elif modifier[0] == '+':
-      damage = self.damage_from_convoy[damagetype] + int(modifier[1])
+      damage = self.damage_from_convoy[damagetype] + int(modifier[1:])
     elif modifier[0] == '-':
-      damage = self.damage_from_convoy[damagetype] - int(modifier[1])
+      damage = self.damage_from_convoy[damagetype] - int(modifier[1:])
     # elif type(damagetype) == int:
     #   self.durability -= damagetype
     # elif damagetype in '0123456789':
