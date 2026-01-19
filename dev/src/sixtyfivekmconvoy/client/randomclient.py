@@ -16,16 +16,16 @@ class QuietRandomClient(DirectClient, DisplayMixin):
     Used for direct/local communication.
     """
     
-  def __init__(self, conf):
+    def __init__(self, conf):
         DirectClient.__init__(self, conf)
     
-  def push_info(self, game_state):
+    def push_info(self, game_state):
         """Receive game state and handle choices silently."""
         if game_state is None:
             raise ValueError("QuietRandomClient.push_info() requires game_state parameter")
         
         # Handle choice if present
-    if 'choice' in game_state:
+        if 'choice' in game_state:
             options = game_state['choice']['options']
             choicecount = game_state['choice']['num_choice']
             # Make random choice (shuffle to avoid always picking first)
@@ -86,11 +86,11 @@ class TerminalRandomClient(DirectClient, DisplayMixin):
         if 'convoy' in ascii_state:
             print(ascii_state['convoy'])
         
-    if 'message' in game_state:
-      print('BROADCAST:', game_state['message'])
+        if 'message' in game_state:
+            print('BROADCAST:', game_state['message'])
 
         # Handle choice if present
-    if 'choice' in game_state:
+        if 'choice' in game_state:
             print(game_state['choice']['description'])
             options = game_state['choice']['options']
             choicecount = game_state['choice']['num_choice']
@@ -99,7 +99,7 @@ class TerminalRandomClient(DirectClient, DisplayMixin):
             random.shuffle(options_copy)
             choice = options_copy[:choicecount]
             
-      print(f"You chose {','.join([str(c) for c in choice])}")
+            print(f"You chose {','.join([str(c) for c in choice])}")
 
             # Return choice dict for direct client
             return {
@@ -109,7 +109,7 @@ class TerminalRandomClient(DirectClient, DisplayMixin):
         
         return None
 
-  def await_choice(self, candidates):
+    def await_choice(self, candidates):
         """Handle choice selection from candidates by making random choices."""
         # Extract options from candidates dict and make random choice
         if isinstance(candidates, dict):
@@ -241,7 +241,7 @@ class TerminalRandomSocketClient(SocketClient, DisplayMixin):
             choice = [random.choice(options_copy)]
             print(f"You chose {','.join([str(c) for c in choice])}")
             self._send_json(choice)
-    return choice
+            return choice
         
         # Default: send empty choice
         choice = []

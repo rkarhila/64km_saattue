@@ -219,7 +219,7 @@ class PlayerConnector:
 
     # If port is provided, start socket server (for remote clients)
     if port is not None:
-    self.server = SocketServer(port, self.num_players)
+      self.server = SocketServer(port, self.num_players)
       # In socket mode, players will be SocketPlayer objects from the server
       # We still need Player objects for game state, but they won't have clients
       self.players = []
@@ -229,9 +229,9 @@ class PlayerConnector:
         self.players.append(p)
     else:
       # Create local Player objects with their clients
-    self.players = []
-    for i,pl in enumerate(playerconf2):
-      self.players.append(Player(i+1,pl))
+      self.players = []
+      for i,pl in enumerate(playerconf2):
+        self.players.append(Player(i+1,pl))
 
     """
     self.state = GameState(self.players)
@@ -285,10 +285,10 @@ class PlayerConnector:
       return None
     else:
       # Local mode: use player's client
-    for p in self.players:
+      for p in self.players:
         if player == p or (hasattr(player, 'number') and p.number == player.number):
-        choice = p.client.push_info(game_state)
-        return choice
+          choice = p.client.push_info(game_state)
+          return choice
         
     
   def broadcast_game_states(self, game_states):

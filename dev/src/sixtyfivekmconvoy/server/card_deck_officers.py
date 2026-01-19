@@ -17,23 +17,27 @@ import os
 class OfficerCard:
     """Represents an officer card that can be attached to a unit."""
     
-    def __init__(self, officer_id, name, description, ability_type):
+    def __init__(self, officer_id, name, passive_effect, discard_effect, passive_description, discard_description):
         """
         Initialize an OfficerCard.
         
         Args:
             officer_id: the unique ID of the officer (int)
             name: the name of the officer (string)
-            description: description of the officer's ability (string)
-            ability_type: the type of ability this officer grants (string)
+            passive_effect: the passive ability type (string)
+            discard_effect: the discard ability type (string)
+            passive_description: description of the passive ability (string)
+            discard_description: description of the discard ability (string)
         """
         self.officer_id = officer_id
         self.name = name
-        self.description = description
-        self.ability_type = ability_type
+        self.passive_effect = passive_effect
+        self.discard_effect = discard_effect
+        self.passive_description = passive_description
+        self.discard_description = discard_description
     
     def __str__(self):
-        return f"OfficerCard({self.officer_id}): {self.name} - {self.description}"
+        return f"OfficerCard({self.officer_id}): {self.name}"
     
     def __repr__(self):
         return self.__str__()
@@ -43,8 +47,10 @@ class OfficerCard:
         return {
             'officer_id': self.officer_id,
             'name': self.name,
-            'description': self.description,
-            'ability_type': self.ability_type
+            'passive_effect': self.passive_effect,
+            'discard_effect': self.discard_effect,
+            'passive_description': self.passive_description,
+            'discard_description': self.discard_description
         }
 
 
@@ -55,8 +61,10 @@ def _load_deck_from_csv():
     The CSV format has:
         - officer_id: the officer ID (integer)
         - name: the name of the officer
-        - description: description of the officer's ability
-        - ability_type: the type of ability (sober_up, enhanced_attack, search_pillage_combo, atrocity_conversion, extra_carry_capacity)
+        - passive_effect: the passive ability type (string)
+        - discard_effect: the discard ability type (string)
+        - passive_description: description of the passive ability (string)
+        - discard_description: description of the discard ability (string)
     
     Returns a dictionary where keys are officer IDs and values are OfficerCard objects.
     """
@@ -71,14 +79,18 @@ def _load_deck_from_csv():
         for row in reader:
             officer_id = int(row['officer_id'].strip())
             name = row['name'].strip()
-            description = row['description'].strip()
-            ability_type = row['ability_type'].strip()
+            passive_effect = row['passive_effect'].strip() if row['passive_effect'].strip() else None
+            discard_effect = row['discard_effect'].strip() if row['discard_effect'].strip() else None
+            passive_description = row['passive_description'].strip() if row['passive_description'].strip() else ''
+            discard_description = row['discard_description'].strip() if row['discard_description'].strip() else ''
             
             deck[officer_id] = OfficerCard(
                 officer_id=officer_id,
                 name=name,
-                description=description,
-                ability_type=ability_type
+                passive_effect=passive_effect,
+                discard_effect=discard_effect,
+                passive_description=passive_description,
+                discard_description=discard_description
             )
     
     return deck
@@ -92,4 +104,5 @@ class OfficerCardDeck:
     """
     
     deck = _load_deck_from_csv()
+
 

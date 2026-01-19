@@ -141,10 +141,13 @@ class GameState:
                                  names_and_effects = CardDeckPillage.deck)
     self.mauling_deck = CardDeck(len(CardDeckMauling.deck),
                                  names_and_effects = CardDeckMauling.deck)
+    self.officer_deck = CardDeck(len(OfficerCardDeck.deck),
+                                 names_and_effects = OfficerCardDeck.deck)
     # Initialise queues:
     self.resistance_queue = CardQueue(3, deck=self.resistance_deck)    
     self.mauling_queue = CardQueue(3, deck=self.mauling_deck)    
     self.pillage_queue = CardQueue(20, deck=self.pillage_deck)
+    self.officer_queue = CardQueue(0, deck=self.officer_deck)
 
     self.convoy = Convoy(self.players)
     
@@ -181,6 +184,13 @@ class GameState:
       #self.phase = Phase.DEAL_CARDS
       self.broadcast(f"============ Starting round {self.rounds.count} ==========")
 
+      # Fill officer queue at the beginning of each turn
+      num_players = len(self.players)
+      while len(self.officer_queue.cards_and_visibilities) < num_players:
+        officer_card_id = self.officer_deck.get_card()
+        # Officers are put face up (visible=True)
+        self.officer_queue.put_card(officer_card_id, visible=True)
+      self.broadcast(f"Officer queue filled with {num_players} officers")
       
       for i in range(CARDS_TO_DEAL):
         for player in self.players:
@@ -536,9 +546,11 @@ class GameState:
     deck_state_json =  { 'action' : self.action_deck.to_json(),
                          'resistance' : self.resistance_deck.to_json(),
                          'pillage' : self.pillage_deck.to_json(),
-                         'mauling' : self.mauling_deck.to_json() }
+                         'mauling' : self.mauling_deck.to_json(),
+                         'officer' : self.officer_deck.to_json() }
     queue_state_json = { 'resistance' : self.resistance_queue.to_arr(),
                          'pillage' : self.pillage_queue.to_arr(),
+                         'officer' : self.officer_queue.to_arr(),
                          'mauling' : self.mauling_queue.to_arr() }
 
     return {'decks' : deck_state_json,

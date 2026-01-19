@@ -182,9 +182,8 @@ class Action:
 
     elif action_name_lower == ActionName.SERVICE:
       # Service action: require neighbouring unit to be tired
-      preceding_unit = self.convoy.get_preceding_unit(self.actor)
-      following_unit = self.convoy.get_following_unit(self.actor)
-      if (preceding_unit is not None or preceding_unit.tired == 0) and (following_unit is not None or following_unit.tired == 0):
+      preceding_unit, following_unit = self.acting_unit.get_neighbours()
+      if (preceding_unit is None or preceding_unit.tired == 0) and (following_unit is None or following_unit.tired == 0):
         if messager: messager('  No neighbouring units in need of service')
         return False
 
@@ -392,7 +391,15 @@ class Action:
       description = "Choose an officer to promote this unit:"
       for officer_id in available_officers:
         officer = OfficerCardDeck.deck[officer_id]
-        description += f'\n  {officer_id}: {officer.name} - {officer.description}'
+        desc_parts = []
+        if officer.passive_description:
+          desc_parts.append(f"Passive: {officer.passive_description}")
+        if officer.discard_description:
+          desc_parts.append(f"Discard: {officer.discard_description}")
+        desc_text = ' | '.join(desc_parts) if desc_parts else ''
+        description += f'\n  {officer_id}: {officer.name}'
+        if desc_text:
+          description += f' - {desc_text}'
       choicetaken = self.gamestate.demand_choice(self.acting_unit.player,
                                                  self.gamestate.choose_cards_to_discard,  # Reuse choice type
                                                  available_officers,
@@ -401,7 +408,13 @@ class Action:
       officer_id = choicetaken[0]
       officer = OfficerCardDeck.deck[officer_id]
       self.acting_unit.officers.append(officer)
-      resolve_arr.append(f"promoted unit with {officer.name}: {officer.description}")
+      desc_parts = []
+      if officer.passive_description:
+        desc_parts.append(f"Passive: {officer.passive_description}")
+      if officer.discard_description:
+        desc_parts.append(f"Discard: {officer.discard_description}")
+      desc_text = ' | '.join(desc_parts) if desc_parts else ''
+      resolve_arr.append(f"promoted unit with {officer.name}" + (f": {desc_text}" if desc_text else ""))
 
     elif action_name_lower == ActionName.SERVICE:
       resolve_arr.append(self.resolve_service())
@@ -548,10 +561,21 @@ class Action:
 
     return scouted
 
-  def _has_officer(self, ability_type):
-    """Check if the acting unit has an officer with the given ability type."""
+  def _has_officer(self, effect_type, effect_kind='discard_effect'):
+    """
+    Check if the acting unit has an officer with the given effect type.
+    
+    Args:
+        effect_type: the effect type to search for (string)
+        effect_kind: either 'passive_effect' or 'discard_effect' (default: 'discard_effect')
+    
+    Returns:
+        The officer card if found, None otherwise
+    """
     for officer in self.acting_unit.officers:
-      if officer.ability_type == ability_type:
+      if effect_kind == 'passive_effect' and officer.passive_effect == effect_type:
+        return officer
+      elif effect_kind == 'discard_effect' and officer.discard_effect == effect_type:
         return officer
     return None
   
@@ -566,8 +590,7 @@ class Action:
     # service action removes one point of tiredness from a neighbouring unit
 
     # get neighbouring units:
-    preceding_unit = self.convoy.get_preceding_unit(self.actor)
-    following_unit = self.convoy.get_following_unit(self.actor)
+    preceding_unit, following_unit = self.acting_unit.get_neighbours()
 
 
     # check if they can be serviced:

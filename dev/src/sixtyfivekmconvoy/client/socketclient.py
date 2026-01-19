@@ -25,7 +25,7 @@ class SocketClient:
 
   def disconnect(self):
     if self.socket:
-    self.socket.close()
+      self.socket.close()
       self.socket = None
     self._receive_buffer = ''
 

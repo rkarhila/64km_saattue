@@ -15,27 +15,27 @@ class MLClient(DirectClient):
     Currently a placeholder that makes random choices.
     """
     
-  def __init__(self, conf):
+    def __init__(self, conf):
         DirectClient.__init__(self, conf)
     
-  def push_info(self, game_state):
+    def push_info(self, game_state):
         """Receive game state and handle choices."""
         if game_state is None:
             raise ValueError("MLClient.push_info() requires game_state parameter")
         
-    if 'choice' in game_state:
+        if 'choice' in game_state:
             options = list(game_state['choice']['options'])  # Don't modify original
             choicecount = game_state['choice']['num_choice']
-      random.shuffle(options)
-      choice = options[:choicecount]
+            random.shuffle(options)
+            choice = options[:choicecount]
             return {
                 'choicetype': game_state['choice']['choicetype'],
                 'choice': choice
             }
         
         return None
-      
-  def await_choice(self, candidates):
+    
+    def await_choice(self, candidates):
         """Handle choice selection from candidates."""
         # Extract options from candidates dict
         if isinstance(candidates, dict):
@@ -96,4 +96,4 @@ class MLSocketClient(SocketClient):
         # Default: send empty choice
         choice = []
         self._send_json(choice)
-    return choice
+        return choice

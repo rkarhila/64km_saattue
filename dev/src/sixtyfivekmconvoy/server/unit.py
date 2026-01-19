@@ -269,10 +269,10 @@ class Unit:
     self.carry += loot
     # Loop with highest loot first:
     self.carry.sort(reverse=True)
-    # Check for Officer 5 (extra carry capacity)
+    # Check for Officer with extra carry capacity (passive effect)
     carry_capacity = 3
     for officer in self.officers:
-      if officer.ability_type == 'extra_carry_capacity':
+      if officer.passive_effect == 'extra_carry_capacity':
         carry_capacity = 4
         break
     dropped = self.carry[carry_capacity:]

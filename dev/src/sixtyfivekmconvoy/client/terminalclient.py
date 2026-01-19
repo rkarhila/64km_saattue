@@ -17,10 +17,10 @@ class TerminalHumanClient(DirectClient, DisplayMixin):
     Used for direct/local communication.
     """
     
-  def __init__(self, conf):
+    def __init__(self, conf):
         DirectClient.__init__(self, conf)
 
-  def push_info(self, game_state):
+    def push_info(self, game_state):
         """Receive game state, display it, and prompt for human input."""
         if game_state is None:
             raise ValueError("TerminalHumanClient.push_info() requires game_state parameter")
@@ -37,26 +37,26 @@ class TerminalHumanClient(DirectClient, DisplayMixin):
         if 'convoy' in ascii_state:
             print(ascii_state['convoy'])
         
-    if 'message' in game_state:
-      print('BROADCAST:', game_state['message'])
+        if 'message' in game_state:
+            print('BROADCAST:', game_state['message'])
         
         # If there's a choice, handle it
-    if 'choice' in game_state:
-      print(game_state['choice']['description'])
+        if 'choice' in game_state:
+            print(game_state['choice']['description'])
             options = game_state['choice']['options']
             choicecount = game_state['choice']['num_choice']
-      choice = None
+            choice = None
             while not self.verify_input(choice, options, choicecount):
-        print(f"Choose {choicecount} values from:", ','.join([str(c) for c in options]))
-        choice = self.get_choice(input())
+                print(f"Choose {choicecount} values from:", ','.join([str(c) for c in options]))
+                choice = self.get_choice(input())
             
             # Return choice dict for direct client
             return {
                 'choicetype': game_state['choice']['choicetype'],
                 'choice': choice
             }
-      
-      return None
+        
+        return None
     
     def await_choice(self, candidates):
         """Handle choice selection from candidates by prompting user."""
@@ -84,28 +84,27 @@ class TerminalHumanClient(DirectClient, DisplayMixin):
         """Parse input string into a list of integers."""
         if input_str and len(input_str) > 0 and input_str[0] in '0123456789':
             return [int(c) for c in re.split(r'\D+', input_str)]
-    else:
-      return None
+        else:
+            return None
     
-  def verify_input(self, choice, options, num_choices=1):
+    def verify_input(self, choice, options, num_choices=1):
         """Verify that a choice is valid."""
-    if choice is None:
-      return False
-    else:
-      if len(choice) != num_choices:
-        if num_choices == 1:
-                    print(f"You chose {','.join([str(c) for c in choice])}. You must select a single option")
-                else:
-                    print(f"You chose {','.join([str(c) for c in choice])}. You must select {num_choices} options (separate with non-digit)")
+        if choice is None:
+            return False
+        if len(choice) != num_choices:
+            if num_choices == 1:
+                print(f"You chose {','.join([str(c) for c in choice])}. You must select a single option")
+            else:
+                print(f"You chose {','.join([str(c) for c in choice])}. You must select {num_choices} options (separate with non-digit)")
+            return False
+        if len(choice) != len(list(set(choice))):
+            print(f"You chose {','.join([str(c) for c in choice])}. You cannot choose the same option twice")
+            return False
+        for op in choice:
+            if op not in options:
+                print(f"You chose {','.join([str(c) for c in choice])}. Value {op} not in options!")
                 return False
-            if len(choice) != len(list(set(choice))):
-                print(f"You chose {','.join([str(c) for c in choice])}. You cannot choose the same option twice")
-                return False
-            for op in choice:
-                if op not in options:
-                    print(f"You chose {','.join([str(c) for c in choice])}. Value {op} not in options!")
-                    return False
-            return True
+        return True
 
 
 class TerminalHumanSocketClient(SocketClient, DisplayMixin):
@@ -188,21 +187,20 @@ class TerminalHumanSocketClient(SocketClient, DisplayMixin):
         """Verify that a choice is valid."""
         if choice is None:
             return False
-        else:
-            if len(choice) != num_choices:
-                if num_choices == 1:
-                    print(f"You chose {','.join([str(c) for c in choice])}. You must select a single option")
-                else:
-                    print(f"You chose {','.join([str(c) for c in choice])}. You must select {num_choices} options (separate with non-digit)")
-        return False
-      if len(choice) != len(list(set(choice))):
-                print(f"You chose {','.join([str(c) for c in choice])}. You cannot choose the same option twice")
-        return False
-      for op in choice:
-        if op not in options:
-                    print(f"You chose {','.join([str(c) for c in choice])}. Value {op} not in options!")
-          return False
-      return True        
+        if len(choice) != num_choices:
+            if num_choices == 1:
+                print(f"You chose {','.join([str(c) for c in choice])}. You must select a single option")
+            else:
+                print(f"You chose {','.join([str(c) for c in choice])}. You must select {num_choices} options (separate with non-digit)")
+            return False
+        if len(choice) != len(list(set(choice))):
+            print(f"You chose {','.join([str(c) for c in choice])}. You cannot choose the same option twice")
+            return False
+        for op in choice:
+            if op not in options:
+                print(f"You chose {','.join([str(c) for c in choice])}. Value {op} not in options!")
+                return False
+        return True        
     
 
 # Factory function to choose between DirectClient and SocketClient versions
