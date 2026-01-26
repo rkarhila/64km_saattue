@@ -286,7 +286,8 @@ class Convoy:
       else:
         description=f'Choose {action_cost} action cards to discard for action {action.name}'
         for c in action.acting_unit.player.action_cards:
-          card_desc = action.gamestate.action_deck.describe(c)
+          # Use the player's own deck to describe their cards
+          card_desc = action.acting_unit.player.action_deck.describe(c)
           # card_desc is a list of action dictionaries when using action_deck
           if isinstance(card_desc, list):
             description+= f'\n  {c}: '+ '/'.join([f['name'] for f in card_desc if isinstance(f, dict) and 'name' in f])

@@ -38,7 +38,8 @@ class CardQueue:
     
   def to_arr(self):
     if self.deck is not None and self.deck.names_and_effects is not None:
-      queuearr = [ self.deck.get_name( self.deck.deck[i] ) if c[1] else '?' for i,c in enumerate(self.cards_and_visibilities)]
+      # Use the card ID (c[0]) to get the name, not the enumeration index
+      queuearr = [ self.deck.get_name(c[0]) if c[1] else '?' for c in self.cards_and_visibilities]
     else:
       queuearr = [ c[0] if c[1] else '?' for c in self.cards_and_visibilities]
 

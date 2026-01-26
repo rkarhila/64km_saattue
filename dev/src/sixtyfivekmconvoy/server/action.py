@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from .constants import ActionName
-from .card_deck_officers import OfficerCardDeck
+from .card_deck_officers import OfficerCardDeck, OfficerCard
 
 class Action:
 
@@ -386,10 +386,17 @@ class Action:
       resolve_arr.append(f"used {officer1.name}: removed under_influence condition")
 
     elif action_name_lower == ActionName.PROMOTE:
-      # Promote: let player choose which officer to attach
-      available_officers = list(OfficerCardDeck.deck.keys())
-      description = "Choose an officer to promote this unit:"
-      for officer_id in available_officers:
+      # Promote: let player choose which officer to attach from the officer queue
+      officer_queue = self.gamestate.officer_queue
+      if len(officer_queue.cards_and_visibilities) == 0:
+        if messager: messager('  No officers available in the officer queue')
+        return
+      
+      # Build list of available officer indices and descriptions
+      available_indices = list(range(len(officer_queue.cards_and_visibilities)))
+      description = "Choose an officer from the queue to promote this unit:"
+      for index in available_indices:
+        officer_id, visibility = officer_queue.cards_and_visibilities[index]
         officer = OfficerCardDeck.deck[officer_id]
         desc_parts = []
         if officer.passive_description:
@@ -397,17 +404,26 @@ class Action:
         if officer.discard_description:
           desc_parts.append(f"Discard: {officer.discard_description}")
         desc_text = ' | '.join(desc_parts) if desc_parts else ''
-        description += f'\n  {officer_id}: {officer.name}'
+        description += f'\n  {index}: {officer.name}'
         if desc_text:
           description += f' - {desc_text}'
+      
       choicetaken = self.gamestate.demand_choice(self.acting_unit.player,
                                                  self.gamestate.choose_cards_to_discard,  # Reuse choice type
-                                                 available_officers,
+                                                 available_indices,
                                                  description=description,
                                                  num_choices=1)
-      officer_id = choicetaken[0]
-      officer = OfficerCardDeck.deck[officer_id]
+      # Get the selected officer from the queue and remove it
+      selected_index = choicetaken[0]
+
+      officer_description = officer_queue.describe(selected_index)
+      officer = OfficerCard(**officer_description)
+
+      officer_queue.remove_card(selected_index)
+      
+      # Attach officer to unit
       self.acting_unit.officers.append(officer)
+      
       desc_parts = []
       if officer.passive_description:
         desc_parts.append(f"Passive: {officer.passive_description}")
@@ -543,9 +559,9 @@ class Action:
                                                    description=description,
                                                    num_choices=1)
       else:
-        choicetaken=options
+        choicetaken = options if options else [0]  # Default to 0 if no options
 
-      if choicetaken[0] == 0:
+      if choicetaken and len(choicetaken) > 0 and choicetaken[0] == 0:
         print("revealing pillage")
         self.gamestate.pillage_queue.reveal_next_hidden()
       elif choicetaken[0] == 1:

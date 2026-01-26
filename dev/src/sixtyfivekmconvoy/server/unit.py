@@ -84,13 +84,16 @@ class Unit:
               + self.actioncard_to_str(playerview=playerview))
 
   def to_json(self, playerview=None):
+    # Include officer names in JSON
+    officer_names = [officer.name for officer in self.officers] if self.officers else []
     return {'player' : self.player.number,
             'unit_type' : self.unit_type_to_str(),
             'tiredness' : self.tired,
             'under_influence' : self.under_influence,
             'atrocities' : self.atrocities,
             'carry' : self.carry,
-            'action' : self.actioncard_to_json(playerview=playerview)}
+            'action' : self.actioncard_to_json(playerview=playerview),
+            'officers' : officer_names}
             
             
   def state(self):

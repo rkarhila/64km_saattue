@@ -47,7 +47,8 @@ class ChoiceType:
     cash_in_cards_choice_type = 3
     choose_queue_to_scout_choice_type = 4
     choose_pillage_card_choice_type = 5
-
+    choose_officer_choice_type = 6
+    choose_service_choice_type = 7
 
 # ============================================================================
 # Action Name Constants (case-insensitive)

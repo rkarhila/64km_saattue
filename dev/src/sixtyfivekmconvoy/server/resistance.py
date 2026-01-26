@@ -35,13 +35,24 @@ class Resistance:
 
       
   def take_damage(self, damagetype, modifier):
-    if modifier[0] == '=':
-      # Fixed damage: modifier format is '=N' where N can be multi-digit
-      damage = int(modifier[1:])
-    elif modifier[0] == '+':
-      damage = self.damage_from_convoy[damagetype] + int(modifier[1:])
-    elif modifier[0] == '-':
-      damage = self.damage_from_convoy[damagetype] - int(modifier[1:])
+    # Handle both integer modifiers (new system) and string modifiers (legacy)
+    if isinstance(modifier, int):
+      # Integer modifier: acts as fixed damage value (like '=N' in old system)
+      damage = modifier
+    elif isinstance(modifier, str):
+      if modifier[0] == '=':
+        # Fixed damage: modifier format is '=N' where N can be multi-digit
+        damage = int(modifier[1:])
+      elif modifier[0] == '+':
+        damage = self.damage_from_convoy[damagetype] + int(modifier[1:])
+      elif modifier[0] == '-':
+        damage = self.damage_from_convoy[damagetype] - int(modifier[1:])
+      else:
+        # Try to parse as integer
+        damage = int(modifier)
+    else:
+      # Fallback: treat as integer
+      damage = int(modifier)
     # elif type(damagetype) == int:
     #   self.durability -= damagetype
     # elif damagetype in '0123456789':

@@ -40,6 +40,8 @@ class Player:
     self.total_cash = 0
     self.promotion_points = 0
     self.action_cards = []
+    # Per-player action deck and discard pile (initialized in GameState.__init__)
+    self.action_deck = None
 
     if conf['playertype'] == 'terminal':
       if TerminalHumanClient is not None:
@@ -77,16 +79,32 @@ class Player:
       return False
 
   def discard(self, pack, cards):
+    """Discard cards to the player's own discard pile.
+    
+    Args:
+      pack: Ignored (kept for backward compatibility). Uses self.action_deck instead.
+      cards: List of card IDs to discard.
+    """
+    if self.action_deck is None:
+      raise ValueError(f"Player {self.number}'s action_deck not initialized")
     for card in cards:
       self.action_cards.remove(card)
-      pack.discard.append(card)
+      self.action_deck.discard.append(card)
     
   def place_action_card(self, card):
     self.action_cards.remove(card)
       
   def draw_card(self, pack, count):
+    """Draw cards from the player's own action deck.
+    
+    Args:
+      pack: Ignored (kept for backward compatibility). Uses self.action_deck instead.
+      count: Number of cards to draw.
+    """
+    if self.action_deck is None:
+      raise ValueError(f"Player {self.number}'s action_deck not initialized")
     for c in range(count):
-      self.action_cards.append(pack.get_card(shuffle_if_necessary=True))
+      self.action_cards.append(self.action_deck.get_card(shuffle_if_necessary=True))
     self.action_cards.sort()
       
   def to_str(self, playerview=None):

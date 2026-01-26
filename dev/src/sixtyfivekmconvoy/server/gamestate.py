@@ -114,7 +114,8 @@ class GameState:
   cash_in_cards_choice_type = ChoiceType.cash_in_cards_choice_type
   choose_queue_to_scout_choice_type = ChoiceType.choose_queue_to_scout_choice_type
   choose_pillage_card_choice_type = ChoiceType.choose_pillage_card_choice_type
-
+  choose_officer_choice_type = ChoiceType.choose_officer_choice_type
+  choose_service_choice_type = ChoiceType.choose_service_choice_type
   
   def __init__(self, playerconnector, seed=3):
     """
@@ -133,8 +134,20 @@ class GameState:
     if seed is not None:
       random.seed(seed)
 
+    # Create shared action deck for describing cards (all players use same card definitions)
+    # But each player will have their own deck instance for drawing/discarding
     self.action_deck = CardDeck(len(CardDeckActions.deck),
                                 names_and_effects = CardDeckActions.deck)
+    
+    # Initialize each player's individual action deck with a copy of the default deck
+    num_action_cards = len(CardDeckActions.deck)
+    for player in self.players:
+      # Create a new deck instance for this player with the same card definitions
+      # Each deck starts with all cards (0 to num_action_cards-1)
+      player.action_deck = CardDeck(num_action_cards, 
+                                     shuffled=True, 
+                                     names_and_effects=CardDeckActions.deck)
+    
     self.resistance_deck = CardDeck(len(CardDeckResistance.deck),
                                  names_and_effects = CardDeckResistance.deck)
     self.pillage_deck = CardDeck(len(CardDeckPillage.deck),
@@ -214,8 +227,8 @@ class GameState:
         if len(units) > 0:
           description='Choose one action card for each troop '+','.join(units)
           for c in player.action_cards:
-            #  print(self.action_deck.describe(c))
-            card_desc = self.action_deck.describe(c)
+            #  print(player.action_deck.describe(c))
+            card_desc = player.action_deck.describe(c)
             # card_desc is a list of action dictionaries when using action_deck
             if isinstance(card_desc, list):
               description+= f'\n  {c}: '+ '/'.join([f['name'] for f in card_desc if isinstance(f, dict) and 'name' in f])
@@ -250,7 +263,8 @@ class GameState:
         else:
           raise ValueError('All actions taken already')
 
-        descriptions = self.action_deck.describe(actioncard)
+        # Use the actor's player's deck to describe the card (all decks share same definitions)
+        descriptions = actor.player.action_deck.describe(actioncard)
         possible_choices = []
         for e,desc in enumerate(descriptions):
           action = Action(self, self.convoy, self.convoy.current_actor, desc, actioncard)
@@ -316,11 +330,22 @@ class GameState:
       if mauling_target in 'ABCE':
         mauled_zone = mauling_target[0]
         mauled_unit = None
-        atrocities = sum([ self.convoy.units[u].atrocities for u in self.convoy.zones[mauled_zone] ])
+        # Filter zone positions to only include valid unit indices
+        valid_zone_positions = [u for u in self.convoy.zones[mauled_zone] if 0 <= u < len(self.convoy.units)]
+        atrocities = sum([ self.convoy.units[u].atrocities for u in valid_zone_positions ])
       else:
         mauled_zone = mauling_target[0]
         mauled_unit = int(mauling_target[1:])
-        atrocities = self.convoy.units[self.convoy.zones[mauled_zone][mauled_unit]].atrocities 
+        zone_positions = self.convoy.zones[mauled_zone]
+        # Check if the unit index is valid
+        if mauled_unit < len(zone_positions):
+          unit_index = zone_positions[mauled_unit]
+          if 0 <= unit_index < len(self.convoy.units):
+            atrocities = self.convoy.units[unit_index].atrocities
+          else:
+            atrocities = 0
+        else:
+          atrocities = 0 
       mauling_damage = mauling['effect']['damage']
       mauling_type = mauling['effect']['type'][0]
       mauling_threshold = mauling['effect']['atrocity_threshold']
@@ -396,11 +421,13 @@ class GameState:
       #print(f"Bookkeeping done, move on to next round")
       for unit in self.convoy.units:
         if unit.actioncard:
-          self.action_deck.discard.append(unit.actioncard)
+          # Discard to the unit's player's discard pile
+          unit.player.action_deck.discard.append(unit.actioncard)
           unit.actioncard = None
         unit.actiontaken = None
         if unit.secondactioncard:
-          self.action_deck.discard.append(unit.secondactioncard)
+          # Discard to the unit's player's discard pile
+          unit.player.action_deck.discard.append(unit.secondactioncard)
           unit.secondactiontaken = None
 
       
