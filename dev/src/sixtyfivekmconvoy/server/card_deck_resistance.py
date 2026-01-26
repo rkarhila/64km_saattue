@@ -2,7 +2,12 @@
 
 """
 This module contains the deck of resistance cards for the game.
+
+The card information is read from a separate CSV file and converted into a dictionary.
 """
+
+import csv
+import os
 
 
 class ResistanceCard:
@@ -27,237 +32,62 @@ class ResistanceCard:
     }
 
 
+def _load_deck_from_csv():
+  """
+  Load the resistance deck from the CSV file.
+  
+  The CSV format has:
+    - card_id: the card ID (integer)
+    - name: the name of the resistance
+    - attack: attack value (integer)
+    - target: target zone/unit (string)
+    - loot: loot value (integer)
+    - durability: durability value (integer)
+    - damage_I: damage to Infantry (integer)
+    - damage_P: damage to Panzer (integer)
+  
+  Returns a dictionary where keys are card IDs and values are ResistanceCard objects.
+  """
+  # Get the directory where this module is located
+  module_dir = os.path.dirname(os.path.abspath(__file__))
+  csv_path = os.path.join(module_dir, 'cards', 'resistance.csv')
+  
+  deck = {}
+  
+  with open(csv_path, 'r', encoding='utf-8') as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+      card_id = int(row['card_id'].strip())
+      name = row['name'].strip()
+      attack = int(row['attack'].strip())
+      target = row['target'].strip()
+      loot = int(row['loot'].strip())
+      durability = int(row['durability'].strip())
+      damage_I = int(row['damage_I'].strip())
+      damage_P = int(row['damage_P'].strip())
+      
+      effect = {
+        'attack': attack,
+        'target': target,
+        'loot': loot,
+        'durability': durability,
+        'damage': {'I': damage_I, 'P': damage_P}
+      }
+      
+      deck[card_id] = ResistanceCard(
+        id=card_id,
+        name=name,
+        effect=effect
+      )
+  
+  return deck
+
+
 class CardDeckResistance:
-
-  deck = {
-    0: ResistanceCard(
-      id=0,
-      name='Peltoja ja PST-sissejä (1)',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    1: ResistanceCard(
-      id=1,
-      name='Peltoja ja PST-sissejä (2)',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    2: ResistanceCard(
-      id=2,
-      name='Metsää ja metsäsissejä (1)',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    3: ResistanceCard(
-      id=3,
-      name='Metsää ja metsäsissejä (2)',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    4: ResistanceCard(
-      id=4,
-      name='Käännetty kyltti ja jalkaväkeä (1)',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    5: ResistanceCard(
-      id=5,
-      name='Käännetty kyltti ja jalkaväkeä (2)',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    6: ResistanceCard(
-      id=6,
-      name='Käännetty kyltti ja jalkaväkeä (3)',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    7: ResistanceCard(
-      id=7,
-      name='Pieni kylä',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    8: ResistanceCard(
-      id=8,
-      name='Pieni kylä',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    9: ResistanceCard(
-      id=9,
-      name='Kirkonkylä',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    10: ResistanceCard(
-      id=10,
-      name='Kirkonkylä',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    11: ResistanceCard(
-      id=11,
-      name='Kirkonkylä',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    12: ResistanceCard(
-      id=12,
-      name="Käännetty kyltti ja tark'ampujia (1)",
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    13: ResistanceCard(
-      id=13,
-      name="Käännetty kyltti ja tark'ampujia (2)",
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    14: ResistanceCard(
-      id=14,
-      name="Käännetty kyltti ja tark'ampujia (3)",
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    15: ResistanceCard(
-      id=15,
-      name='Kaupunki',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    16: ResistanceCard(
-      id=16,
-      name='Kaupunki',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    17: ResistanceCard(
-      id=17,
-      name='Kaupunki',
-      effect={
-        'attack': 3,
-                             'target': 'A1',
-                             'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-    18: ResistanceCard(
-      id=18,
-      name='Kasarmi',
-      effect={
-        'attack': 3,
-                              'target': 'A1',
-                              'loot': 3,
-        'durability': 3,
-        'damage': {'I': 1, 'P': 2}
-      }
-    ),
-          }
-
-
-  # deck = { 0 : { 'name' : 'kaupunki',
-  #                'effect' :
-  #                {'attack': 3,
-  #                 'target': 'A1',
-  #                 'loot': 3,
-  #                 'durability' : 3,
-  #                 'damage' : {'I': 1, 'P':2  }}
-  #               },
-  #          1 : { 'name' : 'kylä', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
-  #          2 : { 'name' : 'kaupunki', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
-  #          3 : { 'name' : 'peltoja', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
-  #          4 : { 'name' : 'metsää', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
-  #          5 : { 'name' : 'metsää', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
-  #          6 : { 'name' : 'peltoja', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
-  #          7 : { 'name' : 'kaupunki', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
-  #          8 : { 'name' : 'peltoja', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
-  #          9 : { 'name' : 'metsää', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
-  #          10 : { 'name' : 'kirkonkylä', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} },
-  #          11 : { 'name' : 'silta', 'effect' : {'attack': 3, 'target': 'A1', 'loot': 3, 'durability' : 3, 'damage' : {'I': 1, 'P':2  }} } } 
+  """
+  Class containing the resistance card deck.
+  
+  The deck is loaded from the CSV file when the class is defined.
+  """
+  
+  deck = _load_deck_from_csv()

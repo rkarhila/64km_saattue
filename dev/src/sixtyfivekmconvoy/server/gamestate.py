@@ -106,6 +106,14 @@ class GameState:
   active_resistance = [0]
 
   history = []
+  
+  # List to collect action summaries during each round
+  round_action_summaries = []
+  
+  # Track round statistics
+  round_resistance_damage = 0  # Total damage done to resistance this round
+  round_resistance_initial_state = None  # Initial resistance state at round start
+  round_unit_damage = []  # List of (unit_index, damage_amount) tuples for damage done to units
 
   # Choice type constants (from constants.ChoiceType, kept for backward compatibility)
   choose_card_choice_type = ChoiceType.choose_card_choice_type
@@ -162,7 +170,7 @@ class GameState:
     self.pillage_queue = CardQueue(20, deck=self.pillage_deck)
     self.officer_queue = CardQueue(0, deck=self.officer_deck)
 
-    self.convoy = Convoy(self.players)
+    self.convoy = Convoy(self.players, gamestate=self)
     
     self.scores = [0] * len(self.players)
 
@@ -196,6 +204,25 @@ class GameState:
       # 0 Deal cards:
       #self.phase = Phase.DEAL_CARDS
       self.broadcast(f"============ Starting round {self.rounds.count} ==========")
+      
+      # Clear action summaries for the new round
+      self.round_action_summaries = []
+      
+      # Track round statistics - capture initial state
+      self.round_resistance_damage = 0
+      if self.resistance and self.resistance.active:
+        self.round_resistance_initial_state = {
+          'name': self.resistance.name,
+          'durability': self.resistance.durability,
+          'status': getattr(self.resistance, 'status', 'active')
+        }
+      else:
+        self.round_resistance_initial_state = None
+      self.round_unit_damage = []
+      
+      # Reset this_round_cash for all players (it accumulates during the round)
+      for pl in self.players:
+        pl.this_round_cash = 0
 
       # Fill officer queue at the beginning of each turn
       num_players = len(self.players)
@@ -245,7 +272,8 @@ class GameState:
 
           units = [u for u in self.convoy.units if u.player == player ]
           for i, choice in enumerate(choicetaken):
-            units[i].actioncard = choice
+            units[i].actioncard = [choice]  # Initialize with first action card
+            units[i].actiontaken = []  # Initialize empty actiontaken list
             player.place_action_card(choice)
               
       next_stage = self.rounds.next_stage()
@@ -253,51 +281,85 @@ class GameState:
       self.convoy.current_actor= 0
           
       # 2 play actions:
-      
-      while self.convoy.current_actor is not None:
-        actor = self.convoy.units[self.convoy.current_actor]
-        if self.convoy.units[self.convoy.current_actor].actiontaken is None:
-          actioncard = self.convoy.units[self.convoy.current_actor].actioncard
-        elif self.convoy.units[self.convoy.current_actor].secondactiontaken is None:
-          actioncard = self.convoy.units[self.convoy.current_actor].secondactioncard
-        else:
-          raise ValueError('All actions taken already')
-
-        # Use the actor's player's deck to describe the card (all decks share same definitions)
-        descriptions = actor.player.action_deck.describe(actioncard)
-        possible_choices = []
-        for e,desc in enumerate(descriptions):
-          action = Action(self, self.convoy, self.convoy.current_actor, desc, actioncard)
-          if action.possible:
-            possible_choices.append([e,desc,action])
-        if len(possible_choices) > 1:
-          choicetaken = self.demand_choice(actor.player,
-                                           GameState.choose_action_choice_type,
-                                           [0,1],
-                                           description='Choose action for '+Unit.type_to_str[actor.unittype] + '  0:"' +  descriptions[0]['name'] + '" 1:"' +descriptions[1]['name']+'"',
-                                           num_choices=1)
-        elif len(possible_choices) == 1:
-          choicetaken = [0] #possible_choices[0]
-        else:
-          choicetaken = [-1]  # become frustrated!
+      # Loop by action index: first all units' first action (index 0), then second (index 1), etc.
+      action_index = 0
+      while True:
+        # Check if any unit has an action at this index
+        units_with_action = []
+        for unit_idx, unit in enumerate(self.convoy.units):
+          if action_index < len(unit.actioncard):
+            # Unit has an action card at this index
+            if action_index >= len(unit.actiontaken) or unit.actiontaken[action_index] is None:
+              # Action not yet taken
+              units_with_action.append(unit_idx)
         
-        if choicetaken[0] == -1:
-          if self.convoy.units[self.convoy.current_actor].actiontaken is None:
-            self.convoy.units[self.convoy.current_actor].actiontaken = choicetaken[0]
-          elif self.convoy.units[self.convoy.current_actor].secondactiontaken is None:
-            self.convoy.units[self.convoy.current_actor].secondactiontaken = choicetaken[0]
-          self.broadcast(f"Unit {actor} (Player {actor.player.number}/{actor.player.name}) becomes frustrated ")
-
-          self.convoy.resolve_action(None)
-        else:
-          if self.convoy.units[self.convoy.current_actor].actiontaken is None:
-            self.convoy.units[self.convoy.current_actor].actiontaken = choicetaken[0]
+        if not units_with_action:
+          # No more actions to resolve
+          break
+        
+        # Process each unit's action at this index
+        for unit_idx in units_with_action:
+          # Check if unit index is still valid (unit might have been removed)
+          if unit_idx >= len(self.convoy.units):
+            continue
+          unit = self.convoy.units[unit_idx]
+          actioncard = unit.actioncard[action_index]
+          
+          # Ensure actiontaken list is long enough
+          while len(unit.actiontaken) <= action_index:
+            unit.actiontaken.append(None)
+          
+          # Use the unit's player's deck to describe the card
+          descriptions = unit.player.action_deck.describe(actioncard)
+          possible_choices = []
+          for e,desc in enumerate(descriptions):
+            action = Action(self, self.convoy, unit_idx, desc, actioncard, action_index=action_index)
+            if action.possible:
+              possible_choices.append([e,desc,action])
+          
+          if len(possible_choices) > 1:
+            choicetaken = self.demand_choice(unit.player,
+                                             GameState.choose_action_choice_type,
+                                             [0,1],
+                                             description='Choose action for '+Unit.type_to_str[unit.unittype] + '  0:"' +  descriptions[0]['name'] + '" 1:"' +descriptions[1]['name']+'"',
+                                             num_choices=1)
+          elif len(possible_choices) == 1:
+            choicetaken = [0]
+          else:
+            choicetaken = [-1]  # become frustrated!
+          
+          if choicetaken[0] == -1:
+            unit.actiontaken[action_index] = choicetaken[0]
+            
+            # Collect failed action names, filtered by unit's troop type
+            unit_troop_type_map = {0: 'P', 1: 'I', 2: 'L'}
+            unit_troop_type = unit_troop_type_map.get(unit.unittype, 'A')
+            
+            failed_action_names = [
+              desc['name'] 
+              for desc in descriptions 
+              if desc.get('troop_type', 'A') == unit_troop_type or desc.get('troop_type', 'A') == 'A'
+            ]
+            
+            unit_type_str = Unit.type_to_str.get(unit.unittype, 'unknown').lower()
+            player_colors = ['red', 'green', 'blue', 'orange', 'purple']
+            player_color = player_colors[unit.player.number] if 0 <= unit.player.number < len(player_colors) else 'unknown'
+            
+            if failed_action_names:
+              failed_actions_str = ' or '.join(failed_action_names)
+              frustration_summary = f"Unit {unit_idx} {player_color} {unit_type_str} cannot resolve card ${actioncard} actions {failed_actions_str} and becomes frustrated."
+            else:
+              frustration_summary = f"Unit {unit_idx} {player_color} {unit_type_str} cannot resolve card ${actioncard} actions and becomes frustrated."
+            
+            self.round_action_summaries.append(frustration_summary)
+            self.convoy.resolve_action(None, unit_idx=unit_idx, action_index=action_index)
+          else:
+            unit.actiontaken[action_index] = choicetaken[0]
             action = possible_choices[choicetaken[0]][2]
-            self.convoy.resolve_action(action)
-          elif self.convoy.units[self.convoy.current_actor].secondactiontaken is None:
-            self.convoy.units[self.convoy.current_actor].secondactiontaken = choicetaken[0]
-            action = possible_choices[choicetaken[0]][2]
-            self.convoy.resolve_action(action, second=True)
+            self.convoy.resolve_action(action, unit_idx=unit_idx, action_index=action_index)
+        
+        # Move to next action index
+        action_index += 1
 
       # 3 advance convoy
       advance_msg = ''
@@ -361,6 +423,54 @@ class GameState:
 
 
       # 5 bookkkeeping
+      
+      # Broadcast round action summary
+      if self.round_action_summaries:
+        summary_header = f"============ Round {self.rounds.count} Action Summary ============"
+        summary_lines = [summary_header]
+        summary_lines.extend(self.round_action_summaries)
+        summary_lines.append("=" * len(summary_header))
+        
+        # Add round statistics
+        summary_lines.append("")
+        summary_lines.append("Round Statistics:")
+        
+        # Resistance damage and state
+        if self.round_resistance_initial_state:
+          if self.resistance and self.resistance.active:
+            final_durability = self.resistance.durability
+            status = getattr(self.resistance, 'status', 'active')
+            summary_lines.append(f"  Resistance '{self.resistance.name}': {self.round_resistance_damage} damage dealt, durability {self.round_resistance_initial_state['durability']} -> {final_durability} ({status})")
+          else:
+            summary_lines.append(f"  Resistance '{self.round_resistance_initial_state['name']}': {self.round_resistance_damage} damage dealt, destroyed")
+        elif self.round_resistance_damage > 0:
+          summary_lines.append(f"  Resistance: {self.round_resistance_damage} damage dealt")
+        
+        # Cash awarded to each player
+        player_colors = ['red', 'green', 'blue', 'orange', 'purple']
+        cash_awards = []
+        for pl in self.players:
+          if pl.this_round_cash > 0:
+            color = player_colors[pl.number] if 0 <= pl.number < len(player_colors) else 'unknown'
+            cash_awards.append(f"{color} {pl.this_round_cash}")
+        if cash_awards:
+          summary_lines.append(f"  Cash awarded: {', '.join(cash_awards)}")
+        
+        # Unit damage
+        if self.round_unit_damage:
+          unit_damage_list = []
+          for unit_idx, damage in self.round_unit_damage:
+            if 0 <= unit_idx < len(self.convoy.units):
+              unit = self.convoy.units[unit_idx]
+              unit_type_str = Unit.type_to_str.get(unit.unittype, 'unknown').lower()
+              player_color = player_colors[unit.player.number] if 0 <= unit.player.number < len(player_colors) else 'unknown'
+              unit_damage_list.append(f"Unit {unit_idx} ({player_color} {unit_type_str}) {damage} damage")
+          if unit_damage_list:
+            summary_lines.append(f"  Unit damage: {', '.join(unit_damage_list)}")
+        
+        summary_lines.append("=" * len(summary_header))
+        self.broadcast('\n'.join(summary_lines))
+      
       for pl in self.players:
         if len(pl.action_cards) > CARD_TO_POINTS_RATIO:
           description = f"Do you want to exchange {CARD_TO_POINTS_RATIO} to 1 point (1=yes,0=no)"
@@ -420,15 +530,12 @@ class GameState:
         
       #print(f"Bookkeeping done, move on to next round")
       for unit in self.convoy.units:
+        # Discard all action cards from this round to the unit's player's discard pile
         if unit.actioncard:
-          # Discard to the unit's player's discard pile
-          unit.player.action_deck.discard.append(unit.actioncard)
-          unit.actioncard = None
-        unit.actiontaken = None
-        if unit.secondactioncard:
-          # Discard to the unit's player's discard pile
-          unit.player.action_deck.discard.append(unit.secondactioncard)
-          unit.secondactiontaken = None
+          for card in unit.actioncard:
+            unit.player.action_deck.discard.append(card)
+          unit.actioncard = []
+        unit.actiontaken = []
 
       
       for pl in self.players:

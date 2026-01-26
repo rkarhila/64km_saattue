@@ -2,9 +2,12 @@
 
 """
 This module contains the deck of pillage cards for the game.
+
+The card information is read from a separate CSV file and converted into a dictionary.
 """
 
-import random
+import csv
+import os
 
 
 class PillageCard:
@@ -29,20 +32,63 @@ class PillageCard:
     }
 
 
-class CardDeckPillage:
-
+def _load_deck_from_csv():
+  """
+  Load the pillage deck from the CSV file.
+  
+  The CSV format has:
+    - card_id: the card ID (integer)
+    - name: the name of the pillage location
+    - cash: cash reward (integer)
+    - loot: loot reward (comma-separated list of integers, or empty string)
+    - atrocities: atrocity points (integer)
+  
+  Returns a dictionary where keys are card IDs and values are PillageCard objects.
+  """
+  # Get the directory where this module is located
+  module_dir = os.path.dirname(os.path.abspath(__file__))
+  csv_path = os.path.join(module_dir, 'cards', 'pillage.csv')
+  
   deck = {}
-
-  for i in range(40):
-    deck[i] = PillageCard(
-      id=i,
-      name=f'pillage_{i}',
-      reward={
-        'cash': random.choice([0, 1, 2]),
-        'loot': random.choice([[], [], [1], [1, 1], [1, 1, 1], [3], [3, 1], [5]]),
-        'atrocities': random.choice([0, 1])
+  
+  with open(csv_path, 'r', encoding='utf-8') as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+      card_id = int(row['card_id'].strip())
+      name = row['name'].strip()
+      cash = int(row['cash'].strip())
+      loot_str = row['loot'].strip()
+      atrocities = int(row['atrocities'].strip())
+      
+      # Parse loot: empty string means empty list, otherwise parse comma-separated integers
+      if not loot_str:
+        loot = []
+      else:
+        loot = [int(x.strip()) for x in loot_str.split(',') if x.strip()]
+      
+      reward = {
+        'cash': cash,
+        'loot': loot,
+        'atrocities': atrocities
       }
-    )
+      
+      deck[card_id] = PillageCard(
+        id=card_id,
+        name=name,
+        reward=reward
+      )
+  
+  return deck
+
+
+class CardDeckPillage:
+  """
+  Class containing the pillage card deck.
+  
+  The deck is loaded from the CSV file when the class is defined.
+  """
+  
+  deck = _load_deck_from_csv()
     
   """
   deck = { 0 : { 'name' : 'ruokala', 'effect' : [] },

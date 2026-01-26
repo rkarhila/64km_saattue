@@ -2,10 +2,20 @@
 
 from .constants import ActionName
 from .card_deck_officers import OfficerCardDeck, OfficerCard
+from .unit import Unit
+
+# Player color mapping for broadcasts
+PLAYER_COLORS = ['red', 'green', 'blue', 'orange', 'purple']
+
+def get_player_color(player_number):
+    """Get color name for a player number."""
+    if 0 <= player_number < len(PLAYER_COLORS):
+        return PLAYER_COLORS[player_number]
+    return 'unknown'
 
 class Action:
 
-  def __init__(self, gamestate, convoy, actor, action, cardnumber):
+  def __init__(self, gamestate, convoy, actor, action, cardnumber, action_index=None):
     self.gamestate = gamestate
     self.convoy = convoy
     self.actor = actor
@@ -14,6 +24,7 @@ class Action:
     self.acting_unit = self.convoy.units[self.actor]
     self.acting_unit_type = self.acting_unit.type_to_str[self.acting_unit.unittype][0]
     self.player = self.acting_unit.player
+    self.action_index = action_index  # Store the action index for this action (used by WAIT action)
     
     # New format: action_name, action_modifier, zone, tire, intoxicate
     if 'action_name' in action:
@@ -213,7 +224,11 @@ class Action:
     return True
   
   def resolve(self, messager=None):
-    resolve_arr = [f'Unit {self.actor} (Player {self.player.number}/{self.player.name}) resolved action {self.name}:']
+    # Get unit type string (lowercase: pnz, inf, log)
+    unit_type_str = Unit.type_to_str.get(self.acting_unit.unittype, 'unknown').lower()
+    # Get player color
+    player_color = get_player_color(self.player.number)
+    resolve_arr = [f'Unit {self.actor} {player_color} {unit_type_str} resolved card ${self.cardnumber} action {self.name}:']
     action_name_lower = self.action_name.lower()
     
     if action_name_lower == ActionName.ATTACK:
@@ -240,12 +255,27 @@ class Action:
           resolve_arr.append(f"used {officer2.name}: +3 damage but unit took 1 damage")
       
       modifier_str = f'={damage_modifier}'
+      # Calculate actual damage before applying
+      if isinstance(modifier_str, int):
+        actual_damage = modifier_str
+      elif modifier_str.startswith('='):
+        actual_damage = int(modifier_str[1:])
+      elif modifier_str.startswith('+'):
+        actual_damage = self.gamestate.resistance.damage_from_convoy[self.acting_unit_type] + int(modifier_str[1:])
+      elif modifier_str.startswith('-'):
+        actual_damage = self.gamestate.resistance.damage_from_convoy[self.acting_unit_type] - int(modifier_str[1:])
+      else:
+        actual_damage = int(modifier_str) if modifier_str.isdigit() else damage_modifier
+      
       result = self.gamestate.resistance.take_damage(self.acting_unit_type, modifier_str)
       if isinstance(result, tuple):
         reward, msg = result
       else:
         reward = result
         msg = f'Resistance took {damage_modifier} damage'
+      # Track actual resistance damage
+      if actual_damage > 0:
+        self.gamestate.round_resistance_damage += actual_damage
       self.player.get_cash(reward)
       resolve_arr.append(f"{msg}")
       
@@ -372,8 +402,37 @@ class Action:
       self.acting_unit.resolve_defend(defense_type, defense_reward)
       
     elif action_name_lower == ActionName.WAIT:
-      # You can always wait as your first action!
-      pass
+      # Wait: player chooses a new action card to append to unit's actioncard list
+      if not self.acting_unit.player.action_cards:
+        if messager: messager('  No action cards available to wait with')
+        return False
+      
+      # Let player choose an action card
+      description = 'Choose an action card to add to this unit (WAIT action):'
+      for c in self.acting_unit.player.action_cards:
+        card_desc = self.acting_unit.player.action_deck.describe(c)
+        if isinstance(card_desc, list):
+          description += f'\n  {c}: ' + '/'.join([f['name'] for f in card_desc if isinstance(f, dict) and 'name' in f])
+        elif isinstance(card_desc, dict) and 'name' in card_desc:
+          description += f'\n  {c}: {card_desc["name"]}'
+        else:
+          description += f'\n  {c}: {str(card_desc)}'
+      
+      choicetaken = self.gamestate.demand_choice(
+        self.acting_unit.player,
+        self.gamestate.choose_card_choice_type,
+        self.acting_unit.player.action_cards,
+        description=description,
+        num_choices=1
+      )
+      
+      chosen_card = choicetaken[0]
+      # Append the chosen card to the unit's actioncard list
+      self.acting_unit.actioncard.append(chosen_card)
+      self.acting_unit.actiontaken.append(None)  # Will be set when this action is resolved
+      self.acting_unit.player.place_action_card(chosen_card)
+      
+      resolve_arr.append(f"waited and added card ${chosen_card} to action queue")
       
     elif action_name_lower == ActionName.SOBER_UP:
       # Sober up: remove under_influence (requires Officer 1)
@@ -472,7 +531,9 @@ class Action:
       self.acting_unit.under_influence = 1
 
     # Broadcast message:
-    self.gamestate.broadcast(','.join(resolve_arr))
+    # Collect action summary instead of broadcasting immediately
+    action_summary = ','.join(resolve_arr)
+    self.gamestate.round_action_summaries.append(action_summary)
 
     return True
 
@@ -610,7 +671,7 @@ class Action:
 
 
     # check if they can be serviced:
-    if preceding_unit.tired > 0 and following_unit.tired > 0:
+    if preceding_unit is not None and preceding_unit.tired > 0 and following_unit is not None and following_unit.tired > 0:
       choice = self.gamestate.demand_choice(self.acting_unit.player,
                                             self.gamestate.choose_service_choice_type,
                                             [0, 1],

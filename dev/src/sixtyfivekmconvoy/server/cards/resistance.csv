@@ -1,0 +1,20 @@
+card_id,name,attack,target,loot,durability,damage_I,damage_P
+0,"Peltoja ja PST-sissejä (1)",3,A1,3,3,1,2
+1,"Peltoja ja PST-sissejä (2)",3,A1,3,3,1,2
+2,"Metsää ja metsäsissejä (1)",3,A1,3,3,1,2
+3,"Metsää ja metsäsissejä (2)",3,A1,3,3,1,2
+4,"Käännetty kyltti ja jalkaväkeä (1)",3,A1,3,3,1,2
+5,"Käännetty kyltti ja jalkaväkeä (2)",3,A1,3,3,1,2
+6,"Käännetty kyltti ja jalkaväkeä (3)",3,A1,3,3,1,2
+7,Pieni kylä,3,A1,3,3,1,2
+8,Pieni kylä,3,A1,3,3,1,2
+9,Kirkonkylä,3,A1,3,3,1,2
+10,Kirkonkylä,3,A1,3,3,1,2
+11,Kirkonkylä,3,A1,3,3,1,2
+12,"Käännetty kyltti ja tark'ampujia (1)",3,A1,3,3,1,2
+13,"Käännetty kyltti ja tark'ampujia (2)",3,A1,3,3,1,2
+14,"Käännetty kyltti ja tark'ampujia (3)",3,A1,3,3,1,2
+15,Kaupunki,3,A1,3,3,1,2
+16,Kaupunki,3,A1,3,3,1,2
+17,Kaupunki,3,A1,3,3,1,2
+18,Kasarmi,3,A1,3,3,1,2

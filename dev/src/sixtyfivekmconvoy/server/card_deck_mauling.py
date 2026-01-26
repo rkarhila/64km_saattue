@@ -2,9 +2,12 @@
 
 """
 This module contains the deck of mauling cards for the game.
+
+The card information is read from a separate CSV file and converted into a dictionary.
 """
 
-from random import choice
+import csv
+import os
 
 
 class CardMauling:
@@ -52,20 +55,62 @@ class MaulingCard:
     }
 
 
-class CardDeckMauling:
-
+def _load_deck_from_csv():
+  """
+  Load the mauling deck from the CSV file.
+  
+  The CSV format has:
+    - card_id: the card ID (integer)
+    - name: the name of the mauling
+    - damage_min: minimum damage (integer)
+    - damage_max: maximum damage (integer)
+    - target: target zone/unit (string)
+    - atrocity_threshold: atrocity threshold (integer)
+    - type: attack type (string: Ground, Aerial, Saboteur, Trap)
+  
+  Returns a dictionary where keys are card IDs and values are MaulingCard objects.
+  """
+  # Get the directory where this module is located
+  module_dir = os.path.dirname(os.path.abspath(__file__))
+  csv_path = os.path.join(module_dir, 'cards', 'mauling.csv')
+  
   deck = {}
-  for i in range(20):
-    deck[i] = MaulingCard(
-      id=i,
-      name=f'maul_{i}',
-      effect={
-        'damage': [2, 4],
-        'target': choice(['B', 'C', 'A-1', 'A1', 'B1', 'B-1', 'E1', 'E-1']),
-        'atrocity_threshold': 2,
-        'type': 'Ground'
+  
+  with open(csv_path, 'r', encoding='utf-8') as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+      card_id = int(row['card_id'].strip())
+      name = row['name'].strip()
+      damage_min = int(row['damage_min'].strip())
+      damage_max = int(row['damage_max'].strip())
+      target = row['target'].strip()
+      atrocity_threshold = int(row['atrocity_threshold'].strip())
+      attack_type = row['type'].strip()
+      
+      effect = {
+        'damage': [damage_min, damage_max],
+        'target': target,
+        'atrocity_threshold': atrocity_threshold,
+        'type': attack_type
       }
-    )
+      
+      deck[card_id] = MaulingCard(
+        id=card_id,
+        name=name,
+        effect=effect
+      )
+  
+  return deck
+
+
+class CardDeckMauling:
+  """
+  Class containing the mauling card deck.
+  
+  The deck is loaded from the CSV file when the class is defined.
+  """
+  
+  deck = _load_deck_from_csv()
   
   """
   deck = { 0 : { 'name' : 'Kiväärihenkilöitä/Panssarirynnäkkö',

@@ -19,11 +19,8 @@ class Unit:
   # or damage (negative -1)
   carry = [0,0,0]
   atrocities = -1
-  actioncard = None
-  actiontaken = None
-
-  secondactioncard = None
-  secondactiontaken = None
+  actioncard = []  # List of action cards for this unit
+  actiontaken = []  # List of action choices taken (parallel to actioncard)
   
   type_to_str = { 0 : 'Pnz',
                   1 : 'Inf',
@@ -52,10 +49,8 @@ class Unit:
     self.tired = 0
     self.under_influence = 0
     self.atrocities = 0
-    self.actioncard = None
-    self.actiontaken = None
-    self.secondactioncard = None
-    self.secondactiontaken = None
+    self.actioncard = []  # List of action cards for this unit
+    self.actiontaken = []  # List of action choices taken (parallel to actioncard)
     self.convoy = None
 
     self.defending=None
@@ -157,34 +152,41 @@ class Unit:
 
 
   def actioncard_to_str(self, playerview=None):
-    if self.actioncard is None:
+    if not self.actioncard:
       return ' A-'
-    if self.actiontaken is not None:
-      return ' A' + str(self.actioncard) + '/' + str(self.actiontaken)
-    if playerview is None or playerview.number == self.player:
-      return ' A' + str(self.actioncard)
-    else:
-      return ' A?'
+    # Show all action cards
+    action_strs = []
+    for i, card in enumerate(self.actioncard):
+      if i < len(self.actiontaken) and self.actiontaken[i] is not None:
+        action_strs.append(f'A{card}/{self.actiontaken[i]}')
+      elif playerview is None or playerview.number == self.player:
+        action_strs.append(f'A{card}')
+      else:
+        action_strs.append('A?')
+    return ' ' + ' '.join(action_strs)
 
   def actioncard_to_json(self, playerview=None):
-    if self.actioncard is None:
+    if not self.actioncard:
       return { 'card' : None}
-    if self.actiontaken:
-      return { 'card' : self.actioncard, 'actiontaken' : self.actiontaken }
-    if playerview is None or playerview.number == self.player:
-      return { 'card' : self.actioncard}
-    else:
-      return { 'card' : '?'}
+    # Return the first action card for backward compatibility, or all cards
+    if len(self.actioncard) > 0:
+      first_card = self.actioncard[0]
+      first_taken = self.actiontaken[0] if len(self.actiontaken) > 0 else None
+      if first_taken is not None:
+        return { 'card' : first_card, 'actiontaken' : first_taken }
+      if playerview is None or playerview.number == self.player:
+        return { 'card' : first_card}
+      else:
+        return { 'card' : '?'}
+    return { 'card' : None}
 
 
   ### /state related methods
 
   def clear_state(self):
     
-    self.actioncard = None
-    self.actiontaken = None
-    self.secondactioncard = None
-    self.secondactiontaken = None
+    self.actioncard = []
+    self.actiontaken = []
     self.current_action_type = None
 
   

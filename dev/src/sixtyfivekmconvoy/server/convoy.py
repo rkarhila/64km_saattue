@@ -25,7 +25,7 @@ class Convoy:
     15:  Unit( player=5, unittype=UnitType.LOGISTICS),
   }
 
-  def __init__(self, players, state=None):
+  def __init__(self, players, state=None, gamestate=None):
     if state is None:
       num_players = len(players)
       num_units = num_players * 3
@@ -37,6 +37,7 @@ class Convoy:
         u.convoy = self
     else:
       self.units = state
+    self.gamestate = gamestate
 
     self.current_actor = None
 
@@ -168,6 +169,11 @@ class Convoy:
             soaked_cards += 1
           msg += f"Defense soaks {damage} damage and {cards} discards"
       
+      # Track unit damage for round summary
+      unit_index = unit.index() if hasattr(unit, 'index') else self.units.index(unit)
+      if hasattr(self.gamestate, 'round_unit_damage') and damage > 0:
+        self.gamestate.round_unit_damage.append((unit_index, damage))
+      
       new_unit_status = unit.apply_damage(damage, discards=cards,damage_for_not_discarding=damage_for_not_discarding)
       
       msg += f"Unit {unit} takes {damage} damage, player loses {cards} cards"
@@ -262,13 +268,19 @@ class Convoy:
     self.units.insert(new_position, moving_unit)
     return new_position
   
-  def resolve_action(self, action, second=False):
+  def resolve_action(self, action, unit_idx=None, action_index=None):
 
     if action is None:
-      #print(f"{self.units[self.current_actor].to_str()} becomes frustrated")
-      self.units[self.current_actor].become_frustrated()
-      self.set_next_actor()
+      # Unit becomes frustrated
+      if unit_idx is not None:
+        self.units[unit_idx].become_frustrated()
       return True
+    
+    # If unit_idx not provided, use current_actor (for backward compatibility)
+    if unit_idx is None:
+      unit_idx = self.current_actor
+      if unit_idx is None:
+        raise ValueError("resolve_action requires unit_idx when current_actor is None")
 
 
     #print("Resolve action", action.name, "for unit", action.actor)
@@ -344,28 +356,6 @@ class Convoy:
     #     unit.resolve_defend(modifier=actionstr[1:3])
     #   actionstr=actionstr[3:] 
         
-    # Action resolved, now take set the next unit in convoy to
-    # be active.
-    self.set_next_actor()
+    # Action resolved - no longer need to set next actor since we iterate by action index
 
-  def set_next_actor(self):
-    set_next_actor = None
-    
-    # Was the next actor specified in the action taken?
-    if set_next_actor:
-      self.current_actor = set_next_actor
-    else:
-      self.current_actor = None
-      # Check from the beginning which unit is the first one not
-      # to have taken action:
-      for i,u in enumerate(self.units):
-        if u.actiontaken is None:
-          self.current_actor = i
-          break
-      # If all units have acted, check if there is a second round
-      # of actions:
-      if self.current_actor is None:
-        for i,u in enumerate(self.units):
-          if u.secondactioncard is not None and u.secondactiontaken is None:
-            self.current_actor = i
-            break
+  # set_next_actor removed - no longer needed with action index iteration system
