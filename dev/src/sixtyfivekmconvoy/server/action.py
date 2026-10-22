@@ -62,9 +62,11 @@ class Action:
     else:
       raise ValueError("Action must have 'action_name' or 'actions' field")
     
-    self.cost = action['cost']
-    self.limits = action['limits']
-    self.name = action['name']
+    self.cost = action.get('cost', '0')
+    self.limits = action.get('limits', '')
+    self.name = action.get('name', action.get('action_name', ''))
+    self.is_officer_discard = action.get('is_officer_discard', False)
+    self.officer = action.get('officer', None) if self.is_officer_discard else None
 
     self.possible = self.is_possible()
     self.cost = self.get_cost()
@@ -228,7 +230,13 @@ class Action:
     unit_type_str = Unit.type_to_str.get(self.acting_unit.unittype, 'unknown').lower()
     # Get player color
     player_color = get_player_color(self.player.number)
-    resolve_arr = [f'Unit {self.actor} {player_color} {unit_type_str} resolved card ${self.cardnumber} action {self.name}:']
+    
+    # Format resolve message differently for officer discard actions
+    if self.is_officer_discard and self.officer:
+      resolve_arr = [f'Unit {self.actor} {player_color} {unit_type_str} used {self.officer.name} (discard effect):']
+    else:
+      resolve_arr = [f'Unit {self.actor} {player_color} {unit_type_str} resolved card ${self.cardnumber} action {self.name}:']
+    
     action_name_lower = self.action_name.lower()
     
     if action_name_lower == ActionName.ATTACK:
@@ -476,6 +484,13 @@ class Action:
       selected_index = choicetaken[0]
 
       officer_description = officer_queue.describe(selected_index)
+      # officer_description should have officer_id, but if it's missing, get it from the queue card
+      if 'officer_id' not in officer_description:
+        # Get the sequential index from the queue and convert to actual officer ID
+        queue_card_id, _ = officer_queue.cards_and_visibilities[selected_index]
+        if hasattr(self.gamestate, 'officer_id_mapping'):
+          actual_officer_id = self.gamestate.officer_id_mapping.get(queue_card_id, queue_card_id)
+          officer_description['officer_id'] = actual_officer_id
       officer = OfficerCard(**officer_description)
 
       officer_queue.remove_card(selected_index)
@@ -521,6 +536,70 @@ class Action:
         resolve_arr.append(f"resting (from {old_t} to {new_t})")
       else:
         print(f"WARNING: Rest modifier {self.action_modifier} not implemented")
+    
+    elif action_name_lower == ActionName.SUICIDAL_ATTACK:
+      # Suicidal attack: causes 5 damage, unit takes 1 damage
+      damage_modifier = self.action_modifier if self.action_modifier is not None else 5
+      if self.gamestate.resistance.active:
+        damage_dealt = self.gamestate.resistance.take_damage(damage_modifier)
+        resolve_arr.append(f"Resistance takes {damage_dealt} damage from attack")
+        if self.gamestate.resistance.destroyed:
+          resolve_arr.append("Resistance is destroyed! Player gains 2 money")
+          self.acting_unit.player.this_round_cash += 2
+        else:
+          resolve_arr.append(f"Resistance is left with {self.gamestate.resistance.durability}")
+          self.acting_unit.player.this_round_cash += 1
+        # Unit takes 1 damage
+        self.convoy.apply_damage(self.actor, 1)
+        resolve_arr.append("unit takes 1 damage")
+    
+    elif action_name_lower == ActionName.SEARCH_PILLAGE_COMBO:
+      # Combined search and pillage action
+      print("WARNING: search implementation is not finished yet")
+      restrictions = 'E'  # Default to everything
+      count = self.action_modifier if self.action_modifier > 0 else 2
+      scouted = self.resolve_scout(restrictions, count)
+      resolve_arr = []
+      
+      # Also perform pillage
+      if len(self.gamestate.pillage_queue.cards_and_visibilities) >= 2:
+        rewards = self.resolve_pillage(self.acting_unit, 0)
+        for r in rewards:
+          self.acting_unit.player.this_round_cash += r['reward']['cash']
+          self.acting_unit.gain_loot(r['reward']['loot'])
+          self.acting_unit.gain_atrocities(r['reward']['atrocities'])
+          resolve_arr.append(f"also pillaged {r['name']} and gained {r['reward']['cash']} cash and {r['reward']['loot']} loot while committing {r['reward']['atrocities']} atrocities.")
+    
+    elif action_name_lower == ActionName.PILLAGE_WITH_EXTRA_ATROCITY:
+      # Disciplined pillage action (with extra atrocity handling)
+      if len(self.gamestate.pillage_queue.cards_and_visibilities) >= 2:
+        rewards = self.resolve_pillage(self.acting_unit, 0)
+        for r in rewards:
+          self.acting_unit.player.this_round_cash += r['reward']['cash']
+          self.acting_unit.gain_loot(r['reward']['loot'])
+          # Reduce atrocities by 1 (disciplined pillage)
+          atrocities = max(0, r['reward']['atrocities'] - 1)
+          self.acting_unit.gain_atrocities(atrocities)
+          resolve_arr.append(f"pillaged {r['name']} and gained {r['reward']['cash']} cash and {r['reward']['loot']} loot while committing {atrocities} atrocities (disciplined).")
+    
+    elif action_name_lower == ActionName.EXIT_FROM_C_WITH_COST:
+      # Exit from zone C with cost (pay cash)
+      cost = self.action_modifier if self.action_modifier is not None else 5
+      if self.acting_unit.player.cash < cost:
+        if messager: messager(f'  Not enough cash (need {cost}, have {self.acting_unit.player.cash})')
+        return False
+      
+      current_zone = self.acting_unit.zone()
+      if current_zone != 'C':
+        if messager: messager(f'  Unit is not in zone C (currently in zone {current_zone})')
+        return False
+      
+      # Pay cost
+      self.acting_unit.player.cash -= cost
+      # Perform exit action
+      resolve_arr.append(f"paid {cost} cash and exited from zone C")
+      # TODO: Implement actual exit logic
+    
     else:
       print(f"WARNING: Action {self.action_name} not implemented")
 
@@ -529,6 +608,11 @@ class Action:
       self.acting_unit.tire()
     if self.intoxicate:
       self.acting_unit.under_influence = 1
+
+    # If this is an officer discard action, discard the officer
+    if self.is_officer_discard and self.officer:
+      self._discard_officer(self.officer)
+      resolve_arr.append(f"discarded {self.officer.name}")
 
     # Broadcast message:
     # Collect action summary instead of broadcasting immediately

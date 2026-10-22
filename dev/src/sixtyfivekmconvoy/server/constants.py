@@ -75,6 +75,11 @@ class ActionName:
     SIGINT = 'sigint'
     SOBER_UP = 'sober_up'
     WAIT = 'wait'
+    # Officer discard effect actions
+    SUICIDAL_ATTACK = 'suicidal_attack'
+    SEARCH_PILLAGE_COMBO = 'search_pillage_combo'
+    PILLAGE_WITH_EXTRA_ATROCITY = 'pillage_with_extra_atrocity'
+    EXIT_FROM_C_WITH_COST = 'exit_from_c_with_cost'
     
     @classmethod
     def normalize(cls, action_name):

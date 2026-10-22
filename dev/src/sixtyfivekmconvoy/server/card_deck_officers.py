@@ -17,7 +17,8 @@ import os
 class OfficerCard:
     """Represents an officer card that can be attached to a unit."""
     
-    def __init__(self, officer_id, name, passive_effect, discard_effect, passive_description, discard_description):
+    def __init__(self, officer_id, name, passive_effect, discard_effect, passive_description, discard_description,
+                 troop_type=None, zone=None, action_type=None, action_modifier=None, cost=None, tire=None, intoxicate=None):
         """
         Initialize an OfficerCard.
         
@@ -28,6 +29,13 @@ class OfficerCard:
             discard_effect: the discard ability type (string)
             passive_description: description of the passive ability (string)
             discard_description: description of the discard ability (string)
+            troop_type: troop type restriction for discard effect (string, e.g., 'A', 'I', 'P', 'L')
+            zone: zone restriction for discard effect (string, e.g., 'A', 'B', 'C', 'E')
+            action_type: action name for discard effect (string)
+            action_modifier: modifier value for discard effect (int or None)
+            cost: cost for discard effect (string, e.g., 'T', '0', '1')
+            tire: tire effect for discard effect (int or None)
+            intoxicate: intoxicate effect for discard effect (int or None)
         """
         self.officer_id = officer_id
         self.name = name
@@ -35,6 +43,13 @@ class OfficerCard:
         self.discard_effect = discard_effect
         self.passive_description = passive_description
         self.discard_description = discard_description
+        self.troop_type = troop_type
+        self.zone = zone
+        self.action_type = action_type
+        self.action_modifier = action_modifier
+        self.cost = cost
+        self.tire = tire
+        self.intoxicate = intoxicate
     
     def __str__(self):
         return f"OfficerCard({self.officer_id}): {self.name}"
@@ -50,7 +65,32 @@ class OfficerCard:
             'passive_effect': self.passive_effect,
             'discard_effect': self.discard_effect,
             'passive_description': self.passive_description,
-            'discard_description': self.discard_description
+            'discard_description': self.discard_description,
+            'troop_type': self.troop_type,
+            'zone': self.zone,
+            'action_type': self.action_type,
+            'action_modifier': self.action_modifier,
+            'cost': self.cost,
+            'tire': self.tire,
+            'intoxicate': self.intoxicate
+        }
+    
+    def get_discard_action_description(self):
+        """Return an action description dictionary for the discard effect, if it exists."""
+        if not self.discard_effect or not self.action_type:
+            return None
+        
+        return {
+            'name': self.action_type,
+            'action_name': self.action_type,
+            'action_modifier': self.action_modifier if self.action_modifier is not None else 0,
+            'zone': self.zone if self.zone else '',
+            'troop_type': self.troop_type if self.troop_type else 'A',
+            'cost': self.cost if self.cost else '0',
+            'tire': self.tire if self.tire is not None else 0,
+            'intoxicate': self.intoxicate if self.intoxicate is not None else 0,
+            'is_officer_discard': True,
+            'officer': self
         }
 
 
@@ -84,13 +124,29 @@ def _load_deck_from_csv():
             passive_description = row['passive_description'].strip() if row['passive_description'].strip() else ''
             discard_description = row['discard_description'].strip() if row['discard_description'].strip() else ''
             
+            # Parse action-related fields for discard effects
+            troop_type = row.get('troop_type', '').strip() if row.get('troop_type', '').strip() else None
+            zone = row.get('zone', '').strip() if row.get('zone', '').strip() else None
+            action_type = row.get('action_type', '').strip() if row.get('action_type', '').strip() else None
+            action_modifier = int(row['action_modifier'].strip()) if row.get('action_modifier', '').strip() else None
+            cost = row.get('cost', '').strip() if row.get('cost', '').strip() else None
+            tire = int(row['tire'].strip()) if row.get('tire', '').strip() else None
+            intoxicate = int(row['intoxicate'].strip()) if row.get('intoxicate', '').strip() else None
+            
             deck[officer_id] = OfficerCard(
                 officer_id=officer_id,
                 name=name,
                 passive_effect=passive_effect,
                 discard_effect=discard_effect,
                 passive_description=passive_description,
-                discard_description=discard_description
+                discard_description=discard_description,
+                troop_type=troop_type,
+                zone=zone,
+                action_type=action_type,
+                action_modifier=action_modifier,
+                cost=cost,
+                tire=tire,
+                intoxicate=intoxicate
             )
     
     return deck

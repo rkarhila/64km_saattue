@@ -1,14 +1,10 @@
-officer_id,name,passive_effect,discard_effect,passive_description,discard_description
-0,"Huikka" Möttönen,no_boozing_while_pillaging,sober_up,Unit ignores intoxication from pillaging cards.,Discard to sober up instead of taking an action.
-1,"Teurastaja" Möttönen,extra_damage_in_zone_A,suicidal_attack,Discard to attack with 5 damage but unit takes 1 damage,
-2,"Rosvopäällikkö" Möttönen,extra_pillage_search_card,search_pillage_combo,When unit searches, they can check one extra card.Discard to do a combined search and pillage action
-3,"Pilkunviilaaja" Möttönen,atrocity_conversion,pillage,Unit concentrates on robbing and leaves civilians alone. Treat each atrocity from pillaing as +1 cash instead.,Discard to perform a disciplined pillage action.
-4,"Sorvaaja" Möttönen,extra_carry_capacity,exit_from_c_with_cost,Unit has one extra carry capacity slot.,Discard and pay 5 cash to perform exit from zone C.
-5,"Huikka" Möttönen,no_boozing_while_pillaging,sober_up,Unit ignores intoxication from pillaging cards.,Discard to sober up instead of taking an action.
-6,"Teurastaja" Möttönen,extra_damage_in_zone_A,suicidal_attack,Discard to attack with 5 damage but unit takes 1 damage,
-7,"Rosvopäällikkö" Möttönen,extra_pillage_search_card,search_pillage_combo,When unit searches, they can check one extra card.Discard to do a combined search and pillage action
-8,"Pilkunviilaaja" Möttönen,atrocity_conversion,pillage,Unit concentrates on robbing and leaves civilians alone. Treat each atrocity from pillaing as +1 cash instead.,Discard to perform a disciplined pillage action.
-9,"Sorvaaja" Möttönen,extra_carry_capacity,exit_from_c_with_cost,Unit has one extra carry capacity slot.,Discard and pay 5 cash to perform exit from zone C.
-
-
-
+officer_id,name,passive_effect,discard_effect,passive_description,discard_description,troop_type,zone,action_type,action_modifier,cost,tire,intoxicate
+0,"Huikka Möttönen",no_boozing_while_pillaging,,"Unit ignores intoxication from pillaging cards.",,A,,,,,,
+1,"Teurastaja Möttönen",extra_damage_in_zone_A,,"Unit does 1 extra damage when attacking in zone A",,IP,,,,,,
+2,"Rosvopäällikkö Möttönen",extra_pillage_search_card,,"Look up extra card when searching for pillageables.",,IP,,,,,,
+3,"Ohjesääntö Möttönen",atrocity_conversion,,"Unit ignores atrocities from pillaging",,A,,,,,,
+4,"Sorvaaja Möttönen",extra_carry_capacity,,"Unit has one extra carry capacity slot.",,L,,,,,,
+6,"Karhuntalja Möttönen",,suicidal_attack,,"Discard to attack, causes 5 damage, unit takes 1 damage",I,A,suicidal_attack,0,0,1,0
+7,"Rantarosvo Möttönen",,search_pillage_combo,,"Discard to do a combined search and pillage action",A,ABCE,search_pillage_combo,0,0,1,0
+8,"Keulija Möttönen",,pillage_with_extra_atrocity,,"Discard to perform a disciplined pillage action.",A,ABCE,pillage_with_extra_atrocity,0,0,1,0
+9,"Hatka Möttönen",,exit_from_c_with_cost,,"Discard to perform exit from zone C.",A,CE,exit_from_c_with_cost,0,4,0,0

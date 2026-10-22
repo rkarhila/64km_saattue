@@ -162,8 +162,15 @@ class GameState:
                                  names_and_effects = CardDeckPillage.deck)
     self.mauling_deck = CardDeck(len(CardDeckMauling.deck),
                                  names_and_effects = CardDeckMauling.deck)
-    self.officer_deck = CardDeck(len(OfficerCardDeck.deck),
-                                 names_and_effects = OfficerCardDeck.deck)
+    # Officer deck: CardDeck expects sequential IDs 0..N-1, but OfficerCardDeck has non-sequential IDs
+    # Create a mapping from sequential indices to actual officer IDs
+    officer_ids = sorted(OfficerCardDeck.deck.keys())
+    # Create a wrapper dict that maps sequential indices (0..N-1) to officer cards
+    officer_names_and_effects = {i: OfficerCardDeck.deck[officer_ids[i]] for i in range(len(officer_ids))}
+    self.officer_deck = CardDeck(len(officer_ids),
+                                 names_and_effects = officer_names_and_effects)
+    # Store mapping from sequential index to actual officer ID for when we need the real ID
+    self.officer_id_mapping = {i: officer_ids[i] for i in range(len(officer_ids))}
     # Initialise queues:
     self.resistance_queue = CardQueue(3, deck=self.resistance_deck)    
     self.mauling_queue = CardQueue(3, deck=self.mauling_deck)    
@@ -317,11 +324,51 @@ class GameState:
             if action.possible:
               possible_choices.append([e,desc,action])
           
+          # Add officer discard effects as possible actions
+          unit_troop_type_map = {0: 'P', 1: 'I', 2: 'L'}
+          unit_troop_type = unit_troop_type_map.get(unit.unittype, 'A')
+          try:
+            current_zone = unit.zone() if hasattr(unit, 'zone') and callable(unit.zone) else 'E'
+          except:
+            current_zone = 'E'
+          
+          for officer in unit.officers:
+            if officer.discard_effect and officer.action_type:
+              # Check if officer discard effect is available for this unit
+              # Check troop type restriction
+              if officer.troop_type and officer.troop_type != 'A':
+                if unit_troop_type not in officer.troop_type:
+                  continue
+              
+              # Check zone restriction
+              if officer.zone:
+                if current_zone not in officer.zone:
+                  continue
+              
+              # Create action description for officer discard effect
+              officer_action_desc = officer.get_discard_action_description()
+              if officer_action_desc:
+                # Use a special card number to indicate this is an officer discard action
+                # Use negative officer_id to distinguish from regular action cards
+                officer_card_number = -(officer.officer_id + 1)
+                action = Action(self, self.convoy, unit_idx, officer_action_desc, officer_card_number, action_index=action_index)
+                if action.possible:
+                  possible_choices.append([len(descriptions) + len(possible_choices), officer_action_desc, action, officer])
+          
           if len(possible_choices) > 1:
+            # Build description string with all possible actions
+            desc_parts = []
+            for idx, (choice_idx, desc, action_obj, *rest) in enumerate(possible_choices):
+              if rest and rest[0]:  # Officer discard action
+                officer = rest[0]
+                desc_parts.append(f'{idx}:"{desc["name"]}" (discard {officer.name})')
+              else:  # Regular action
+                desc_parts.append(f'{idx}:"{desc["name"]}"')
+            description = 'Choose action for ' + Unit.type_to_str[unit.unittype] + '  ' + '  '.join(desc_parts)
             choicetaken = self.demand_choice(unit.player,
                                              GameState.choose_action_choice_type,
-                                             [0,1],
-                                             description='Choose action for '+Unit.type_to_str[unit.unittype] + '  0:"' +  descriptions[0]['name'] + '" 1:"' +descriptions[1]['name']+'"',
+                                             list(range(len(possible_choices))),
+                                             description=description,
                                              num_choices=1)
           elif len(possible_choices) == 1:
             choicetaken = [0]
