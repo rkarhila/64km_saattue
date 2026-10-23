@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sixtyfivekmconvoy"
+version = "0.2.0"
+description = "65km Convoy — board game engine with PettingZoo env and web UI"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pettingzoo>=1.24",
+  "gymnasium>=0.29",
+  "numpy>=1.26",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "websockets>=12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[project.scripts]
+convoy-selfplay = "sixtyfivekmconvoy.cli.selfplay:main"
+convoy-web = "sixtyfivekmconvoy.api.app:main"
+convoy-terminal = "sixtyfivekmconvoy.cli.terminal:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sixtyfivekmconvoy = ["data/cards/*.csv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

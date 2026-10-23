@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>65km Convoy</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="top">
+    <h1>65km Convoy</h1>
+    <p class="tag">Human vs bots — playtest surface for the RL-ready engine</p>
+  </header>
+
+  <section class="controls" id="lobby">
+    <label>Players
+      <input type="number" id="numPlayers" min="2" max="5" value="3" />
+    </label>
+    <label>Seed
+      <input type="number" id="seed" value="1" />
+    </label>
+    <button id="startBtn" type="button">New game</button>
+  </section>
+
+  <main id="game" class="hidden">
+    <div class="status-bar">
+      <span id="roundInfo"></span>
+      <span id="message"></span>
+    </div>
+
+    <section>
+      <h2>Resistance</h2>
+      <pre id="resistance"></pre>
+    </section>
+
+    <section>
+      <h2>Convoy</h2>
+      <div id="convoy" class="convoy"></div>
+    </section>
+
+    <section>
+      <h2>Players</h2>
+      <div id="players" class="players"></div>
+    </section>
+
+    <section>
+      <h2>Queues</h2>
+      <pre id="queues"></pre>
+    </section>
+
+    <section id="choicePanel" class="choice-panel hidden">
+      <h2>Your choice</h2>
+      <p id="choiceDesc"></p>
+      <div id="choiceOptions" class="options"></div>
+    </section>
+
+    <section id="endPanel" class="hidden">
+      <h2>Game over</h2>
+      <pre id="ranking"></pre>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
