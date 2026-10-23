@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from .constants import UNIT_TYPE_STR
 from .cards import CardDeck, OfficerCard
+from .i18n import unit_type_label
 
 if TYPE_CHECKING:
     from .engine import GameEngine
@@ -78,6 +79,8 @@ class Unit:
         self.atrocities = 0
         self.actioncard: list[int] = []
         self.actiontaken: list[int | None] = []
+        # Parallel to actiontaken: how the choice resolved (for UI reveal / highlight).
+        self.action_resolution: list[dict | None] = []
         self.convoy: Convoy | None = None
         self.engine: GameEngine | None = None
         self.defending: str | None = None
@@ -89,6 +92,7 @@ class Unit:
     def clear_state(self) -> None:
         self.actioncard = []
         self.actiontaken = []
+        self.action_resolution = []
         self.current_action_type = None
         self.defending = None
         self.defending_reward = None
@@ -224,6 +228,7 @@ class Unit:
         return {
             "player": self.player.number,
             "unit_type": self.type_to_str[self.unittype],
+            "unit_type_label": unit_type_label(self.unittype),
             "tiredness": self.tired,
             "under_influence": self.under_influence,
             "atrocities": self.atrocities,
@@ -235,14 +240,33 @@ class Unit:
 
     def _action_json(self, playerview: Player | None) -> dict:
         if not self.actioncard:
-            return {"card": None}
-        first = self.actioncard[0]
-        taken = self.actiontaken[0] if self.actiontaken else None
-        if taken is not None:
-            return {"card": first, "actiontaken": taken}
-        if playerview is None or playerview is self.player:
-            return {"card": first}
-        return {"card": "?"}
+            return {"card": None, "face_up": False, "has_card": False}
+        card_id = self.actioncard[0]
+        is_owner = playerview is None or playerview is self.player
+        resolution = None
+        if self.action_resolution:
+            resolution = self.action_resolution[0]
+        elif self.actiontaken and self.actiontaken[0] is not None:
+            # Legacy fallback
+            resolution = {"option": self.actiontaken[0], "kind": "card", "face_index": None}
+
+        resolved = resolution is not None
+        face_up = is_owner or resolved
+        data: dict = {
+            "has_card": True,
+            "face_up": face_up,
+            "card": card_id if face_up else None,
+            "actiontaken": self.actiontaken[0] if self.actiontaken else None,
+        }
+        if resolved and resolution:
+            data["resolved"] = True
+            data["chosen_face_index"] = resolution.get("face_index")
+            data["chosen_kind"] = resolution.get("kind")
+            data["chosen_name"] = resolution.get("name")
+            data["frustrated"] = resolution.get("kind") == "frustrated"
+        else:
+            data["resolved"] = False
+        return data
 
 
 def _zones_for_players(num_players: int) -> dict[str, list[int]]:

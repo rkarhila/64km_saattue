@@ -23,6 +23,7 @@ class CreateGameRequest(BaseModel):
     human_seat: int = Field(default=0, ge=0, le=4)
     seed: int | None = 1
     max_rounds: int = 200
+    pause_after_actions: bool = True
 
 
 class CreateGameResponse(BaseModel):
@@ -35,6 +36,10 @@ class ChoiceMessage(BaseModel):
     choice: list[int]
 
 
+class PauseSettingMessage(BaseModel):
+    pause_after_actions: bool
+
+
 @app.post("/games", response_model=CreateGameResponse)
 def create_game(body: CreateGameRequest):
     if body.human_seat >= body.num_players:
@@ -44,6 +49,7 @@ def create_game(body: CreateGameRequest):
         human_seat=body.human_seat,
         seed=body.seed,
         max_rounds=body.max_rounds,
+        pause_after_actions=body.pause_after_actions,
     )
     human = f"player_{body.human_seat}"
     return CreateGameResponse(
@@ -73,6 +79,30 @@ def post_choice(game_id: str, body: ChoiceMessage, seat: int = 0):
         return session.apply_human_choice(player_id, body.choice)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+
+
+@app.post("/games/{game_id}/continue")
+def post_continue(game_id: str, seat: int = 0):
+    try:
+        session = manager.get(game_id)
+    except KeyError:
+        raise HTTPException(404, "game not found")
+    return session.continue_play(f"player_{seat}")
+
+
+@app.post("/games/{game_id}/settings")
+def post_settings(game_id: str, body: PauseSettingMessage, seat: int = 0):
+    try:
+        session = manager.get(game_id)
+    except KeyError:
+        raise HTTPException(404, "game not found")
+    was_paused = session.awaiting_continue
+    session.set_pause_after_actions(body.pause_after_actions)
+    player_id = f"player_{seat}"
+    # Turning pause off while waiting should resume play.
+    if was_paused and not body.pause_after_actions:
+        return session.continue_play(player_id)
+    return session.snapshot(player_id)
 
 
 @app.websocket("/games/{game_id}/ws")

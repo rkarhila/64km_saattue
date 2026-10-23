@@ -7,6 +7,16 @@
   --line: #3a4a3e;
   --human: #6db3a0;
   --danger: #c46b5a;
+  --card-bg: #1e2822;
+  --face-panzer: #3d4a38;
+  --face-infantry: #3a4450;
+  --face-logistics: #4a4035;
+  --face-any: #3a3a42;
+  --player-0: #c45c5c;
+  --player-1: #5cac7a;
+  --player-2: #5c8ec4;
+  --player-3: #c48a5c;
+  --player-4: #9b5cc4;
   --font-display: "Libre Baskerville", "Palatino Linotype", Palatino, serif;
   --font-body: "Source Sans 3", "Segoe UI", sans-serif;
 }
@@ -77,6 +87,10 @@ button.secondary {
   color: var(--ink);
   font-weight: 500;
 }
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 .hidden { display: none !important; }
 
@@ -86,6 +100,43 @@ button.secondary {
   gap: 1rem;
   margin-bottom: 1rem;
   color: var(--muted);
+  align-items: center;
+}
+
+.pause-toggle {
+  margin-left: auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.pause-toggle input {
+  width: auto;
+}
+
+.continue-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.75rem 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: rgba(196, 163, 90, 0.12);
+}
+
+.continue-panel p {
+  margin: 0;
+  flex: 1;
+  color: var(--ink);
+}
+
+.continue-panel button {
+  min-width: 7rem;
 }
 
 section h2 {
@@ -98,7 +149,15 @@ section h2 {
 .convoy {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.unit-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 13.5rem;
 }
 
 .unit {
@@ -106,11 +165,273 @@ section h2 {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.55rem 0.7rem;
-  min-width: 7.5rem;
   font-size: 0.9rem;
 }
 
-.unit.yours { border-color: var(--human); box-shadow: inset 0 0 0 1px var(--human); }
+.unit.yours { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
+
+.player-color-0 { --pc: var(--player-0); }
+.player-color-1 { --pc: var(--player-1); }
+.player-color-2 { --pc: var(--player-2); }
+.player-color-3 { --pc: var(--player-3); }
+.player-color-4 { --pc: var(--player-4); }
+
+.unit.player-color-0,
+.unit.player-color-1,
+.unit.player-color-2,
+.unit.player-color-3,
+.unit.player-color-4 {
+  border-color: var(--pc);
+  border-left-width: 4px;
+}
+
+.player.player-color-0,
+.player.player-color-1,
+.player.player-color-2,
+.player.player-color-3,
+.player.player-color-4 {
+  border-color: var(--pc);
+  border-left-width: 4px;
+}
+
+.player.you {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+.card-slot {
+  min-height: 6.5rem;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  background: rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0.25rem;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.card-slot.drop-target {
+  border-style: dashed;
+  border-color: var(--accent);
+  min-height: 10rem;
+}
+
+.card-slot.drop-target.drag-over {
+  background: rgba(196, 163, 90, 0.18);
+  border-style: solid;
+}
+
+.card-slot.choosing-action {
+  border-style: solid;
+  border-color: var(--human);
+  box-shadow: 0 0 0 2px rgba(109, 179, 160, 0.35);
+}
+
+.card-slot.empty-slot {
+  opacity: 0.55;
+}
+
+.slot-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 0.75rem 0.5rem;
+  pointer-events: none;
+}
+
+.slot-placeholder.muted { opacity: 0.6; }
+.slot-placeholder small { margin-top: 0.25rem; opacity: 0.8; }
+
+.card-slot .action-card {
+  width: 100%;
+}
+
+.action-card.compact {
+  font-size: 0.85em;
+}
+
+.action-card.compact .face-title { font-size: 0.8rem; }
+.action-card.compact .face { padding: 0.3rem 0.4rem; }
+
+.action-card.draggable { cursor: grab; }
+.action-card.dragging { opacity: 0.45; }
+
+.face-clickable {
+  cursor: pointer;
+  border: none;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  outline: 2px solid transparent;
+  transition: outline-color 0.12s, filter 0.12s;
+}
+
+.face-clickable:hover {
+  outline-color: var(--accent);
+  filter: brightness(1.12);
+}
+
+.face-strike {
+  opacity: 0.45;
+  text-decoration: line-through;
+  filter: grayscale(0.35);
+  pointer-events: none;
+}
+
+.face-strike .face-title,
+.face-strike .face-head,
+.face-strike .face-meta {
+  text-decoration: line-through;
+}
+
+.face-chosen {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 1px var(--accent);
+  position: relative;
+  z-index: 1;
+}
+
+.action-card.frustrated {
+  opacity: 0.75;
+}
+
+.action-card.card-back {
+  min-height: 9rem;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      #1a221c,
+      #1a221c 6px,
+      #243028 6px,
+      #243028 12px
+    );
+  border-color: var(--pc, var(--line));
+  border-width: 2px;
+  cursor: default;
+}
+
+.action-card.card-back:hover {
+  transform: none;
+  border-color: var(--pc, var(--line));
+}
+
+.card-back-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1rem;
+  min-height: 8rem;
+}
+
+.card-back-mark {
+  font-size: 2rem;
+  opacity: 0.85;
+}
+
+.card-back-label {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.officer-action {
+  border-top: 1px dashed var(--accent);
+}
+
+.officer-tag {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  padding: 0.25rem 0.55rem 0;
+}
+
+.hint {
+  color: var(--muted);
+  margin: 0.25rem 0 0.75rem;
+}
+
+.hand-section .card-row {
+  min-height: 4rem;
+}
+
+.troop-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.troop-chip {
+  min-width: 7.5rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  cursor: grab;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  text-align: center;
+  user-select: none;
+}
+
+.troop-chip.troop-type-0 { background: var(--face-panzer); }
+.troop-chip.troop-type-1 { background: var(--face-infantry); }
+.troop-chip.troop-type-2 { background: var(--face-logistics); }
+
+.troop-slot .troop-chip {
+  width: 100%;
+}
+
+.unit-wrap.setup-slot .unit {
+  font-size: 0.85rem;
+}
+
+.log-section {
+  margin-top: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.game-log {
+  background: #121612;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  max-height: 16rem;
+  overflow-y: auto;
+  padding: 0.6rem 0.75rem;
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.game-log .log-line {
+  padding: 0.15rem 0;
+  border-bottom: 1px solid rgba(58, 74, 62, 0.45);
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.game-log .log-line:last-child {
+  border-bottom: none;
+}
+
+.game-log .log-line.round-marker {
+  color: var(--accent);
+  font-weight: 600;
+  margin-top: 0.35rem;
+}
 
 .players {
   display: grid;
@@ -125,7 +446,6 @@ section h2 {
   padding: 0.6rem 0.75rem;
 }
 
-.player.you { border-color: var(--human); }
 
 pre {
   background: var(--panel);
@@ -145,18 +465,141 @@ pre {
   background: rgba(196, 163, 90, 0.08);
 }
 
+.card-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: stretch;
+  margin-top: 0.75rem;
+}
+
+/* ----- Action card (vertical faces) ----- */
+
+.action-card {
+  width: 13.5rem;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  padding: 0;
+  color: var(--ink);
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.12s;
+}
+
+.action-card:hover:not(:disabled) {
+  border-color: var(--accent);
+  filter: none;
+  transform: translateY(-2px);
+}
+
+.action-card.selected {
+  border-color: var(--human);
+  box-shadow: 0 0 0 2px var(--human);
+}
+
+.action-card:disabled {
+  opacity: 0.4;
+  transform: none;
+}
+
+.action-card .card-id {
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-align: center;
+  padding: 0.35rem;
+  background: #161c18;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.action-card .face {
+  padding: 0.45rem 0.55rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.action-card .face:last-child { border-bottom: none; }
+
+.action-card .face.troop-panzer { background: var(--face-panzer); }
+.action-card .face.troop-infantry { background: var(--face-infantry); }
+.action-card .face.troop-logistics { background: var(--face-logistics); }
+.action-card .face.troop-any { background: var(--face-any); }
+
+.face-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.face-title {
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+
+.face-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  opacity: 0.92;
+}
+
+.face-meta .cost { flex: 1; min-width: 0; }
+.face-meta .effects {
+  flex: 0 0 auto;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--accent);
+}
+
 .options {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  max-height: 18rem;
+  max-height: 22rem;
   overflow: auto;
 }
 
-.options button {
+.options button.plain-opt {
   text-align: left;
   background: var(--panel);
   color: var(--ink);
   border: 1px solid var(--line);
   font-weight: 500;
+}
+
+.choice-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.hand-section .card-row {
+  margin-top: 0.5rem;
+}
+
+.hand-section .action-card {
+  cursor: default;
+}
+
+.hand-section .action-card:hover {
+  transform: none;
+  border-color: var(--line);
 }

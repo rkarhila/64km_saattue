@@ -15,6 +15,7 @@ class ChoiceType(IntEnum):
     CHOOSE_OFFICER = 6
     CHOOSE_SERVICE = 7
     YES_NO = 8
+    PLACE_UNITS = 9
 
 
 class ActionName:
@@ -67,4 +68,7 @@ CARD_TO_POINTS_RATIO = 4
 PLAYER_COLORS = ["red", "green", "blue", "orange", "purple"]
 
 UNIT_TYPE_LETTER = {0: "P", 1: "I", 2: "L"}
-UNIT_TYPE_STR = {0: "Pnz", 1: "Inf", 2: "Log"}
+# Stable English codes for RL / logic (display labels live in i18n).
+UNIT_TYPE_STR = {0: "panzer", 1: "infantry", 2: "logistics"}
+# Short codes kept for legacy comparisons in engine bookkeeping.
+UNIT_TYPE_SHORT = {0: "Pnz", 1: "Inf", 2: "Log"}

@@ -24,3 +24,29 @@ def test_index_served():
     res = client.get("/")
     assert res.status_code == 200
     assert "65km Convoy" in res.text
+
+
+def test_continue_pause_flow():
+    client = TestClient(app)
+    res = client.post(
+        "/games",
+        json={"num_players": 3, "human_seat": 0, "seed": 9, "pause_after_actions": True},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    gid = data["game_id"]
+    snap = data["snapshot"]
+    # May already be awaiting continue after bot prelude, or waiting on human assign
+    assert "awaiting_continue" in snap
+    assert snap["pause_after_actions"] is True
+
+    # Disable pause and ensure settings endpoint works
+    res2 = client.post(
+        f"/games/{gid}/settings?seat=0",
+        json={"pause_after_actions": False},
+    )
+    assert res2.status_code == 200
+    assert res2.json()["pause_after_actions"] is False
+
+    res3 = client.post(f"/games/{gid}/continue?seat=0")
+    assert res3.status_code == 200

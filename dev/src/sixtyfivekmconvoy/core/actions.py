@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Generator
 
-from .constants import ActionName, ChoiceType, UNIT_TYPE_LETTER, UNIT_TYPE_STR
+from .constants import ActionName, ChoiceType, UNIT_TYPE_LETTER
 from .cards import OfficerCard, OFFICER_CATALOG
+from .i18n import unit_type_label
 
 if TYPE_CHECKING:
     from .engine import ChoiceRequest, GameEngine
@@ -113,7 +114,7 @@ def resolve_action(
     name = ActionName.normalize(action.get("action_name", "")) or ""
     modifier = action.get("action_modifier", 0)
     parts = [
-        f"Unit {actor_idx} {UNIT_TYPE_STR[unit.unittype]} resolved {action.get('name', name)}:"
+        f"Unit {actor_idx} {unit_type_label(unit.unittype)} resolved {action.get('name', name)}:"
     ]
 
     # Pay cost
@@ -138,6 +139,11 @@ def resolve_action(
                 options=list(player.action_cards),
                 num_choices=cost,
                 description=desc,
+                payload={
+                    "reason": "pay_cost",
+                    "action_name": action.get("name", name),
+                    "cost": cost,
+                },
             )
             player.discard(list(chosen))
 
@@ -223,6 +229,7 @@ def resolve_action(
             card = chosen[0]
             unit.actioncard.append(card)
             unit.actiontaken.append(None)
+            unit.action_resolution.append(None)
             player.place_action_card(card)
             parts.append(f"waited, queued card {card}")
 

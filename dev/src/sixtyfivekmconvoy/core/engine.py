@@ -7,6 +7,8 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Generator
 
+# card_display imported lazily in choice builders to avoid cycles
+
 from . import actions as action_mod
 from .cards import (
     ACTION_CATALOG,
@@ -25,7 +27,9 @@ from .constants import (
     MIN_PLAYER_CARD_LIMIT,
     UNIT_TYPE_STR,
 )
-from .models import Convoy, Player, Resistance, Unit
+from .i18n import t, unit_type_label
+from .models import Convoy, Player, Resistance, Unit, UnitType
+from .setup_layouts import pick_setup_pattern, slots_for_player
 from .stats import EpisodeStats
 from .view import player_view
 
@@ -37,15 +41,19 @@ class ChoiceRequest:
     options: list[Any]
     num_choices: int = 1
     description: str = ""
+    payload: dict[str, Any] = field(default_factory=dict)
 
     def to_json(self) -> dict:
-        return {
+        data = {
             "choicetype": int(self.choicetype),
             "options": self.options,
             "num_choice": self.num_choices,
             "description": self.description,
             "player_id": self.player_id,
         }
+        if self.payload:
+            data["payload"] = self.payload
+        return data
 
     def legal_action_vectors(self) -> list[list[int]]:
         """Enumerate valid choice vectors for the PettingZoo action mask."""
@@ -56,6 +64,9 @@ class ChoiceRequest:
         if n == 1:
             return [[o] for o in opts]
         indices = range(len(opts))
+        # Place-units: options are troop types; choice is a permutation onto slots.
+        if self.choicetype == ChoiceType.PLACE_UNITS:
+            return [list(p) for p in itertools.permutations(opts)]
         # Card-to-unit assignment is ordered; discards/cash-in are unordered.
         ordered = self.choicetype in (ChoiceType.CHOOSE_CARD, ChoiceType.CHOOSE_ACTION)
         vectors: list[list[int]] = []
@@ -154,7 +165,11 @@ class GameEngine:
         self.players = [Player(i) for i in range(num_players)]
         self._init_decks()
         self.convoy = Convoy(self.players, engine=self)
-        self.rng.shuffle(self.convoy.units)
+        self.setup_pattern: tuple[int, ...] = pick_setup_pattern(num_players, self.rng)
+        self.setup_complete = False
+        # Keep created units aside until players place them into the pattern.
+        self._unit_pool: list[Unit] = list(self.convoy.units)
+        self.convoy.units = []
 
         for _ in range(3):
             self.resistance_queue.put_card(self.resistance_deck.get_card())
@@ -280,8 +295,71 @@ class GameEngine:
     def _broadcast(self, message: str) -> None:
         self.messages.append(message)
 
+    def _apply_unit_placements(self, placements: dict[int, list[int]]) -> None:
+        """Build convoy order from ownership pattern + per-player troop permutations."""
+        pool: dict[int, dict[int, Unit]] = {}
+        for u in self._unit_pool:
+            pool.setdefault(u.player.number, {})[u.unittype] = u
+        ordered: list[Unit] = []
+        cursor = {p: 0 for p in range(len(self.players))}
+        for owner in self.setup_pattern:
+            ut = placements[owner][cursor[owner]]
+            cursor[owner] += 1
+            ordered.append(pool[owner][ut])
+        self.convoy.units = ordered
+        self.setup_complete = True
+
     def _run_game(self) -> Generator[ChoiceRequest, list[int], StepResult]:
         assert self.rounds is not None and self.convoy is not None
+
+        # ---- Setup: place units into a balanced ownership pattern ----
+        self._broadcast("—— Asento: sijoita joukot saattueeseen ——")
+        self._broadcast(
+            f"Muodostelma: {''.join(str(p + 1) for p in self.setup_pattern)}"
+        )
+        placements: dict[int, list[int]] = {}
+        troop_meta = [
+            {
+                "unit_type": UnitType.PANZER,
+                "unit_type_label": unit_type_label(UnitType.PANZER),
+            },
+            {
+                "unit_type": UnitType.INFANTRY,
+                "unit_type_label": unit_type_label(UnitType.INFANTRY),
+            },
+            {
+                "unit_type": UnitType.LOGISTICS,
+                "unit_type_label": unit_type_label(UnitType.LOGISTICS),
+            },
+        ]
+        for player in self.players:
+            slots = slots_for_player(self.setup_pattern, player.number)
+            desc = (
+                f"Sijoita panssarit, jalkaväki ja huolto paikkoihin "
+                f"{', '.join(str(s) for s in slots)}"
+            )
+            chosen = yield ChoiceRequest(
+                player_id=player.agent_id(),
+                choicetype=ChoiceType.PLACE_UNITS,
+                options=[UnitType.PANZER, UnitType.INFANTRY, UnitType.LOGISTICS],
+                num_choices=3,
+                description=desc,
+                payload={
+                    "slots": slots,
+                    "pattern": list(self.setup_pattern),
+                    "troops": troop_meta,
+                },
+            )
+            if sorted(chosen) != [0, 1, 2]:
+                raise ValueError(f"Invalid unit placement: {chosen}")
+            placements[player.number] = list(chosen)
+            self._broadcast(
+                f"Pelaaja {player.number} sijoitti joukkonsa paikkoihin {slots}."
+            )
+
+        self._apply_unit_placements(placements)
+        self._broadcast("Saattue muodostettu.")
+
         initial_units = len(self.convoy.units)
 
         while not self.terminal:
@@ -292,7 +370,7 @@ class GameEngine:
             for pl in self.players:
                 pl.this_round_cash = 0
 
-            self._broadcast(f"============ Round {self.rounds.count} ==========")
+            self._broadcast(f"—— Kierros {self.rounds.count} alkaa ——")
 
             # Fill officer queue
             while len(self.officer_queue) < len(self.players):
@@ -303,6 +381,7 @@ class GameEngine:
             for _ in range(CARDS_TO_DEAL):
                 for player in self.players:
                     player.draw_card(1)
+            self._broadcast("Kortit jaettu.")
 
             # Assign actions
             self.rounds.next_stage()
@@ -310,8 +389,8 @@ class GameEngine:
                 units = [u for u in self.convoy.units if u.player is player]
                 if not units:
                     continue
-                desc = "Choose one action card per unit: " + ",".join(
-                    UNIT_TYPE_STR[u.unittype] for u in units
+                desc = t("ui.choose_cards_for_units") + ": " + ", ".join(
+                    unit_type_label(u.unittype) for u in units
                 )
                 for c in player.action_cards:
                     desc += f"\n  {c}"
@@ -326,7 +405,9 @@ class GameEngine:
                 for i, card in enumerate(chosen):
                     units[i].actioncard = [card]
                     units[i].actiontaken = []
+                    units[i].action_resolution = []
                     player.place_action_card(card)
+            self._broadcast("Toimintakortit asetettu.")
 
             # Execute actions by index
             self.rounds.next_stage()
@@ -369,7 +450,20 @@ class GameEngine:
                             possible.append((len(possible), od))
 
                     if len(possible) > 1:
+                        from .card_display import format_face
+
                         labels = list(range(len(possible)))
+                        action_choices = []
+                        for opt_i, (face_i, desc) in enumerate(possible):
+                            face = format_face(desc)
+                            action_choices.append(
+                                {
+                                    "option": opt_i,
+                                    "face_index": face_i,
+                                    "kind": "officer" if desc.get("is_officer_discard") else "card",
+                                    "face": face,
+                                }
+                            )
                         d = "Choose action: " + " ".join(
                             f'{i}:"{possible[i][1].get("name")}"' for i in labels
                         )
@@ -379,6 +473,12 @@ class GameEngine:
                             options=labels,
                             num_choices=1,
                             description=d,
+                            payload={
+                                "unit_index": unit.index(),
+                                "unit_type_label": unit_type_label(unit.unittype),
+                                "card_id": actioncard,
+                                "actions": action_choices,
+                            },
                         )
                         choice_i = pick[0]
                     elif len(possible) == 1:
@@ -387,16 +487,36 @@ class GameEngine:
                         choice_i = -1
 
                     unit.actiontaken[action_index] = choice_i
+                    while len(unit.action_resolution) <= action_index:
+                        unit.action_resolution.append(None)
                     if choice_i < 0:
+                        unit.action_resolution[action_index] = {
+                            "kind": "frustrated",
+                            "face_index": None,
+                            "option": -1,
+                            "name": None,
+                        }
                         unit.become_frustrated()
                         self.round_action_summaries.append(
                             f"Unit {unit_idx} frustrated on card {actioncard}"
                         )
                     else:
+                        face_i, desc = possible[choice_i]
+                        kind = (
+                            "officer"
+                            if desc.get("is_officer_discard")
+                            else "card"
+                        )
+                        unit.action_resolution[action_index] = {
+                            "kind": kind,
+                            "face_index": face_i if kind == "card" else None,
+                            "option": choice_i,
+                            "name": desc.get("name"),
+                        }
                         # Refresh index in case prior actions moved units
                         unit_idx = unit.index()
                         summary = yield from action_mod.resolve_action(
-                            self, unit_idx, possible[choice_i][1], actioncard
+                            self, unit_idx, desc, actioncard
                         )
                         self._broadcast(summary)
 
@@ -440,6 +560,7 @@ class GameEngine:
 
             # Bookkeeping
             self.rounds.next_stage()
+            self._broadcast("Kirjanpito.")
             lost = initial_units - len(self.convoy.units)
             self.stats.units_lost = max(self.stats.units_lost, lost)
 
@@ -469,7 +590,7 @@ class GameEngine:
 
                 card_limit = MIN_PLAYER_CARD_LIMIT
                 for u in self.convoy.units:
-                    if u.player is pl and UNIT_TYPE_STR[u.unittype] == "Log":
+                    if u.player is pl and UNIT_TYPE_STR[u.unittype] == "logistics":
                         card_limit += sum(1 for c in u.carry if c == 0)
                         break
                 if len(pl.action_cards) > card_limit:
@@ -519,6 +640,7 @@ class GameEngine:
                         unit.player.action_deck.discard_card(card)
                 unit.clear_state()
 
+            self._broadcast(f"—— Kierros {self.rounds.count} päättyy ——")
             self.rounds.next_round()
 
         ranking = self._compute_ranking()

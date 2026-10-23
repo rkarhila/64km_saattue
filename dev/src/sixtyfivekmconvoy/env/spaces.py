@@ -51,7 +51,9 @@ def flatten_observation(obs: dict[str, Any], agent_index: int, num_players: int)
     for i in range(MAX_UNITS):
         if i < len(convoy):
             u = convoy[i]
-            ut = {"Pnz": 0, "Inf": 1, "Log": 2}.get(u.get("unit_type"), 0)
+            ut = {"panzer": 0, "infantry": 1, "logistics": 2, "Pnz": 0, "Inf": 1, "Log": 2}.get(
+                u.get("unit_type"), 0
+            )
             ut_oh = [0.0, 0.0, 0.0]
             ut_oh[ut] = 1.0
             feats.extend(ut_oh)

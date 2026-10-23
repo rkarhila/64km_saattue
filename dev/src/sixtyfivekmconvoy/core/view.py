@@ -40,6 +40,9 @@ def player_view(
         "stage": engine.rounds.stage if engine.rounds else -1,
         "terminal": engine.terminal,
         "you": player.number,
+        "log": list(engine.messages),
+        "setup_complete": getattr(engine, "setup_complete", True),
+        "setup_pattern": list(getattr(engine, "setup_pattern", ()) or ()),
     }
     if message:
         state["message"] = message
