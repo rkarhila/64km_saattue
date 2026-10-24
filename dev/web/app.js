@@ -5,6 +5,11 @@
     CHOOSE_ACTION: 1,
     CHOOSE_CARDS_TO_DISCARD: 2,
     CASH_IN_CARDS: 3,
+    CHOOSE_QUEUE_TO_SCOUT: 4,
+    CHOOSE_PILLAGE_CARD: 5,
+    CHOOSE_OFFICER: 6,
+    CHOOSE_SERVICE: 7,
+    YES_NO: 8,
     PLACE_UNITS: 9,
   };
 
@@ -122,6 +127,7 @@
       clickable = false,
       strikethrough = false,
       chosen = false,
+      available = false,
       onClick = null,
     } = {}
   ) {
@@ -131,6 +137,7 @@
       `face troop-${face.troop_key || "any"}` +
       (clickable ? " face-clickable" : "") +
       (strikethrough ? " face-strike" : "") +
+      (available && !strikethrough ? " face-available" : "") +
       (chosen ? " face-chosen" : "");
 
     const head = document.createElement("div");
@@ -174,6 +181,7 @@
       disabled = false,
       compact = false,
       highlightOptions = null,
+      legalFaceIndices = null,
       chosenFaceIndex = null,
       resolved = false,
       frustrated = false,
@@ -207,6 +215,10 @@
     el.appendChild(idBar);
 
     const choosing = Boolean(onFaceClick && highlightOptions);
+    const legalSet = Array.isArray(legalFaceIndices)
+      ? new Set(legalFaceIndices)
+      : null;
+    const contrastMode = choosing || Boolean(legalSet) || resolved || frustrated;
 
     (cardData.faces || []).forEach((face, faceIndex) => {
       let clickable = false;
@@ -224,6 +236,9 @@
         } else {
           strike = true; // impossible
         }
+      } else if (legalSet) {
+        // Assign-time preview: strike faces that are not currently legal
+        strike = !legalSet.has(faceIndex);
       } else if (resolved && !frustrated) {
         if (chosenFaceIndex != null && faceIndex === chosenFaceIndex) {
           chosen = true;
@@ -239,6 +254,7 @@
           clickable,
           strikethrough: strike,
           chosen,
+          available: contrastMode && !strike,
           onClick: handler,
         })
       );
@@ -284,6 +300,10 @@
 
   function isActionSelect(snap) {
     return snap.pending && snap.pending.choicetype === CT.CHOOSE_ACTION;
+  }
+
+  function isPillagePick(snap) {
+    return snap.pending && snap.pending.choicetype === CT.CHOOSE_PILLAGE_CARD;
   }
 
   function isPayCost(snap) {
@@ -344,6 +364,71 @@
     });
   }
 
+  // 0-based layouts matching core.models._zones_for_players (E = last eCount).
+  const ZONE_LAYOUT = {
+    2: { A: [0], B: [1, 2], C: [3, 4], eCount: 1 },
+    3: { A: [0, 1], B: [2, 3, 4], C: [5, 6], eCount: 2 },
+    4: { A: [0, 1, 2], B: [3, 4, 5], C: [6, 7, 8], eCount: 3 },
+    5: { A: [0, 1, 2, 3], B: [4, 5, 6, 7], C: [8, 9, 10, 11], eCount: 3 },
+  };
+
+  function zoneAtIndex(index, total, numPlayers) {
+    const layout = ZONE_LAYOUT[numPlayers];
+    if (!layout || total <= 0) return "?";
+    if (index >= total - layout.eCount) return "E";
+    for (const z of ["A", "B", "C"]) {
+      if (layout[z].includes(index)) return z;
+    }
+    return "?";
+  }
+
+  function groupConsecutiveByZone(items) {
+    const groups = [];
+    items.forEach((item) => {
+      if (!groups.length || groups[groups.length - 1].zone !== item.zone) {
+        groups.push({ zone: item.zone, items: [item] });
+      } else {
+        groups[groups.length - 1].items.push(item);
+      }
+    });
+    return groups;
+  }
+
+  function appendZoneGroups(el, groups, renderItem) {
+    el.style.gridTemplateColumns = "";
+    const table = document.createElement("table");
+    table.className = "convoy-table";
+
+    const headRow = document.createElement("tr");
+    groups.forEach((g) => {
+      const th = document.createElement("th");
+      th.className = `zone-bar zone-${g.zone}`;
+      th.colSpan = Math.max(1, g.items.length);
+      th.scope = "colgroup";
+      th.setAttribute("aria-label", `Vyöhyke ${g.zone}`);
+      th.innerHTML = `<span class="zone-bar-label">${escapeHtml(g.zone)}</span>`;
+      headRow.appendChild(th);
+    });
+    const thead = document.createElement("thead");
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const bodyRow = document.createElement("tr");
+    groups.forEach((g) => {
+      g.items.forEach((item) => {
+        const td = document.createElement("td");
+        td.className = `zone-${g.zone}`;
+        td.appendChild(renderItem(item));
+        bodyRow.appendChild(td);
+      });
+    });
+    const tbody = document.createElement("tbody");
+    tbody.appendChild(bodyRow);
+    table.appendChild(tbody);
+
+    el.appendChild(table);
+  }
+
   function renderSetupConvoy(snap) {
     const el = $("convoy");
     el.innerHTML = "";
@@ -357,8 +442,15 @@
     const labelByType = Object.fromEntries(
       troops.map((t) => [t.unit_type, t.unit_type_label])
     );
+    const numPlayers = (snap.state.players || []).length || 3;
 
-    pattern.forEach((owner, i) => {
+    const items = pattern.map((owner, i) => ({
+      zone: zoneAtIndex(i, pattern.length, numPlayers),
+      owner,
+      i,
+    }));
+
+    appendZoneGroups(el, groupConsecutiveByZone(items), ({ owner, i }) => {
       const wrap = document.createElement("div");
       wrap.className =
         "unit-wrap setup-slot" +
@@ -390,7 +482,7 @@
         slot.innerHTML = `<div class="slot-placeholder muted">P${owner}</div>`;
       }
       wrap.appendChild(slot);
-      el.appendChild(wrap);
+      return wrap;
     });
   }
 
@@ -442,7 +534,58 @@
     });
   }
 
+  function repeatToken(token, n) {
+    const count = Math.max(0, Number(n) || 0);
+    return token.repeat(count);
+  }
+
+  function unitTokenHtml(u) {
+    const tired = repeatToken("🟢", u.tiredness);
+    const influence = u.under_influence ? "🟡" : "";
+    const atrocities = Math.max(0, Number(u.atrocities) || 0);
+    const atrocitySpans = Array.from({ length: atrocities }, () =>
+      '<span class="atrocity" title="raakuus" aria-label="raakuus"></span>'
+    ).join("");
+    const bits = [tired, influence, atrocitySpans].filter(Boolean).join("");
+    return bits || '<span class="muted">—</span>';
+  }
+
+  function renderResistance(snap) {
+    const el = $("resistanceBlock");
+    if (!el) return;
+    el.innerHTML = "";
+    const res = (snap.state && snap.state.resistance) || {};
+    const card = document.createElement("div");
+    if (!res.active || !res.name) {
+      card.className = "resistance-card inactive";
+      card.innerHTML =
+        `<div class="resistance-eyebrow">Vastarinta</div>` +
+        `<div class="resistance-empty">Ei aktiivista</div>`;
+      el.appendChild(card);
+      return;
+    }
+    card.className = "resistance-card";
+    const dmg = res.damage || {};
+    const dmgBits = Object.keys(dmg)
+      .map((k) => `${escapeHtml(k)} ${escapeHtml(String(dmg[k]))}`)
+      .join(" · ");
+    card.innerHTML =
+      `<div class="resistance-eyebrow">Vastarinta · estää etenemisen</div>` +
+      `<div class="resistance-name">${escapeHtml(res.name)}</div>` +
+      `<div class="resistance-stats">` +
+      `<div>Kestävyys <strong>${escapeHtml(String(res.durability ?? "?"))}</strong></div>` +
+      `<div>Hyökkäys <strong>${escapeHtml(String(res.attack ?? "?"))}</strong>` +
+      (res.target ? ` → ${escapeHtml(res.target)}` : "") +
+      `</div>` +
+      (res.loot ? `<div>Ryöstö <strong>${escapeHtml(String(res.loot))}</strong></div>` : "") +
+      (dmgBits ? `<div>Vahinko: ${dmgBits}</div>` : "") +
+      `</div>`;
+    el.appendChild(card);
+  }
+
   function renderConvoy(snap) {
+    renderResistance(snap);
+
     if (isPlaceUnits(snap)) {
       renderSetupConvoy(snap);
       return;
@@ -453,8 +596,16 @@
     const cats = catalog(snap);
     const assign = isAssignFlow(snap);
     const assignSet = new Set((snap.pending && snap.pending.assign_units || []).map((u) => u.index));
+    const convoy = snap.state.convoy || [];
+    const numPlayers = (snap.state.players || []).length || 3;
 
-    (snap.state.convoy || []).forEach((u, i) => {
+    const items = convoy.map((u, i) => ({
+      zone: u.zone || zoneAtIndex(i, convoy.length, numPlayers),
+      u,
+      i,
+    }));
+
+    appendZoneGroups(el, groupConsecutiveByZone(items), ({ u, i }) => {
       const wrap = document.createElement("div");
       wrap.className =
         "unit-wrap" +
@@ -469,8 +620,8 @@
       const typeLabel = u.unit_type_label || u.unit_type;
       unit.innerHTML =
         `<strong>#${i}</strong> P${u.player} ${escapeHtml(typeLabel)}` +
-        `<br/>T${u.tiredness}${u.under_influence ? " · 🟡" : ""} A${u.atrocities}` +
-        `<br/>carry ${escapeHtml(JSON.stringify(u.carry))} · ${escapeHtml(u.zone || "?")}`;
+        `<div class="unit-tokens">${unitTokenHtml(u)}</div>` +
+        `<div class="unit-meta">carry ${escapeHtml(JSON.stringify(u.carry))}</div>`;
       wrap.appendChild(unit);
 
       const slot = document.createElement("div");
@@ -483,8 +634,18 @@
         wireDropZone(slot, i, snap);
         const cid = slotCards[i];
         if (cid != null && cats[String(cid)]) {
+          const legality =
+            (snap.pending &&
+              snap.pending.assign_legality &&
+              snap.pending.assign_legality[String(i)] &&
+              snap.pending.assign_legality[String(i)][String(cid)]) ||
+            null;
           slot.appendChild(
-            buildActionCard(cats[String(cid)], { compact: true, draggable: true })
+            buildActionCard(cats[String(cid)], {
+              compact: true,
+              draggable: true,
+              legalFaceIndices: legality,
+            })
           );
           const inner = slot.querySelector(".action-card");
           if (inner) {
@@ -503,25 +664,59 @@
           snap.pending.payload &&
           snap.pending.payload.unit_index === i;
         const highlight = choosing ? snap.pending.payload.actions : null;
+        const activeCardId =
+          choosing && snap.pending.payload.card_id != null
+            ? snap.pending.payload.card_id
+            : null;
 
-        if (action.face_up && action.card != null && cats[String(action.card)]) {
-          slot.appendChild(
-            buildActionCard(cats[String(action.card)], {
-              compact: false,
-              highlightOptions: highlight,
-              onFaceClick: highlight ? (option) => sendChoice([option]) : null,
-              chosenFaceIndex:
-                action.resolved && action.chosen_face_index != null
-                  ? action.chosen_face_index
-                  : null,
-              resolved: Boolean(action.resolved),
-              frustrated: Boolean(action.frustrated),
-            })
-          );
-          if (choosing) slot.classList.add("choosing-action");
-        } else {
-          // Face-down for opponents until they act
+        const stack = (action.cards && action.cards.length
+          ? action.cards
+          : action.card != null || action.face_up
+            ? [action]
+            : []);
+
+        if (!stack.length) {
           slot.appendChild(buildCardBack(u.player));
+        } else {
+          const stackEl = document.createElement("div");
+          stackEl.className =
+            "card-stack" + (stack.length > 1 ? ` stack-n-${Math.min(stack.length, 4)}` : "");
+          let anyChoosing = false;
+          stack.forEach((entry, stackIdx) => {
+            const layer = document.createElement("div");
+            layer.className = "stack-layer";
+            layer.style.setProperty("--stack-i", String(stackIdx));
+
+            if (entry.face_up && entry.card != null && cats[String(entry.card)]) {
+              const isActive =
+                choosing &&
+                (activeCardId == null
+                  ? stackIdx === stack.length - 1
+                  : entry.card === activeCardId);
+              if (isActive) anyChoosing = true;
+              layer.appendChild(
+                buildActionCard(cats[String(entry.card)], {
+                  compact: false,
+                  highlightOptions: isActive ? highlight : null,
+                  onFaceClick:
+                    isActive && highlight
+                      ? (option) => sendChoice([option])
+                      : null,
+                  chosenFaceIndex:
+                    entry.resolved && entry.chosen_face_index != null
+                      ? entry.chosen_face_index
+                      : null,
+                  resolved: Boolean(entry.resolved),
+                  frustrated: Boolean(entry.frustrated),
+                })
+              );
+            } else {
+              layer.appendChild(buildCardBack(u.player));
+            }
+            stackEl.appendChild(layer);
+          });
+          slot.appendChild(stackEl);
+          if (anyChoosing) slot.classList.add("choosing-action");
         }
       } else {
         slot.classList.add("empty-slot");
@@ -529,7 +724,7 @@
       }
 
       wrap.appendChild(slot);
-      el.appendChild(wrap);
+      return wrap;
     });
   }
 
@@ -687,6 +882,32 @@
       return;
     }
 
+    if (isPillagePick(snap)) {
+      title.textContent = "Valitse ryöstökortti";
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "Kortit ovat myös ryöstöjonossa (paljastettuina). Napsauta yksi.";
+      opts.appendChild(hint);
+      const row = document.createElement("div");
+      row.className = "card-row pillage-choices";
+      const cards =
+        (snap.pending.payload && snap.pending.payload.pillage_cards) || [];
+      cards.forEach((c) => {
+        const el = document.createElement("button");
+        el.type = "button";
+        el.className = "queue-card face-up pillage-choice";
+        el.innerHTML =
+          `<div class="queue-card-name">${escapeHtml(c.name || `#${c.id}`)}</div>` +
+          (c.detail
+            ? `<div class="queue-card-detail">${escapeHtml(c.detail)}</div>`
+            : "");
+        el.addEventListener("click", () => sendChoice([c.id]));
+        row.appendChild(el);
+      });
+      opts.appendChild(row);
+      return;
+    }
+
     if (isPayCost(snap) || isDiscardPick(snap)) {
       const need = snap.pending.num_choice;
       const payload = snap.pending.payload || {};
@@ -754,6 +975,69 @@
     });
   }
 
+  function renderDeckRows(snap) {
+    const el = $("deckRows");
+    if (!el) return;
+    el.innerHTML = "";
+    const rows =
+      (snap.state && snap.state.decks && snap.state.decks.rows) || [];
+    rows.forEach((row) => {
+      const rowEl = document.createElement("div");
+      rowEl.className = `deck-row deck-key-${row.key || "unknown"}`;
+
+      // Left edge: discard pile
+      const discard = document.createElement("div");
+      discard.className = "pile-box discard";
+      discard.innerHTML =
+        `<span class="pile-kind">Poisto</span>` +
+        `<span class="pile-name">${escapeHtml(row.label || "")}</span>` +
+        `<span class="pile-count">${Number(row.discard) || 0}</span>`;
+      rowEl.appendChild(discard);
+
+      // Deck (draw pile)
+      const draw = document.createElement("div");
+      draw.className = "pile-box draw";
+      draw.innerHTML =
+        `<span class="pile-kind">Pakka</span>` +
+        `<span class="pile-name">${escapeHtml(row.label || "")}</span>` +
+        `<span class="pile-count">${Number(row.deck) || 0}</span>`;
+      rowEl.appendChild(draw);
+
+      // Queue: render back→front so index 0 (front) is rightmost
+      const track = document.createElement("div");
+      track.className = "queue-track";
+      const queue = row.queue || [];
+      if (!queue.length) {
+        const empty = document.createElement("div");
+        empty.className = "queue-empty";
+        empty.textContent = "—";
+        track.appendChild(empty);
+      } else {
+        for (let i = queue.length - 1; i >= 0; i--) {
+          const card = queue[i];
+          const cardEl = document.createElement("div");
+          const isFront = i === 0;
+          if (card && card.visible) {
+            cardEl.className =
+              "queue-card face-up" + (isFront ? " is-front" : "");
+            cardEl.innerHTML =
+              `<div class="queue-card-name">${escapeHtml(card.name || `#${card.id}`)}</div>` +
+              (card.detail
+                ? `<div class="queue-card-detail">${escapeHtml(card.detail)}</div>`
+                : "");
+          } else {
+            cardEl.className =
+              "queue-card face-down" + (isFront ? " is-front" : "");
+            cardEl.innerHTML = `<div class="queue-card-mark">🂠</div>`;
+          }
+          track.appendChild(cardEl);
+        }
+      }
+      rowEl.appendChild(track);
+      el.appendChild(rowEl);
+    });
+  }
+
   function renderLog(snap) {
     const logEl = $("gameLog");
     if (!logEl) return;
@@ -781,10 +1065,6 @@
     $("roundInfo").textContent = `Kierros ${state.round ?? "?"} · vaihe ${state.stage ?? "?"}`;
     $("message").textContent = state.message || "";
 
-    const res = state.resistance || {};
-    $("resistance").textContent =
-      res.in_progress || (res.active ? JSON.stringify(res) : "Ei aktiivista");
-
     if ($("pauseToggle") && typeof snap.pause_after_actions === "boolean") {
       $("pauseToggle").checked = snap.pause_after_actions;
     }
@@ -811,9 +1091,7 @@
       playersEl.appendChild(div);
     });
 
-    const queues = (state.decks && state.decks.queues) || {};
-    $("queues").textContent = JSON.stringify(queues, null, 2);
-
+    renderDeckRows(snap);
     renderLog(snap);
 
     if (snap.terminal) {

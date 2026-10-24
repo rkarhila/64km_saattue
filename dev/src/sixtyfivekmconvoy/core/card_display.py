@@ -5,16 +5,14 @@ from __future__ import annotations
 import unicodedata
 from typing import Any
 
+from .cost import cost_rates_for_display
 from .i18n import troop_label
 
 # Bottom-row symbols (web may restyle these as CSS circles / card backs).
 SYMBOL_TIREDNESS = "🟢"  # tiredness token
 SYMBOL_INFLUENCE = "🟡"  # under-influence token
+SYMBOL_ATROCITY = "⚪"  # atrocity token (white circle; matches unit UI)
 SYMBOL_PLAYING_CARD = "🂠"  # one action card paid
-
-# Cost "T" rates — must stay aligned with actions.get_cost().
-CARDS_PER_TIREDNESS = 1
-CARDS_PER_INFLUENCE = 1
 
 # Default ASCII card inner width for left/right meta alignment.
 DEFAULT_META_WIDTH = 40
@@ -40,23 +38,29 @@ def _cards_per_token(n_cards: int, token: str) -> str:
 def format_cost(
     cost: str | int,
     *,
-    cards_per_tiredness: int = CARDS_PER_TIREDNESS,
-    cards_per_influence: int = CARDS_PER_INFLUENCE,
+    action_name: str | None = None,
 ) -> str:
     """
-    Cost as 'n cards per token':
-      T  →  1🂠 / 🟢 + 1🂠 / 🟡   (rates configurable; defaults match engine)
-      N  →  N🂠   (including 0🂠 when free)
+    Cost as shown on cards, driven by the CSV cost string:
+      1/T+1/U+1/A  →  1🂠 / 🟢 + 1🂠 / 🟡 + 1🂠 / ⚪
+      1/T+2/U+1/A  →  1🂠 / 🟢 + 2🂠 / 🟡 + 1🂠 / ⚪
+      1/T+1/U      →  1🂠 / 🟢 + 1🂠 / 🟡
+      0, 1, 4      →  N🂠
     """
-    if cost == "T":
-        parts: list[str] = []
-        if cards_per_tiredness > 0:
-            parts.append(_cards_per_token(cards_per_tiredness, SYMBOL_TIREDNESS))
-        if cards_per_influence > 0:
-            parts.append(_cards_per_token(cards_per_influence, SYMBOL_INFLUENCE))
-        return " + ".join(parts) if parts else _n_cards(0)
-    n = 0 if cost in ("0", 0, None, "") else int(cost)
-    return _n_cards(n)
+    del action_name  # display follows the cost string
+    rates = cost_rates_for_display(cost)
+    if rates is None:
+        n = 0 if cost in ("0", 0, None, "") else int(cost)
+        return _n_cards(n)
+    t_r, u_r, a_r = rates
+    parts: list[str] = []
+    if t_r > 0:
+        parts.append(_cards_per_token(t_r, SYMBOL_TIREDNESS))
+    if u_r > 0:
+        parts.append(_cards_per_token(u_r, SYMBOL_INFLUENCE))
+    if a_r > 0:
+        parts.append(_cards_per_token(a_r, SYMBOL_ATROCITY))
+    return " + ".join(parts) if parts else _n_cards(0)
 
 
 def format_effects(tire: int = 0, intoxicate: int = 0) -> str:
@@ -120,10 +124,16 @@ def face_meta(
     tire: int = 0,
     intoxicate: int = 0,
     *,
+    action_name: str | None = None,
     width: int = DEFAULT_META_WIDTH,
 ) -> str:
     """Bottom row: cost on the left, → effects on the right."""
-    return align_meta(format_cost(cost), format_effects(tire, intoxicate), width=width)
+    del action_name
+    return align_meta(
+        format_cost(cost),
+        format_effects(tire, intoxicate),
+        width=width,
+    )
 
 
 def format_face(action: Any, *, meta_width: int = DEFAULT_META_WIDTH) -> dict[str, Any]:
@@ -141,6 +151,7 @@ def format_face(action: Any, *, meta_width: int = DEFAULT_META_WIDTH) -> dict[st
         intoxicate = action.intoxicate
         troop = action.troop_type
         zone = action.zone
+        action_name = getattr(action, "action_name", None)
     else:
         name = action["name"]
         modifier = action.get("action_modifier", 0)
@@ -149,13 +160,16 @@ def format_face(action: Any, *, meta_width: int = DEFAULT_META_WIDTH) -> dict[st
         intoxicate = action.get("intoxicate", 0)
         troop = action.get("troop_type", "A")
         zone = action.get("zone", "")
+        action_name = action.get("action_name")
 
+    rates = cost_rates_for_display(cost)
     cost_s = format_cost(cost)
     effects_s = format_effects(tire, intoxicate)
     troop_key = {"P": "panzer", "I": "infantry", "L": "logistics", "A": "any"}.get(
         str(troop).upper()[:1] if troop else "A",
         "any",
     )
+    t_r, u_r, a_r = rates if rates else (0, 0, 0)
     return {
         "troop_label": troop_label(troop),
         "troop_key": troop_key,
@@ -164,9 +178,16 @@ def format_face(action: Any, *, meta_width: int = DEFAULT_META_WIDTH) -> dict[st
         "cost": cost_s,
         "effects": effects_s,
         "meta": align_meta(cost_s, effects_s, width=meta_width),
+        "cost_includes_atrocities": a_r > 0,
+        "cost_rates": {
+            "tiredness": t_r,
+            "influence": u_r,
+            "atrocity": a_r,
+        },
         "symbols": {
             "tiredness": SYMBOL_TIREDNESS,
             "influence": SYMBOL_INFLUENCE,
+            "atrocity": SYMBOL_ATROCITY,
             "playing_card": SYMBOL_PLAYING_CARD,
         },
     }

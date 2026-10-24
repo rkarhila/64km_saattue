@@ -1,65 +1,65 @@
 card_id,action_index,troop_type,zone,action_type,action_modifier,cost,tire,intoxicate,name
-0,0,P,AB,Attack,2,T,1,0,Hyökkää
+0,0,P,AB,Attack,2,1/T+1/U,1,0,Hyökkää
 1,0,P,AB,Rest,2,0,1,0,Hyökkää
-2,0,P,ABCE,Pillage,3,T,1,0,Ryöstä
-3,0,P,ABCE,Bypass,2,T,1,0,Ohita
-4,0,P,ABCE,Search,3,T,1,0,Etsi ryöstettävää
-5,0,P,AB,Attack,2,T,1,0,Hyökkää
-6,0,P,AB,Attack,3,T,1,0,Hyökkää
-7,0,P,AB,Attack,4,T,1,0,Hyökkää
-8,0,P,ABC,Assault,3,T,1,0,Rynnäkkö!
-9,0,P,ABCE,Search,2,T,1,0,Etsi ryöstettävää
-10,0,P,E,Exit,0,T,0,0,"Sayonara, suckers!"
-11,0,P,AB,Retreat,2,T,1,0,Suojatulta!
+2,0,P,ABCE,Pillage,3,1/T+1/U,1,0,Ryöstä
+3,0,P,ABCE,Bypass,2,1/T+1/U+1/A,1,0,Ohita
+4,0,P,ABCE,Search,3,1/T+1/U+1/A,1,0,Etsi ryöstettävää
+5,0,P,AB,Attack,2,1/T+1/U,1,0,Hyökkää
+6,0,P,AB,Attack,3,1/T+1/U,1,0,Hyökkää
+7,0,P,AB,Attack,4,1/T+1/U,1,0,Hyökkää
+8,0,P,ABC,Assault,3,1/T+1/U,1,0,Rynnäkkö!
+9,0,P,ABCE,Search,2,1/T+1/U+1/A,1,0,Etsi ryöstettävää
+10,0,P,E,Exit,0,1/T+1/U+1/A,0,0,"Sayonara, suckers!"
+11,0,P,AB,Retreat,2,1/T+1/U+1/A,1,0,Suojatulta!
 12,0,P,ABCE,Promote,0,1,0,1,Ylennä
-13,0,P,ABCE,Order,0,T,1,0,Käskytä
+13,0,P,ABCE,Order,0,1/T+1/U+1/A,1,0,Käskytä
 14,0,P,,,,,,,
 15,0,P,,,,,,,
 16,0,P,,,,,,,
-0,1,I,ABCE,Patrol,3,T,1,0,Partioi
-1,1,I,ABCE,Patrol,3,T,1,0,Partioi
+0,1,I,ABCE,Patrol,3,1/T+1/U+1/A,1,0,Partioi
+1,1,I,ABCE,Patrol,3,1/T+1/U+1/A,1,0,Partioi
 2,1,I,AB,Rest,2,0,1,0,Lepää
-3,1,I,ABCE,Pillage,3,T,1,0,Ryöstä
-4,1,I,ABCE,Bypass,2,T,1,0,Ohita
-5,1,I,ABCE,Order,0,T,1,0,Käskytä
-6,1,I,A,Retreat,1,T,1,0,Suojatulta!
-7,1,I,A,Attack,1,T,1,0,Hyökkää
-8,1,I,A,Attack,2,T,1,0,Hyökkää
-9,1,I,AB,Assault,2,T,1,0,Rynnäkkö!
-10,1,I,A,Scout,3,T,1,0,Tiedustele
-11,1,I,A,Scout,3,T,1,0,Tiedustele
-12,1,I,A,Scout,2,T,1,0,Tiedustele
+3,1,I,ABCE,Pillage,3,1/T+1/U,1,0,Ryöstä
+4,1,I,ABCE,Bypass,2,1/T+1/U+1/A,1,0,Ohita
+5,1,I,ABCE,Order,0,1/T+1/U+1/A,1,0,Käskytä
+6,1,I,A,Retreat,1,1/T+1/U+1/A,1,0,Suojatulta!
+7,1,I,A,Attack,1,1/T+1/U,1,0,Hyökkää
+8,1,I,A,Attack,2,1/T+1/U,1,0,Hyökkää
+9,1,I,AB,Assault,2,1/T+1/U,1,0,Rynnäkkö!
+10,1,I,A,Scout,3,1/T+2/U+1/A,1,0,Tiedustele
+11,1,I,A,Scout,3,1/T+2/U+1/A,1,0,Tiedustele
+12,1,I,A,Scout,2,1/T+2/U+1/A,1,0,Tiedustele
 13,1,I,ABCE,Promote,0,1,0,1,Ylennä
-14,1,I,E,Exit,0,T,0,0,"Sayonara, suckers!"
+14,1,I,E,Exit,0,1/T+1/U+1/A,0,0,"Sayonara, suckers!"
 15,1,I,,,,,,,
 16,1,I,,,,,,,
-0,2,L,ABCE,Service,1,T,1,0,Hyökkää
-1,2,L,ABCE,Service,1,T,1,0,Hyökkää
-2,2,L,ABCE,Search,3,T,1,0,Etsi ryöstettävää
-3,2,L,ABCE,Search,2,T,1,0,Etsi ryöstettävää
-4,2,L,ABCE,Order,0,T,1,0,Käskytä
-5,2,L,AB,Sigint,2,T,1,0,Signaalitiedustelu
-6,2,L,AB,Sigint,3,T,1,0,Signaalitiedustelu
+0,2,L,ABCE,Service,1,1/T+1/U+1/A,1,0,Hyökkää
+1,2,L,ABCE,Service,1,1/T+1/U+1/A,1,0,Hyökkää
+2,2,L,ABCE,Search,3,1/T+1/U+1/A,1,0,Etsi ryöstettävää
+3,2,L,ABCE,Search,2,1/T+1/U+1/A,1,0,Etsi ryöstettävää
+4,2,L,ABCE,Order,0,1/T+1/U+1/A,1,0,Käskytä
+5,2,L,AB,Sigint,2,1/T+1/U+1/A,1,0,Signaalitiedustelu
+6,2,L,AB,Sigint,3,1/T+1/U+1/A,1,0,Signaalitiedustelu
 7,2,L,AB,Rest,0,0,1,0,Lepää
-8,2,L,ABCE,Pillage,2,T,1,0,Ryöstä
-9,2,L,ABCE,Bypass,2,T,1,0,Ohita
+8,2,L,ABCE,Pillage,2,1/T+1/U,1,0,Ryöstä
+9,2,L,ABCE,Bypass,2,1/T+1/U+1/A,1,0,Ohita
 10,2,L,ABCE,Promote,0,1,0,1,Ylennä
 11,2,L,,,,,,,
 12,2,L,,,,,,,
-13,2,L,E,Exit,0,T,0,0,"Sayonara, suckers!"
+13,2,L,E,Exit,0,1/T+1/U+1/A,0,0,"Sayonara, suckers!"
 14,2,L,,,,,,,
 15,2,L,,,,,,,
 16,2,L,,,,,,,
 0,3,A,ABCE,Rest,1,0,0,0,Lepää
 1,3,A,ABCE,Rest,1,0,0,0,Lepää
-2,3,A,ABCE,Pillage,2,T,0,0,Ryöstä
-3,3,A,ABCE,Pillage,2,T,0,0,Ryöstä
-4,3,A,ABCE,Pillage,2,T,0,0,Ryöstä
-5,3,A,ABCE,Human shields,1,T,1,0,Ihmiskilpiä
-6,3,A,ABCE,Human shields,1,T,1,0,Ihmiskilpiä
+2,3,A,ABCE,Pillage,2,1/T+1/U,0,0,Ryöstä
+3,3,A,ABCE,Pillage,2,1/T+1/U,0,0,Ryöstä
+4,3,A,ABCE,Pillage,2,1/T+1/U,0,0,Ryöstä
+5,3,A,ABCE,Human shields,1,1/T+1/U+1/A,1,0,Ihmiskilpiä
+6,3,A,ABCE,Human shields,1,1/T+1/U+1/A,1,0,Ihmiskilpiä
 7,3,A,,,,,,,
-8,3,A,ABCE,Defend,1,T,1,0,Puolustusasemiin!
-9,3,A,ABCE,Defend,1,T,1,0,Puolustusasemiin!
+8,3,A,ABCE,Defend,1,1/T+1/U+1/A,1,0,Puolustusasemiin!
+9,3,A,ABCE,Defend,1,1/T+1/U+1/A,1,0,Puolustusasemiin!
 10,3,A,,,,,,,
 11,3,A,,,,,,,
 12,3,A,,,,,,,

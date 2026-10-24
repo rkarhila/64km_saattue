@@ -61,7 +61,6 @@ class ActionName:
             return None
         return action_name.lower().strip()
 
-
 CARDS_TO_DEAL = 5
 MIN_PLAYER_CARD_LIMIT = 2
 CARD_TO_POINTS_RATIO = 4

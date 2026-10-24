@@ -409,13 +409,16 @@ class GameEngine:
                     player.place_action_card(card)
             self._broadcast("Toimintakortit asetettu.")
 
-            # Execute actions by index
+            # Execute actions by index.
+            # Track units by object identity — retreat/assault/bypass reorder the
+            # convoy, so iterating stale indices double-resolves some units and
+            # skips others.
             self.rounds.next_stage()
             action_index = 0
             while True:
                 units_with_action = [
-                    idx
-                    for idx, unit in enumerate(self.convoy.units)
+                    unit
+                    for unit in self.convoy.units
                     if action_index < len(unit.actioncard)
                     and (
                         action_index >= len(unit.actiontaken)
@@ -425,10 +428,10 @@ class GameEngine:
                 if not units_with_action:
                     break
 
-                for unit_idx in list(units_with_action):
-                    if unit_idx >= len(self.convoy.units):
+                for unit in units_with_action:
+                    if unit.convoy is not self.convoy or unit not in self.convoy.units:
                         continue
-                    unit = self.convoy.units[unit_idx]
+                    unit_idx = unit.index()
                     actioncard = unit.actioncard[action_index]
                     while len(unit.actiontaken) <= action_index:
                         unit.actiontaken.append(None)
@@ -464,8 +467,11 @@ class GameEngine:
                                     "face": face,
                                 }
                             )
-                        d = "Choose action: " + " ".join(
-                            f'{i}:"{possible[i][1].get("name")}"' for i in labels
+                        d = (
+                            f"Choose action for {action_mod.unit_log_label(unit)}: "
+                            + " ".join(
+                                f'{i}:"{possible[i][1].get("name")}"' for i in labels
+                            )
                         )
                         pick = yield ChoiceRequest(
                             player_id=unit.player.agent_id(),
@@ -498,7 +504,10 @@ class GameEngine:
                         }
                         unit.become_frustrated()
                         self.round_action_summaries.append(
-                            f"Unit {unit_idx} frustrated on card {actioncard}"
+                            f"{action_mod.unit_log_label(unit)} frustrated on card {actioncard}"
+                        )
+                        self._broadcast(
+                            f"{action_mod.unit_log_label(unit)} frustrated on card {actioncard}"
                         )
                     else:
                         face_i, desc = possible[choice_i]
@@ -513,7 +522,6 @@ class GameEngine:
                             "option": choice_i,
                             "name": desc.get("name"),
                         }
-                        # Refresh index in case prior actions moved units
                         unit_idx = unit.index()
                         summary = yield from action_mod.resolve_action(
                             self, unit_idx, desc, actioncard

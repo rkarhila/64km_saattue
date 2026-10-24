@@ -240,32 +240,51 @@ class Unit:
 
     def _action_json(self, playerview: Player | None) -> dict:
         if not self.actioncard:
-            return {"card": None, "face_up": False, "has_card": False}
-        card_id = self.actioncard[0]
+            return {"card": None, "face_up": False, "has_card": False, "cards": []}
         is_owner = playerview is None or playerview is self.player
-        resolution = None
-        if self.action_resolution:
-            resolution = self.action_resolution[0]
-        elif self.actiontaken and self.actiontaken[0] is not None:
-            # Legacy fallback
-            resolution = {"option": self.actiontaken[0], "kind": "card", "face_index": None}
+        stack: list[dict] = []
+        for i, card_id in enumerate(self.actioncard):
+            resolution = None
+            if i < len(self.action_resolution) and self.action_resolution[i] is not None:
+                resolution = self.action_resolution[i]
+            elif i < len(self.actiontaken) and self.actiontaken[i] is not None:
+                resolution = {
+                    "option": self.actiontaken[i],
+                    "kind": "card",
+                    "face_index": None,
+                }
+            resolved = resolution is not None
+            face_up = is_owner or resolved
+            entry: dict = {
+                "index": i,
+                "has_card": True,
+                "face_up": face_up,
+                "card": card_id if face_up else None,
+                "resolved": resolved,
+                "actiontaken": self.actiontaken[i] if i < len(self.actiontaken) else None,
+            }
+            if resolved and resolution:
+                entry["chosen_face_index"] = resolution.get("face_index")
+                entry["chosen_kind"] = resolution.get("kind")
+                entry["chosen_name"] = resolution.get("name")
+                entry["frustrated"] = resolution.get("kind") == "frustrated"
+            stack.append(entry)
 
-        resolved = resolution is not None
-        face_up = is_owner or resolved
+        top = stack[0]
+        # Compat fields describe the first (bottom) card; UI prefers `cards` stack.
         data: dict = {
             "has_card": True,
-            "face_up": face_up,
-            "card": card_id if face_up else None,
-            "actiontaken": self.actiontaken[0] if self.actiontaken else None,
+            "face_up": top["face_up"],
+            "card": top["card"],
+            "cards": stack,
+            "actiontaken": top.get("actiontaken"),
+            "resolved": top.get("resolved", False),
         }
-        if resolved and resolution:
-            data["resolved"] = True
-            data["chosen_face_index"] = resolution.get("face_index")
-            data["chosen_kind"] = resolution.get("kind")
-            data["chosen_name"] = resolution.get("name")
-            data["frustrated"] = resolution.get("kind") == "frustrated"
-        else:
-            data["resolved"] = False
+        if top.get("resolved"):
+            data["chosen_face_index"] = top.get("chosen_face_index")
+            data["chosen_kind"] = top.get("chosen_kind")
+            data["chosen_name"] = top.get("chosen_name")
+            data["frustrated"] = top.get("frustrated", False)
         return data
 
 
@@ -516,7 +535,7 @@ class Resistance:
 
     def to_json(self) -> dict:
         if not self.name:
-            return {}
+            return {"active": False}
         return {
             "in_progress": (
                 f"{self.name},attacks{self.target}with{self.damage_to_convoy},"
@@ -524,5 +543,10 @@ class Resistance:
             ),
             "name": self.name,
             "active": self.active,
+            "status": self.status,
             "durability": self.durability,
+            "attack": self.damage_to_convoy,
+            "target": self.target,
+            "loot": self.loot,
+            "damage": dict(self.damage_from_convoy),
         }

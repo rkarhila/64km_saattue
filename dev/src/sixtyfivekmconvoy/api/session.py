@@ -50,19 +50,27 @@ class GameSession:
             assign_units = self._assign_units_for_pending(pending, player_id)
             if assign_units:
                 pending_json["assign_units"] = assign_units
+                pending_json["assign_legality"] = self._assign_legality_for_pending(
+                    player_id
+                )
 
         player = self.engine._player_by_id(player_id)
         hand_cards = {
             str(cid): describe_action_card(cid) for cid in player.action_cards
         }
-        # All face-up convoy cards (own always; others after they act).
+        # All face-up convoy cards (own always; others after they act),
+        # including WAIT-queued extras in the stack.
         placed: dict[str, Any] = {}
         for u in self.engine.convoy.units:
             if not u.actioncard:
                 continue
             action = u.to_json(playerview=player).get("action") or {}
-            if action.get("face_up") and action.get("card") is not None:
-                placed[str(action["card"])] = describe_action_card(action["card"])
+            entries = action.get("cards") or []
+            if not entries and action.get("face_up") and action.get("card") is not None:
+                entries = [action]
+            for entry in entries:
+                if entry.get("face_up") and entry.get("card") is not None:
+                    placed[str(entry["card"])] = describe_action_card(entry["card"])
 
         return {
             "game_id": self.game_id,
@@ -117,6 +125,29 @@ class GameSession:
             }
             for u in units
         ]
+
+    def _assign_legality_for_pending(self, player_id: str) -> dict[str, dict[str, list[int]]]:
+        """unit_index -> card_id -> legal face indices (for assign-time strikethrough)."""
+        from sixtyfivekmconvoy.core import actions as action_mod
+
+        player = self.engine._player_by_id(player_id)
+        units = [u for u in self.engine.convoy.units if u.player is player]
+        out: dict[str, dict[str, list[int]]] = {}
+        for unit in units:
+            by_card: dict[str, list[int]] = {}
+            unit_idx = unit.index()
+            for cid in player.action_cards:
+                faces = player.action_deck.describe(cid) if player.action_deck else []
+                legal: list[int] = []
+                if isinstance(faces, list):
+                    for face_i, desc in enumerate(faces):
+                        if isinstance(desc, dict) and action_mod.is_action_possible(
+                            self.engine, unit_idx, desc
+                        ):
+                            legal.append(face_i)
+                by_card[str(cid)] = legal
+            out[str(unit_idx)] = by_card
+        return out
 
     def _human_must_act(self) -> bool:
         pending = self.engine.pending_choice()

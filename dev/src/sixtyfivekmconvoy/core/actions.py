@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Generator
 
-from .constants import ActionName, ChoiceType, UNIT_TYPE_LETTER
+from .constants import ActionName, ChoiceType, PLAYER_COLORS, UNIT_TYPE_LETTER
 from .cards import OfficerCard, OFFICER_CATALOG
+from .cost import evaluate_cost
 from .i18n import unit_type_label
 
 if TYPE_CHECKING:
@@ -13,10 +14,30 @@ if TYPE_CHECKING:
     from .models import Convoy, Unit
 
 
-def get_cost(unit: Unit, cost: str | int) -> int:
-    if cost == "T":
-        return unit.tired + (1 if unit.under_influence else 0)
-    return int(cost)
+def unit_log_label(unit: Unit) -> str:
+    """Human-readable unit id for logs, e.g. 'blue jalkaväki'."""
+    color = PLAYER_COLORS[unit.player.number % len(PLAYER_COLORS)]
+    return f"{color} {unit_type_label(unit.unittype)}"
+
+
+def get_cost(
+    unit: Unit,
+    cost: str | int,
+    *,
+    action_name: str | None = None,
+) -> int:
+    """
+    Cards to discard for an action.
+
+    Cost comes from the card CSV. Forms:
+      0, 1, 4              — flat card count
+      1/T+1/U              — token formula (T=tired, U=influence, A=atrocity)
+      T                    — legacy alias for 1/T+1/U+1/A
+
+    `action_name` is ignored; kept for call-site compatibility.
+    """
+    del action_name  # cost string is authoritative
+    return evaluate_cost(unit, cost)
 
 
 def unit_zones(convoy: Convoy, actor_idx: int) -> list[str]:
@@ -113,8 +134,9 @@ def resolve_action(
     player = unit.player
     name = ActionName.normalize(action.get("action_name", "")) or ""
     modifier = action.get("action_modifier", 0)
+    label = unit_log_label(unit)
     parts = [
-        f"Unit {actor_idx} {unit_type_label(unit.unittype)} resolved {action.get('name', name)}:"
+        f"{label} resolved {action.get('name', name)}:"
     ]
 
     # Pay cost
@@ -165,10 +187,11 @@ def resolve_action(
         parts.append(msg)
 
     elif name == ActionName.ASSAULT:
+        old_pos = actor_idx
+        old_zone = unit.zone()
         new_pos = convoy.move_unit(actor_idx, 1)
-        parts.append(f"moved to {new_pos}")
-        # actor index may have changed — find unit again
         actor_idx = unit.index()
+        parts.append(f"assaulted {old_pos}({old_zone})→{new_pos}({unit.zone()})")
         reward, msg = engine.resistance.take_damage(
             UNIT_TYPE_LETTER[unit.unittype], f"={modifier}"
         )
@@ -176,9 +199,14 @@ def resolve_action(
         parts.append(msg)
 
     elif name == ActionName.RETREAT:
+        # Suojatulta! → retreat one slot toward the rear, then deal damage.
+        old_pos = actor_idx
+        old_zone = unit.zone()
         new_pos = convoy.move_unit(actor_idx, -1)
-        parts.append(f"moved to {new_pos}")
         actor_idx = unit.index()
+        parts.append(
+            f"retreated {old_pos}({old_zone})→{new_pos}({unit.zone()})"
+        )
         reward, msg = engine.resistance.take_damage(
             UNIT_TYPE_LETTER[unit.unittype], modifier
         )
@@ -324,32 +352,53 @@ def _resolve_pillage(
     engine: GameEngine, unit: Unit, modifier: int
 ) -> Generator[ChoiceRequest, list[int], list[dict]]:
     from .engine import ChoiceRequest
+    from .cards import queue_card_detail
 
     count = min(2 + modifier, len(engine.pillage_queue))
-    drawn: list[tuple[int, bool]] = []
-    for _ in range(count):
-        drawn.append(engine.pillage_queue.remove_card(0))
-    if not drawn:
+    if count <= 0:
         return []
-    options = [pc for pc, _ in drawn]
+
+    # Reveal offered cards in-place so the queue UI stays populated during the
+    # choice (previously cards were removed first, emptying the queue box).
+    offered: list[dict] = []
+    for i in range(count):
+        engine.pillage_queue.reveal_card(i)
+        pc, _vis = engine.pillage_queue.cards_and_visibilities[i]
+        detail = engine.pillage_deck.describe(pc)
+        offered.append(
+            {
+                "id": pc,
+                "name": detail.get("name", str(pc)),
+                "detail": queue_card_detail(detail),
+                "visible": True,
+            }
+        )
+
+    options = [o["id"] for o in offered]
     desc = "Choose one pillage card:"
-    for pc, _ in drawn:
-        d = engine.pillage_deck.describe(pc)
-        desc += f"\n  {pc}: {d.get('name', pc)}"
+    for o in offered:
+        desc += f"\n  {o['id']}: {o['name']}"
     chosen = yield ChoiceRequest(
         player_id=unit.player.agent_id(),
         choicetype=ChoiceType.CHOOSE_PILLAGE_CARD,
         options=options,
         num_choices=1,
         description=desc,
+        payload={
+            "reason": "pillage",
+            "unit_index": unit.index(),
+            "pillage_cards": offered,
+        },
     )
     pick = chosen[0]
+
+    drawn = [engine.pillage_queue.remove_card(0) for _ in range(count)]
     results = []
     for pc, vis in drawn:
         if pc == pick:
             results.append(engine.pillage_deck.describe(pc))
         else:
-            engine.pillage_queue.return_card(pc, visible=vis)
+            engine.pillage_queue.return_card(pc, visible=True)
     return results
 
 
@@ -376,4 +425,4 @@ def _resolve_service(
         target = following
     assert target is not None
     target.tired = max(0, target.tired - 1)
-    return f"serviced unit {target.index()}"
+    return f"serviced {unit_log_label(target)}"

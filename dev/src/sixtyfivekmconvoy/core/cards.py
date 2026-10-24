@@ -121,9 +121,59 @@ class CardQueue:
             ]
         return [c if vis else "?" for c, vis in self.cards_and_visibilities]
 
+    def to_json(self) -> list[dict[str, Any]]:
+        """Queue cards for UI. Index 0 is the front (next to resolve)."""
+        out: list[dict[str, Any]] = []
+        for card_id, visible in self.cards_and_visibilities:
+            if not visible:
+                out.append({"visible": False})
+                continue
+            entry: dict[str, Any] = {
+                "visible": True,
+                "id": card_id,
+                "name": None,
+                "detail": None,
+            }
+            if self.deck is not None:
+                entry["name"] = self.deck.get_name(card_id) or str(card_id)
+                try:
+                    desc = self.deck.describe(card_id)
+                except KeyError:
+                    desc = None
+                entry["detail"] = queue_card_detail(desc)
+            else:
+                entry["name"] = str(card_id)
+            out.append(entry)
+        return out
+
     def describe(self, index: int) -> Any:
         assert self.deck is not None
         return self.deck.describe(self.cards_and_visibilities[index][0])
+
+
+def queue_card_detail(desc: Any) -> str | None:
+    """Short secondary line for a revealed queue card."""
+    if desc is None:
+        return None
+    if isinstance(desc, list):
+        # Action cards are not normally queued; join face names if they are.
+        names = [
+            d.get("name") for d in desc if isinstance(d, dict) and d.get("name")
+        ]
+        return " · ".join(names) if names else None
+    if not isinstance(desc, dict):
+        return str(desc)
+    for key in ("passive_description", "discard_description"):
+        text = (desc.get(key) or "").strip()
+        if text:
+            return text
+    for key in ("effect", "reward"):
+        payload = desc.get(key)
+        if isinstance(payload, dict) and payload:
+            return ", ".join(f"{k}:{v}" for k, v in payload.items())
+        if payload:
+            return str(payload)
+    return None
 
 
 # ---------------------------------------------------------------------------
