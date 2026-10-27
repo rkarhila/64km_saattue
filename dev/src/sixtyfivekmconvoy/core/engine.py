@@ -12,12 +12,14 @@ from typing import Any, Generator
 from . import actions as action_mod
 from .cards import (
     ACTION_CATALOG,
+    HIT_CATALOG,
     MAULING_CATALOG,
     OFFICER_CATALOG,
     PILLAGE_CATALOG,
     RESISTANCE_CATALOG,
     CardDeck,
     CardQueue,
+    select_resistance_deck,
 )
 from .constants import (
     ActionName,
@@ -130,6 +132,7 @@ class GameEngine:
         self.round_resistance_damage = 0
         self.round_unit_damage: list[tuple[int, int]] = []
         self.messages: list[str] = []
+        self.event_log: list[dict[str, Any]] = []
         self.ranking: list[dict] | None = None
 
         # decks/queues filled in reset()
@@ -138,6 +141,7 @@ class GameEngine:
         self.pillage_deck: CardDeck
         self.mauling_deck: CardDeck
         self.officer_deck: CardDeck
+        self.hit_deck: CardDeck
         self.officer_id_mapping: dict[int, int] = {}
         self.resistance_queue: CardQueue
         self.mauling_queue: CardQueue
@@ -158,6 +162,7 @@ class GameEngine:
         self.terminal = False
         self.ranking = None
         self.messages = []
+        self.event_log: list[dict[str, Any]] = []
         self.round_action_summaries = []
         self.max_rounds = max_rounds
         self.stats = EpisodeStats(seed=seed, num_players=num_players)
@@ -171,11 +176,13 @@ class GameEngine:
         self._unit_pool: list[Unit] = list(self.convoy.units)
         self.convoy.units = []
 
-        for _ in range(3):
-            self.resistance_queue.put_card(self.resistance_deck.get_card())
+        # Fixed starting resistance, then fill the queue from the sampled deck.
+        self.resistance_queue.put_card(self._resistance_starter_id, visible=True)
+        for _ in range(2):
+            if self.resistance_deck.deck:
+                self.resistance_queue.put_card(self.resistance_deck.get_card())
         for _ in range(3):
             self.mauling_queue.put_card(self.mauling_deck.get_card())
-        self.resistance_queue.reveal_card(0)
         self.mauling_queue.reveal_card(0)
         self.resistance = Resistance(self.resistance_queue.describe(0), self)
         self.rounds = Rounds(count=0, stage=0)
@@ -251,8 +258,12 @@ class GameEngine:
                 rng=self.rng,
             )
 
+        starter_id, pool_ids = select_resistance_deck(len(self.players), self.rng)
+        self._resistance_starter_id = starter_id
+        # Catalog stays full for lookups; only the sampled ids are in the draw pile.
         self.resistance_deck = CardDeck(
-            list(RESISTANCE_CATALOG.keys()),
+            pool_ids,
+            shuffled=False,  # already shuffled by select_resistance_deck
             names_and_effects=RESISTANCE_CATALOG,
             rng=self.rng,
         )
@@ -264,6 +275,11 @@ class GameEngine:
         self.mauling_deck = CardDeck(
             list(MAULING_CATALOG.keys()),
             names_and_effects=MAULING_CATALOG,
+            rng=self.rng,
+        )
+        self.hit_deck = CardDeck(
+            list(HIT_CATALOG.keys()),
+            names_and_effects=HIT_CATALOG,
             rng=self.rng,
         )
 
@@ -281,6 +297,19 @@ class GameEngine:
         self.pillage_queue = CardQueue(self.pillage_deck)
         self.officer_queue = CardQueue(self.officer_deck)
 
+    def draw_hit_damage(self, category: int) -> int:
+        """
+        Draw one hit-table card and return damage for attack `category` (1–4).
+
+        Drawn cards go to the hit discard pile (reshuffled when the deck empties).
+        """
+        if category not in (1, 2, 3, 4):
+            raise ValueError(f"Hit category must be 1–4, got {category}")
+        card_id = self.hit_deck.get_card()
+        damage = HIT_CATALOG[card_id].damage_for(category)
+        self.hit_deck.discard_card(card_id)
+        return damage
+
     def _prime(self) -> None:
         assert self._gen is not None
         try:
@@ -292,8 +321,20 @@ class GameEngine:
                 self._last_result = stop.value
                 self.ranking = stop.value.ranking
 
-    def _broadcast(self, message: str) -> None:
+    def _broadcast(self, message: str, **detail: Any) -> None:
+        """Append a player-visible log line; optional structured detail for debugging."""
         self.messages.append(message)
+        if not hasattr(self, "event_log") or self.event_log is None:
+            self.event_log: list[dict[str, Any]] = []
+        entry: dict[str, Any] = {
+            "i": len(self.event_log),
+            "round": self.rounds.count if self.rounds else 0,
+            "stage": self.rounds.stage if self.rounds else -1,
+            "msg": message,
+        }
+        if detail:
+            entry["detail"] = detail
+        self.event_log.append(entry)
 
     def _apply_unit_placements(self, placements: dict[int, list[int]]) -> None:
         """Build convoy order from ownership pattern + per-player troop permutations."""
@@ -374,6 +415,8 @@ class GameEngine:
 
             # Fill officer queue
             while len(self.officer_queue) < len(self.players):
+                if not self.officer_deck.deck and not self.officer_deck.discard:
+                    break
                 self.officer_queue.put_card(self.officer_deck.get_card(), visible=True)
 
             # Deal
@@ -438,9 +481,20 @@ class GameEngine:
 
                     descriptions = unit.player.action_deck.describe(actioncard)
                     possible: list[tuple[int, dict]] = []
+                    blocked_faces: list[dict[str, Any]] = []
                     for e, desc in enumerate(descriptions):
-                        if action_mod.is_action_possible(self, unit_idx, desc):
+                        why = action_mod.why_action_impossible(self, unit_idx, desc)
+                        if not why:
                             possible.append((e, desc))
+                        else:
+                            blocked_faces.append(
+                                {
+                                    "face_index": e,
+                                    "action_name": desc.get("action_name"),
+                                    "name": desc.get("name"),
+                                    "reasons": why,
+                                }
+                            )
 
                     # Officer discard actions
                     for officer in list(unit.officers):
@@ -449,8 +503,19 @@ class GameEngine:
                             continue
                         if od["action_name"] in ActionName.UNIMPLEMENTED:
                             continue
-                        if action_mod.is_action_possible(self, unit.index(), od):
+                        why = action_mod.why_action_impossible(self, unit.index(), od)
+                        if not why:
                             possible.append((len(possible), od))
+                        else:
+                            blocked_faces.append(
+                                {
+                                    "face_index": None,
+                                    "action_name": od.get("action_name"),
+                                    "name": od.get("name"),
+                                    "reasons": why,
+                                    "officer": True,
+                                }
+                            )
 
                     if len(possible) > 1:
                         from .card_display import format_face
@@ -503,11 +568,29 @@ class GameEngine:
                             "name": None,
                         }
                         unit.become_frustrated()
-                        self.round_action_summaries.append(
-                            f"{action_mod.unit_log_label(unit)} frustrated on card {actioncard}"
+                        label = action_mod.unit_log_label(unit)
+                        face_bits = []
+                        for blocked in blocked_faces:
+                            face_bits.append(
+                                f"{blocked.get('action_name') or '?'}:"
+                                + ",".join(blocked["reasons"])
+                            )
+                        reason_txt = "; ".join(face_bits) if face_bits else "no faces"
+                        msg = (
+                            f"{label} frustrated on card {actioncard} "
+                            f"(unit#{unit_idx} zone={unit.zone()} "
+                            f"type={unit_type_label(unit.unittype)}; "
+                            f"{action_mod.hidden_queue_summary(self)}): {reason_txt}"
                         )
+                        self.round_action_summaries.append(msg)
                         self._broadcast(
-                            f"{action_mod.unit_log_label(unit)} frustrated on card {actioncard}"
+                            msg,
+                            kind="frustrated",
+                            unit_index=unit_idx,
+                            card_id=actioncard,
+                            zone=unit.zone(),
+                            blocked=blocked_faces,
+                            queues=action_mod.hidden_queue_summary(self),
                         )
                     else:
                         face_i, desc = possible[choice_i]
@@ -535,35 +618,32 @@ class GameEngine:
             if not self.resistance.active:
                 self.convoy.move_resting_and_damaged_units()
                 if self.resistance_queue:
-                    self.resistance_queue.remove_card(0)
+                    res_id, _ = self.resistance_queue.remove_card(0)
+                    self.resistance_deck.discard_card(res_id)
                 self.resistance_queue.put_card(self.resistance_deck.get_card())
                 if self.resistance_queue.cards_and_visibilities and not self.resistance_queue.cards_and_visibilities[0][1]:
                     self.resistance_queue.reveal_card(0)
                     self.resistance = Resistance(self.resistance_queue.describe(0), self)
                     ambush = self.resistance.attack()
-                    self._broadcast(f"Ambush: {ambush}")
+                    if self.resistance.attack_category > 0:
+                        self._broadcast(f"Ambush: {ambush}")
+                    else:
+                        self._broadcast(ambush)
                 else:
                     self.resistance = Resistance(self.resistance_queue.describe(0), self)
                 self._broadcast(f'New resistance "{self.resistance.name}"')
             else:
                 self._broadcast("Convoy stuck because of resistance.")
 
-            # Mauling
+            # Mauling (hit-table damage and/or forced discard)
             self.rounds.next_stage()
+            from .actions import resolve_mauling
+
             maul_id, _ = self.mauling_queue.remove_card(0)
             mauling = self.mauling_deck.describe(maul_id)
-            target = mauling["effect"]["target"]
-            damage = mauling["effect"]["damage"][0]
-            atype = mauling["effect"]["type"][0]
-            if target in "ABCE":
-                msg = self.convoy.apply_damage(damage, zone=target, attack_type=atype)
-            else:
-                zone = target[0]
-                rel = int(target[1:]) if len(target) > 1 else 1
-                msg = self.convoy.apply_damage(
-                    damage, unit=rel, zone=zone, attack_type=atype
-                )
+            msg = yield from resolve_mauling(self, mauling)
             self._broadcast(f"Mauling {mauling['name']}: {msg}")
+            self.mauling_deck.discard_card(maul_id)
             self.mauling_queue.put_card(self.mauling_deck.get_card())
 
             # Bookkeeping

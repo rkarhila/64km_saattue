@@ -1,13 +1,15 @@
 :root {
-  --bg: #1a1f1c;
-  --panel: #243028;
+  --bg: #0f3d2e;
+  --felt: #1a5c40;
+  --felt-deep: #0c3326;
+  --panel: #1e3f32;
   --ink: #e8efe6;
   --muted: #9aab9c;
   --accent: #c4a35a;
-  --line: #3a4a3e;
+  --line: #2d5a45;
   --human: #6db3a0;
   --danger: #c46b5a;
-  --card-bg: #1e2822;
+  --card-bg: #16382c;
   --face-panzer: #3d4a38;
   --face-infantry: #3a4450;
   --face-logistics: #4a4035;
@@ -27,9 +29,26 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--ink);
-  background:
-    radial-gradient(ellipse at top, #2a3830 0%, transparent 55%),
-    linear-gradient(160deg, #121612, var(--bg));
+  /* Card-table felt: deep green with subtle cloth grain */
+  background-color: var(--felt-deep);
+  background-image:
+    radial-gradient(ellipse 120% 80% at 50% -10%, rgba(255, 255, 255, 0.07), transparent 55%),
+    radial-gradient(ellipse 90% 60% at 50% 110%, rgba(0, 0, 0, 0.35), transparent 50%),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.03) 2px,
+      rgba(0, 0, 0, 0.03) 3px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.025) 2px,
+      rgba(0, 0, 0, 0.025) 3px
+    ),
+    linear-gradient(165deg, var(--felt) 0%, var(--felt-deep) 55%, #08261c 100%);
   font-family: var(--font-body);
   line-height: 1.45;
   padding: 1.5rem clamp(1rem, 4vw, 3rem) 3rem;
@@ -1001,6 +1020,7 @@ pre {
 .deck-row.deck-key-resistance .pile-box.draw { --row-tint: #c45c5c; }
 .deck-row.deck-key-pillage .pile-box.draw { --row-tint: #c48a5c; }
 .deck-row.deck-key-mauling .pile-box.draw { --row-tint: #9b5cc4; }
+.deck-row.deck-key-hit .pile-box.draw { --row-tint: #c4b05c; }
 .deck-row.deck-key-officer .pile-box.draw { --row-tint: #5c8ec4; }
 .deck-row.deck-key-action .pile-box.draw { --row-tint: #5cac7a; }
 

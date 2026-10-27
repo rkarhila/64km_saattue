@@ -53,6 +53,9 @@ class GameSession:
                 pending_json["assign_legality"] = self._assign_legality_for_pending(
                     player_id
                 )
+                blocked = getattr(self.engine, "_last_assign_block_reasons", None)
+                if blocked:
+                    pending_json["assign_block_reasons"] = blocked
 
         player = self.engine._player_by_id(player_id)
         hand_cards = {
@@ -133,20 +136,35 @@ class GameSession:
         player = self.engine._player_by_id(player_id)
         units = [u for u in self.engine.convoy.units if u.player is player]
         out: dict[str, dict[str, list[int]]] = {}
+        # Parallel map of block reasons for debugging (does not affect UI contract).
+        block_reasons: dict[str, dict[str, dict[str, list[str]]]] = {}
         for unit in units:
             by_card: dict[str, list[int]] = {}
+            by_card_blocked: dict[str, dict[str, list[str]]] = {}
             unit_idx = unit.index()
             for cid in player.action_cards:
                 faces = player.action_deck.describe(cid) if player.action_deck else []
                 legal: list[int] = []
+                blocked: dict[str, list[str]] = {}
                 if isinstance(faces, list):
                     for face_i, desc in enumerate(faces):
-                        if isinstance(desc, dict) and action_mod.is_action_possible(
+                        if not isinstance(desc, dict):
+                            continue
+                        why = action_mod.why_action_impossible(
                             self.engine, unit_idx, desc
-                        ):
+                        )
+                        if not why:
                             legal.append(face_i)
+                        else:
+                            blocked[str(face_i)] = why
                 by_card[str(cid)] = legal
+                if blocked:
+                    by_card_blocked[str(cid)] = blocked
             out[str(unit_idx)] = by_card
+            if by_card_blocked:
+                block_reasons[str(unit_idx)] = by_card_blocked
+        # Stash on engine so a snapshot/log can reference last assign diagnostics.
+        self.engine._last_assign_block_reasons = block_reasons  # type: ignore[attr-defined]
         return out
 
     def _human_must_act(self) -> bool:

@@ -22,11 +22,11 @@ class ActionName:
     ATTACK = "attack"
     ASSAULT = "assault"
     BYPASS = "bypass"
-    DEFEND = "defend"
+    DEFEND = "defend"  # ground defence ("Puolustusasemiin!")
     EXIT = "exit"
-    HUMAN_SHIELDS = "human shields"
+    HUMAN_SHIELDS = "human shields"  # air defence ("Ihmiskilpiä")
     ORDER = "order"
-    PATROL = "patrol"
+    PATROL = "patrol"  # sabotage defence ("Partioi"); not "guard"
     PILLAGE = "pillage"
     PROMOTE = "promote"
     REST = "rest"
@@ -45,11 +45,7 @@ class ActionName:
     # Not fully implemented — excluded from legal play until rules exist.
     UNIMPLEMENTED = frozenset(
         {
-            HUMAN_SHIELDS,
             ORDER,
-            PATROL,
-            SCOUT,
-            SEARCH,
             SIGINT,
             SEARCH_PILLAGE_COMBO,
         }
@@ -61,10 +57,46 @@ class ActionName:
             return None
         return action_name.lower().strip()
 
+
+class AttackType:
+    """
+    Mauling (and similar) attack letters stored on cards / unit.defending.
+
+    Attack letter  | Defence action          | Action CSV name
+    ---------------|-------------------------|------------------
+    A (air)        | human shields           | Human shields
+    G (ground)     | defend                  | Defend
+    S (sabotage)   | patrol                  | Patrol
+
+    Soak: unit.defending == attack_type. Legacy letters P/R/T are not used.
+    """
+
+    AIR = "A"
+    GROUND = "G"
+    SABOTAGE = "S"
+    ALL = frozenset({AIR, GROUND, SABOTAGE})
+
+
+# Defence action → attack letter it soaks.
+ATTACK_TYPE_BY_DEFENCE_ACTION = {
+    ActionName.HUMAN_SHIELDS: AttackType.AIR,
+    ActionName.DEFEND: AttackType.GROUND,
+    ActionName.PATROL: AttackType.SABOTAGE,
+}
+
 CARDS_TO_DEAL = 5
 MIN_PLAYER_CARD_LIMIT = 2
 CARD_TO_POINTS_RATIO = 4
 PLAYER_COLORS = ["red", "green", "blue", "orange", "purple"]
+
+# Random resistance cards drawn into the play deck (excluding the fixed starter).
+# Tunable; remaining eligible cards are left out of the game.
+RESISTANCE_POOL_SIZE = {
+    2: 6,
+    3: 8,
+    4: 10,
+    5: 12,
+}
 
 UNIT_TYPE_LETTER = {0: "P", 1: "I", 2: "L"}
 # Stable English codes for RL / logic (display labels live in i18n).

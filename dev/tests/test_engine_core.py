@@ -25,13 +25,26 @@ def test_damage_removes_unit():
 
 
 def test_defend_soak_increments():
+    from sixtyfivekmconvoy.core.constants import AttackType
+
     players = [Player(i) for i in range(2)]
     convoy = Convoy(players)
     unit = convoy.units[1]
-    unit.resolve_defend("G", "c")
+    unit.resolve_defend(AttackType.GROUND, "c")
     before = unit.player.this_round_cash
-    msg = convoy.apply_damage(1, unit=unit, attack_type="G")
+    msg = convoy.apply_damage(1, unit=unit, attack_type=AttackType.GROUND)
     assert "Defense" in msg or unit.player.this_round_cash >= before
+
+
+def test_defence_actions_set_matching_attack_letters():
+    from sixtyfivekmconvoy.core import actions as action_mod
+    from sixtyfivekmconvoy.core.constants import ActionName, AttackType
+
+    assert action_mod.ATTACK_TYPE_BY_DEFENCE_ACTION[ActionName.HUMAN_SHIELDS] == AttackType.AIR
+    assert action_mod.ATTACK_TYPE_BY_DEFENCE_ACTION[ActionName.DEFEND] == AttackType.GROUND
+    assert action_mod.ATTACK_TYPE_BY_DEFENCE_ACTION[ActionName.PATROL] == AttackType.SABOTAGE
+    assert ActionName.HUMAN_SHIELDS not in ActionName.UNIMPLEMENTED
+    assert ActionName.PATROL not in ActionName.UNIMPLEMENTED
 
 
 def test_token_cost_formulas_from_csv_strings():

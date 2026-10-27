@@ -39,6 +39,7 @@ def player_view(
         _deck_row("resistance", engine.resistance_deck, engine.resistance_queue),
         _deck_row("pillage", engine.pillage_deck, engine.pillage_queue),
         _deck_row("mauling", engine.mauling_deck, engine.mauling_queue),
+        _deck_row("hit", engine.hit_deck, None),
         _deck_row("officer", engine.officer_deck, engine.officer_queue),
         _deck_row("action", engine.action_deck, None),
     ]
@@ -48,6 +49,7 @@ def player_view(
             "resistance": engine.resistance_deck.to_json(),
             "pillage": engine.pillage_deck.to_json(),
             "mauling": engine.mauling_deck.to_json(),
+            "hit": engine.hit_deck.to_json(),
             "officer": engine.officer_deck.to_json(),
         },
         "queues": {
@@ -68,6 +70,8 @@ def player_view(
         "terminal": engine.terminal,
         "you": player.number,
         "log": list(engine.messages),
+        # Structured events (same text as log, plus machine-readable detail).
+        "events": list(getattr(engine, "event_log", []) or []),
         "setup_complete": getattr(engine, "setup_complete", True),
         "setup_pattern": list(getattr(engine, "setup_pattern", ()) or ()),
     }

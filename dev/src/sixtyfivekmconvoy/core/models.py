@@ -202,8 +202,17 @@ class Unit:
         self.current_action_type = "resting"
 
     def resolve_defend(self, defense_type: str, defense_reward: str) -> bool:
-        if defense_type not in "AGSPRT":
-            raise NotImplementedError(f"Defense type {defense_type} not implemented")
+        """
+        Set this unit's defence stance. `defense_type` is an AttackType letter
+        (A/G/S) that will soak matching mauling attack_type hits.
+        """
+        from .constants import AttackType
+
+        if defense_type not in AttackType.ALL:
+            raise NotImplementedError(
+                f"Defense type {defense_type} not implemented "
+                f"(expected one of {sorted(AttackType.ALL)})"
+            )
         self.defending = defense_type
         self.had_defended = False
         self.defending_reward = defense_reward
@@ -478,7 +487,9 @@ class Resistance:
         self.engine = engine
         self.active = False
         self.name: str | None = None
-        self.damage_to_convoy = 0
+        # `attack` on the card is a hit-table category (1–4), or 0 = no attack.
+        self.attack_category = 0
+        self.damage_to_convoy = 0  # kept as alias of attack_category for JSON compat
         self.target = ""
         self.loot = 0
         self.durability = 0
@@ -487,7 +498,8 @@ class Resistance:
         if description is not None:
             self.name = description["name"]
             effect = description["effect"]
-            self.damage_to_convoy = effect["attack"]
+            self.attack_category = int(effect["attack"])
+            self.damage_to_convoy = self.attack_category
             self.target = effect["target"]
             self.loot = effect["loot"]
             self.durability = effect["durability"]
@@ -523,8 +535,19 @@ class Resistance:
         return 1, f"Resistance took {damage} damage, durability {self.durability}"
 
     def attack(self) -> str:
+        """
+        Ambush the convoy using the hit table.
+
+        Card `attack` is a hit category (1–4). Category 0 means no attack.
+        """
         assert self.engine is not None
-        return self.engine.convoy.apply_damage(3, unit=1)
+        if self.attack_category <= 0:
+            return f"{self.name} does not attack (attack 0)"
+        damage = self.engine.draw_hit_damage(self.attack_category)
+        if damage <= 0:
+            return f"{self.name} attacks (cat {self.attack_category}) for 0 damage"
+        msg = self.engine.convoy.apply_damage(damage, unit=1)
+        return f"{self.name} attacks (cat {self.attack_category}) for {damage}: {msg}"
 
     def distribute_loot(self) -> None:
         if self.engine is None:
