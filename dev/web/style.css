@@ -122,6 +122,24 @@ button:disabled {
   align-items: center;
 }
 
+.share-btn {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  padding: 0.3rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.share-btn:hover {
+  background: var(--line);
+  color: var(--ink);
+  border-color: var(--muted);
+}
+
 .pause-toggle {
   margin-left: auto;
   flex-direction: row;
@@ -991,6 +1009,45 @@ pre {
 .queue-card.is-front {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px rgba(196, 163, 90, 0.35);
+}
+
+/* Scout styles */
+.queue-card.scout-selectable {
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.queue-card.scout-selectable:hover {
+  transform: scale(1.03);
+  border-color: #ffd700;
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+}
+
+.queue-card.scout-selected {
+  border: 3px solid #ffd700 !important;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.8) !important;
+  transform: translateY(-2px);
+}
+
+.queue-card.scout-reorderable {
+  cursor: grab;
+  user-select: none;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  border: 1px dashed var(--accent);
+}
+
+.queue-card.scout-reorderable:active {
+  cursor: grabbing;
+}
+
+.queue-card.scout-reorderable.dragging {
+  opacity: 0.4;
+  border-style: dotted;
+}
+
+.queue-card.scout-reorderable.drag-over {
+  border: 2px solid #ffd700 !important;
+  transform: scale(1.05);
 }
 
 .queue-card-name {

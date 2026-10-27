@@ -353,16 +353,10 @@ def resolve_action(
             )
 
     elif name == ActionName.SEARCH:
-        # "Etsi ryöstettävää": draw loot opportunities into the pillage queue.
+        # "Etsi ryöstettävää": draw and scout cards in the pillage queue.
         count = modifier if modifier and modifier > 0 else 2
-        drawn = resolve_search(engine, unit, count)
-        if drawn:
-            parts.append(
-                f"searched, added {len(drawn)} to pillage queue "
-                f"(now {len(engine.pillage_queue)})"
-            )
-        else:
-            parts.append("searched but pillage deck empty")
+        summary_parts = yield from resolve_search(engine, unit, count)
+        parts.extend(summary_parts)
 
     elif name == ActionName.WAIT:
         if not player.action_cards:
@@ -482,21 +476,30 @@ def _resolve_pillage(
     if count <= 0:
         return []
 
-    # Reveal offered cards in-place so the queue UI stays populated during the
-    # choice (previously cards were removed first, emptying the queue box).
+    # Reveal offered cards only if they are already visible (scouted).
+    # Unscouted cards are kept face-down for blind pick.
     offered: list[dict] = []
     for i in range(count):
-        engine.pillage_queue.reveal_card(i)
-        pc, _vis = engine.pillage_queue.cards_and_visibilities[i]
-        detail = engine.pillage_deck.describe(pc)
-        offered.append(
-            {
-                "id": pc,
-                "name": detail.get("name", str(pc)),
-                "detail": queue_card_detail(detail),
-                "visible": True,
-            }
-        )
+        pc, vis = engine.pillage_queue.cards_and_visibilities[i]
+        if vis:
+            detail = engine.pillage_deck.describe(pc)
+            offered.append(
+                {
+                    "id": pc,
+                    "name": detail.get("name", str(pc)),
+                    "detail": queue_card_detail(detail),
+                    "visible": True,
+                }
+            )
+        else:
+            offered.append(
+                {
+                    "id": pc,
+                    "name": f"Face-down Card (Slot {i+1})",
+                    "detail": "Must be scouted/revealed to see contents.",
+                    "visible": False,
+                }
+            )
 
     options = [o["id"] for o in offered]
     desc = "Choose one pillage card:"
@@ -523,7 +526,7 @@ def _resolve_pillage(
             results.append(engine.pillage_deck.describe(pc))
             engine.pillage_deck.discard_card(pc)
         else:
-            engine.pillage_queue.return_card(pc, visible=True)
+            engine.pillage_queue.return_card(pc, visible=vis)
     return results
 
 
@@ -563,39 +566,148 @@ def _queue_by_scout_code(engine: GameEngine, code: int):
     raise ValueError(f"unknown scout queue code {code}")
 
 
-def resolve_search(engine: GameEngine, unit: Unit, count: int) -> list[int]:
+def resolve_search(
+    engine: GameEngine, unit: Unit, count: int
+) -> Generator[ChoiceRequest, list[int], list[str]]:
     """
-    Draw up to `count` cards from the pillage deck into the pillage queue.
+    Search action (Etsi ryöstettävää):
+    If there are unscouted pillage cards, search works like scout for these cards: Flip them and reorder.
+    If there are less unscouted pillage cards than the value of search, add enough cards from the pillage deck to match it.
+    So this is an action that can always be performed if player has enough cards to pay for it.
+    """
+    from .engine import ChoiceRequest
 
-    Cards enter face-down (same as resistance loot). Always legal; returns the
-    card ids drawn (may be fewer than count if the deck+discard are empty).
-    """
-    drawn: list[int] = []
     label = unit_log_label(unit)
-    for step in range(int(count)):
+
+    # 1. Count current unscouted (face-down) pillage cards in the queue
+    face_down_indices = [
+        idx for idx, (_, vis) in enumerate(engine.pillage_queue.cards_and_visibilities) if not vis
+    ]
+    num_face_down = len(face_down_indices)
+
+    # 2. If we have less than `count` face-down pillage cards, draw cards face-down from the deck to match
+    drawn_ids = []
+    if num_face_down < count:
+        num_to_draw = count - num_face_down
         deck = engine.pillage_deck
-        if not deck.deck and not deck.discard:
-            engine._broadcast(
-                f"{label} search step {step + 1}/{count}: pillage deck empty "
-                f"(queue size {len(engine.pillage_queue)})"
-            )
-            break
-        try:
-            card_id = deck.get_card(shuffle_if_necessary=True)
-        except RuntimeError:
-            engine._broadcast(
-                f"{label} search step {step + 1}/{count}: cannot draw "
-                f"(queue size {len(engine.pillage_queue)})"
-            )
-            break
-        engine.pillage_queue.put_card(card_id, visible=False)
-        drawn.append(card_id)
-        name = deck.get_name(card_id) or f"#{card_id}"
-        engine._broadcast(
-            f"{label} search → pillage queue +{name} "
-            f"(step {step + 1}/{count}; queue={len(engine.pillage_queue)})"
+        for step in range(num_to_draw):
+            if not deck.deck and not deck.discard:
+                engine._broadcast(
+                    f"{label} search step {step + 1}/{num_to_draw}: pillage deck empty "
+                    f"(queue size {len(engine.pillage_queue)})"
+                )
+                break
+            try:
+                card_id = deck.get_card(shuffle_if_necessary=True)
+                engine.pillage_queue.put_card(card_id, visible=False)
+                drawn_ids.append(card_id)
+                name = deck.get_name(card_id) or f"#{card_id}"
+                engine._broadcast(
+                    f"{label} search → pillage queue +{name} "
+                    f"(step {step + 1}/{num_to_draw}; queue={len(engine.pillage_queue)})"
+                )
+            except RuntimeError:
+                engine._broadcast(
+                    f"{label} search step {step + 1}/{num_to_draw}: cannot draw "
+                    f"(queue size {len(engine.pillage_queue)})"
+                )
+                break
+
+    # Recount face-down cards after drawing
+    face_down_indices = [
+        idx for idx, (_, vis) in enumerate(engine.pillage_queue.cards_and_visibilities) if not vis
+    ]
+    num_face_down = len(face_down_indices)
+
+    # 3. Determine how many to scout/reveal (min of count and available face-down cards)
+    num_to_scout = min(count, num_face_down)
+    if num_to_scout <= 0:
+        return ["searched, but no pillage cards to reveal"]
+
+    # 4. Scout phase: select which face-down cards in the pillage queue to reveal
+    options = [idx for idx in face_down_indices]
+    desc = f"{label} search: Choose {num_to_scout} face-down pillage cards to reveal."
+
+    queues_payload = []
+    for idx in face_down_indices:
+        queues_payload.append({
+            "option": idx,
+            "queue": "pillage",
+            "index": idx
+        })
+
+    pick = yield ChoiceRequest(
+        player_id=unit.player.agent_id(),
+        choicetype=ChoiceType.CHOOSE_CARDS_TO_SCOUT,
+        options=options,
+        num_choices=num_to_scout,
+        description=desc,
+        payload={
+            "reason": "scout_selection",
+            "cards": queues_payload,
+            "count": num_to_scout
+        }
+    )
+
+    if not pick:
+        pick = options[:num_to_scout]
+
+    pillage_queue = engine.pillage_queue
+    for idx in pick:
+        pillage_queue.reveal_card(idx)
+
+    scouted_card_names = []
+    if len(pick) > 1:
+        # Reorder multiple revealed cards
+        desc_reorder = f"{label} search: Choose the new order for the scouted pillage cards."
+        reorder_payload_cards = []
+        for idx in pick:
+            card_id = pillage_queue.cards_and_visibilities[idx][0]
+            card_name = pillage_queue.deck.get_name(card_id) if pillage_queue.deck else str(card_id)
+            reorder_payload_cards.append({
+                "option": idx,
+                "name": card_name,
+                "detail": pillage_queue.deck.describe(card_id) if pillage_queue.deck else None
+            })
+
+        reordered_pick = yield ChoiceRequest(
+            player_id=unit.player.agent_id(),
+            choicetype=ChoiceType.REORDER_SCOUTED_CARDS,
+            options=pick,
+            num_choices=len(pick),
+            description=desc_reorder,
+            payload={
+                "reason": "scout_reorder",
+                "queue": "pillage",
+                "cards": reorder_payload_cards
+            }
         )
-    return drawn
+
+        if not reordered_pick or set(reordered_pick) != set(pick):
+            reordered_pick = pick
+
+        original_entries = {idx: list(pillage_queue.cards_and_visibilities[idx]) for idx in pick}
+        for i, orig_idx in enumerate(reordered_pick):
+            target_idx = pick[i]
+            pillage_queue.cards_and_visibilities[target_idx] = original_entries[orig_idx]
+
+        for idx in pick:
+            card_id = pillage_queue.cards_and_visibilities[idx][0]
+            card_name = pillage_queue.deck.get_name(card_id) if pillage_queue.deck else str(card_id)
+            scouted_card_names.append(card_name)
+            engine._broadcast(
+                f"{label} searched pillage card → {card_name} (revealed & reordered)"
+            )
+    else:
+        idx = pick[0]
+        card_id = pillage_queue.cards_and_visibilities[idx][0]
+        card_name = pillage_queue.deck.get_name(card_id) if pillage_queue.deck else str(card_id)
+        scouted_card_names.append(card_name)
+        engine._broadcast(
+            f"{label} searched pillage card → {card_name} (revealed)"
+        )
+
+    return [f"searched and revealed {', '.join(scouted_card_names)} in pillage queue"]
 
 
 def resolve_scout(
@@ -603,71 +715,142 @@ def resolve_scout(
 ) -> Generator[ChoiceRequest, list[int], list[str]]:
     """
     Reveal up to `count` face-down queue cards.
-
-    Each reveal: if several queues have hidden cards, ask which queue to scout;
-    otherwise auto-pick the only scoutable queue. Reveals the next hidden card
-    in that queue (front-to-back).
+    The player can choose to look at face-down cards from any queues.
+    If several cards from the same queue are chosen, the player can put them back in a different order.
+    The scouted cards are turned to be face up.
     """
     from .engine import ChoiceRequest
 
     revealed: list[str] = []
     label = unit_log_label(unit)
-    for step in range(int(count)):
-        options = scoutable_queues(engine)
-        if not options:
-            engine._broadcast(
-                f"{label} scout step {step + 1}/{count}: nothing left to reveal "
-                f"({hidden_queue_summary(engine)})"
-            )
-            break
-        codes = [code for code, _ in options]
-        if len(codes) == 1:
-            chosen_code = codes[0]
-        else:
-            desc = (
-                f"{label} scout {step + 1}/{count}: choose queue to reveal "
-                f"({hidden_queue_summary(engine)})"
-            )
-            for code, qname in options:
-                desc += f"\n  {code}: {qname}"
-            pick = yield ChoiceRequest(
-                player_id=unit.player.agent_id(),
-                choicetype=ChoiceType.CHOOSE_QUEUE_TO_SCOUT,
-                options=codes,
-                num_choices=1,
-                description=desc,
-                payload={
-                    "reason": "scout",
-                    "step": step + 1,
-                    "count": count,
-                    "queues": [
-                        {"code": code, "name": qname} for code, qname in options
-                    ],
-                },
-            )
-            chosen_code = pick[0]
-        queue = _queue_by_scout_code(engine, chosen_code)
-        qname = SCOUT_QUEUE_NAMES.get(chosen_code, str(chosen_code))
-        # Snapshot which card will be revealed (first hidden).
-        hidden_idx = next(
-            (i for i, (_, vis) in enumerate(queue.cards_and_visibilities) if not vis),
-            None,
-        )
-        card_id = (
-            queue.cards_and_visibilities[hidden_idx][0]
-            if hidden_idx is not None
-            else None
-        )
-        queue.reveal_next_hidden()
-        card_name = None
-        if card_id is not None and queue.deck is not None:
-            card_name = queue.deck.get_name(card_id)
-        detail = card_name or (f"#{card_id}" if card_id is not None else "?")
-        revealed.append(f"{qname}:{detail}")
+
+    queue_mapping = [
+        (SCOUT_QUEUE_PILLAGE, "pillage", engine.pillage_queue),
+        (SCOUT_QUEUE_MAULING, "mauling", engine.mauling_queue),
+        (SCOUT_QUEUE_RESISTANCE, "resistance", engine.resistance_queue),
+    ]
+
+    # Find all face-down cards across all three queues
+    face_down_cards = []
+    for code, qname, queue in queue_mapping:
+        for idx, (card_id, vis) in enumerate(queue.cards_and_visibilities):
+            if not vis:
+                face_down_cards.append((code, qname, idx, card_id))
+
+    num_to_scout = min(count, len(face_down_cards))
+    if num_to_scout <= 0:
         engine._broadcast(
-            f"{label} scouted {qname} → {detail} "
-            f"(step {step + 1}/{count}; {hidden_queue_summary(engine)})"
+            f"{label} scout: nothing left to reveal "
+            f"({hidden_queue_summary(engine)})"
         )
+        return revealed
+
+    # Choice phase 1: Select which face-down card(s) to scout
+    options = [code * 100 + idx for code, qname, idx, cid in face_down_cards]
+    desc = f"{label} scout: Choose {num_to_scout} face-down cards to reveal from any queues."
+    
+    queues_payload = []
+    for code, qname, idx, cid in face_down_cards:
+        queues_payload.append({
+            "option": code * 100 + idx,
+            "queue": qname,
+            "index": idx
+        })
+
+    pick = yield ChoiceRequest(
+        player_id=unit.player.agent_id(),
+        choicetype=ChoiceType.CHOOSE_CARDS_TO_SCOUT,
+        options=options,
+        num_choices=num_to_scout,
+        description=desc,
+        payload={
+            "reason": "scout_selection",
+            "cards": queues_payload,
+            "count": num_to_scout
+        }
+    )
+
+    # Validate pick
+    if not pick:
+        pick = options[:num_to_scout]
+
+    # Group chosen cards by queue
+    chosen_by_queue = {}  # code -> list of indices
+    for opt in pick:
+        code = opt // 100
+        idx = opt % 100
+        chosen_by_queue.setdefault(code, []).append(idx)
+
+    # Process each queue
+    for code, indices in chosen_by_queue.items():
+        queue = _queue_by_scout_code(engine, code)
+        qname = SCOUT_QUEUE_NAMES[code]
+        
+        # Sort indices to maintain stable queue slots
+        indices = sorted(indices)
+        
+        # Turn the cards face up
+        for idx in indices:
+            queue.reveal_card(idx)
+
+        # If they chose several cards from the same queue, they can put them back in a different order
+        if len(indices) > 1:
+            # Option to choose new order: options are the indices themselves
+            # The player chooses a permutation of these indices
+            desc_reorder = f"{label} scout: Choose the new order for the scouted {qname} cards."
+            
+            # Payload helps the UI display what cards these original indices map to
+            reorder_payload_cards = []
+            for idx in indices:
+                card_id = queue.cards_and_visibilities[idx][0]
+                card_name = queue.deck.get_name(card_id) if queue.deck else str(card_id)
+                reorder_payload_cards.append({
+                    "option": idx,
+                    "name": card_name,
+                    "detail": queue.deck.describe(card_id) if queue.deck else None
+                })
+            
+            reordered_pick = yield ChoiceRequest(
+                player_id=unit.player.agent_id(),
+                choicetype=ChoiceType.REORDER_SCOUTED_CARDS,
+                options=indices,
+                num_choices=len(indices),
+                description=desc_reorder,
+                payload={
+                    "reason": "scout_reorder",
+                    "queue": qname,
+                    "cards": reorder_payload_cards
+                }
+            )
+            
+            # Validate pick
+            if not reordered_pick or set(reordered_pick) != set(indices):
+                reordered_pick = indices  # fallback to original order
+                
+            # Perform the reordering
+            original_entries = {idx: list(queue.cards_and_visibilities[idx]) for idx in indices}
+            for i, orig_idx in enumerate(reordered_pick):
+                target_idx = indices[i]
+                queue.cards_and_visibilities[target_idx] = original_entries[orig_idx]
+                
+            # Log the reordered cards
+            for idx in indices:
+                card_id = queue.cards_and_visibilities[idx][0]
+                card_name = queue.deck.get_name(card_id) if queue.deck else str(card_id)
+                revealed.append(f"{qname}:{card_name}")
+                engine._broadcast(
+                    f"{label} scouted {qname} card → {card_name} (revealed & reordered)"
+                )
+        else:
+            # Just 1 card scouted in this queue
+            idx = indices[0]
+            card_id = queue.cards_and_visibilities[idx][0]
+            card_name = queue.deck.get_name(card_id) if queue.deck else str(card_id)
+            revealed.append(f"{qname}:{card_name}")
+            engine._broadcast(
+                f"{label} scouted {qname} card → {card_name} (revealed)"
+            )
+
     return revealed
 
 
@@ -702,12 +885,28 @@ def mauling_target_units(convoy: Convoy, target: str) -> list[Unit]:
         matched = [u for u in units if u.unittype == sel["unit_type"]]
         if not matched:
             return []
-        return [matched[0] if sel["which"] == "first" else matched[-1]]
+        which = sel["which"]
+        if which == "first":
+            return [matched[0]]
+        elif which == "second":
+            return [matched[1]] if len(matched) >= 2 else []
+        elif which == "second_last":
+            return [matched[-2]] if len(matched) >= 2 else []
+        else:
+            return [matched[-1]]
 
     if kind == "atrocity":
         max_atr = max(u.atrocities for u in units)
         matched = [u for u in units if u.atrocities == max_atr]
-        return [matched[0] if sel["which"] == "first" else matched[-1]]
+        which = sel["which"]
+        if which == "first":
+            return [matched[0]]
+        elif which == "second":
+            return [matched[1]] if len(matched) >= 2 else []
+        elif which == "second_last":
+            return [matched[-2]] if len(matched) >= 2 else []
+        else:
+            return [matched[-1]]
 
     raise ValueError(f"unhandled mauling target kind {kind}")
 

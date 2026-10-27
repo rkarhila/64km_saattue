@@ -85,50 +85,86 @@ def test_resolve_scout_reveals_resistance_hidden_card():
     engine = GameEngine()
     engine.reset(num_players=2, seed=9)
     inf = _seat_front_infantry(engine)
-    hidden_before = sum(
-        1 for _, vis in engine.resistance_queue.cards_and_visibilities if not vis
-    )
-    assert hidden_before >= 1
+    
+    # Check that we have hidden cards in resistance queue
+    resistance_hidden_indices = [
+        idx for idx, (_, vis) in enumerate(engine.resistance_queue.cards_and_visibilities) if not vis
+    ]
+    assert resistance_hidden_indices
 
+    # Run scout action for 1 card
     gen = action_mod.resolve_scout(engine, inf, count=1)
     req = next(gen)
-    assert req.choicetype == ChoiceType.CHOOSE_QUEUE_TO_SCOUT
-    assert action_mod.SCOUT_QUEUE_RESISTANCE in req.options
+    
+    assert req.choicetype == ChoiceType.CHOOSE_CARDS_TO_SCOUT
+    assert req.num_choices == 1
+    
+    # Option for resistance queue index 0 should be 200 (since 2 = resistance queue code)
+    resistance_opt = 200 + resistance_hidden_indices[0]
+    assert resistance_opt in req.options
+    
+    # Send choice to scout that card
     try:
-        gen.send([action_mod.SCOUT_QUEUE_RESISTANCE])
+        gen.send([resistance_opt])
         raise AssertionError("expected StopIteration")
     except StopIteration as stop:
         revealed = stop.value
 
     assert len(revealed) == 1
     assert revealed[0].startswith("resistance:")
-    hidden_after = sum(
-        1 for _, vis in engine.resistance_queue.cards_and_visibilities if not vis
-    )
-    assert hidden_after == hidden_before - 1
-    assert any("scouted resistance" in m for m in engine.messages)
+    # Verify the selected card is now face-up (visible = True)
+    assert engine.resistance_queue.cards_and_visibilities[resistance_hidden_indices[0]][1] is True
 
 
-def test_resolve_scout_auto_picks_only_scoutable_queue():
+def test_resolve_scout_reorders_when_multiple_from_same_queue():
     engine = GameEngine()
-    engine.reset(num_players=2, seed=11)
+    engine.reset(num_players=2, seed=12)
     inf = _seat_front_infantry(engine)
-    # Leave only resistance hidden
-    for i, (_, vis) in enumerate(list(engine.mauling_queue.cards_and_visibilities)):
-        if not vis:
-            engine.mauling_queue.reveal_card(i)
-    assert action_mod.scoutable_queues(engine) == [
-        (action_mod.SCOUT_QUEUE_RESISTANCE, "resistance")
+    
+    # Ensure there are at least two hidden cards in resistance queue
+    resistance_queue = engine.resistance_queue
+    hidden_indices = [
+        idx for idx, (_, vis) in enumerate(resistance_queue.cards_and_visibilities) if not vis
     ]
-
-    gen = action_mod.resolve_scout(engine, inf, count=1)
+    assert len(hidden_indices) >= 2
+    
+    idx1, idx2 = hidden_indices[0], hidden_indices[1]
+    card_id1 = resistance_queue.cards_and_visibilities[idx1][0]
+    card_id2 = resistance_queue.cards_and_visibilities[idx2][0]
+    
+    # Start scouting 2 cards
+    gen = action_mod.resolve_scout(engine, inf, count=2)
+    req = next(gen)
+    
+    assert req.choicetype == ChoiceType.CHOOSE_CARDS_TO_SCOUT
+    assert req.num_choices == 2
+    
+    opt1 = 200 + idx1
+    opt2 = 200 + idx2
+    assert opt1 in req.options
+    assert opt2 in req.options
+    
+    # Select both options
+    req2 = gen.send([opt1, opt2])
+    
+    # Because we selected multiple cards from the same queue, it should ask us to reorder them
+    assert req2.choicetype == ChoiceType.REORDER_SCOUTED_CARDS
+    assert req2.num_choices == 2
+    assert set(req2.options) == {idx1, idx2}
+    
+    # Send reordered option: swap their order
     try:
-        next(gen)
-        raise AssertionError("single-queue scout should not yield a choice")
+        gen.send([idx2, idx1])
+        raise AssertionError("expected StopIteration")
     except StopIteration as stop:
         revealed = stop.value
-    assert len(revealed) == 1
-    assert revealed[0].startswith("resistance:")
+        
+    assert len(revealed) == 2
+    # Verify that cards are indeed swapped and both are now face-up
+    assert resistance_queue.cards_and_visibilities[idx1][0] == card_id2
+    assert resistance_queue.cards_and_visibilities[idx1][1] is True
+    assert resistance_queue.cards_and_visibilities[idx2][0] == card_id1
+    assert resistance_queue.cards_and_visibilities[idx2][1] is True
 
 
 def test_frustrated_log_includes_block_reasons_for_scout():

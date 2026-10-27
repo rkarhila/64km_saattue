@@ -24,15 +24,22 @@ class GameSession:
     # When True, stop after a step that appends log lines (unless human must act).
     pause_after_actions: bool = True
     awaiting_continue: bool = False
+    human_choices: list[list[int]] = field(default_factory=list)
 
     def is_human(self, player_id: str) -> bool:
         return player_id in self.human_seats
 
     def set_pause_after_actions(self, enabled: bool) -> None:
         self.pause_after_actions = enabled
-        if not enabled and self.awaiting_continue:
-            # Clearing pause while waiting: resume immediately is caller's job
-            pass
+        self.engine.pause_after_actions = enabled
+        if not enabled:
+            if self.awaiting_continue:
+                # Clearing pause while waiting: resume immediately is caller's job
+                pass
+            pending = self.engine.pending_choice()
+            if pending is not None and pending.choicetype == ChoiceType.LOG_PAUSE:
+                self.engine.step([0])
+                self._run_bots()
 
     def snapshot(self, player_id: str) -> dict[str, Any]:
         view = self.engine.observe(player_id)
@@ -96,7 +103,27 @@ class GameSession:
             "pause_after_actions": self.pause_after_actions,
             "setup_complete": self.engine.setup_complete,
             "setup_pattern": list(self.engine.setup_pattern),
+            "shareable_state": self.get_shareable_state_string(),
         }
+
+    def get_shareable_state_string(self) -> str:
+        import json
+        import zlib
+        import base64
+
+        human_seat_str = next(iter(self.human_seats))
+        human_seat = int(human_seat_str.split("_")[1])
+        data = {
+            "p": len(self.engine.players),
+            "s": self.engine.seed,
+            "h": human_seat,
+            "pa": self.pause_after_actions,
+            "c": self.human_choices,
+        }
+        json_bytes = json.dumps(data, separators=(",", ":")).encode("utf-8")
+        compressed = zlib.compress(json_bytes)
+        encoded = base64.urlsafe_b64encode(compressed).decode("utf-8")
+        return encoded
 
     def _card_catalog_for_pending(self, pending) -> dict[str, Any]:
         catalog: dict[str, Any] = {}
@@ -194,11 +221,35 @@ class GameSession:
         if pending is None or pending.player_id != player_id:
             raise ValueError("Not your turn")
         legal = self.engine.legal_actions()
-        if choice not in legal:
+
+        is_ordered = pending.choicetype in (
+            ChoiceType.CHOOSE_CARD,
+            ChoiceType.CHOOSE_ACTION,
+            ChoiceType.PLACE_UNITS,
+            ChoiceType.REORDER_SCOUTED_CARDS,
+        )
+
+        matched_vector = None
+        if is_ordered:
+            if choice in legal:
+                matched_vector = choice
+        else:
+            # Unordered: compare as sorted lists
+            choice_sorted = sorted(choice)
+            for leg in legal:
+                if sorted(leg) == choice_sorted:
+                    matched_vector = leg
+                    break
+
+        if matched_vector is None:
             if len(choice) == 1 and 0 <= choice[0] < len(legal):
                 choice = list(legal[choice[0]])
             else:
                 raise ValueError(f"Illegal choice {choice}")
+        else:
+            choice = matched_vector
+
+        self.human_choices.append(choice)
         before = len(self.engine.messages)
         self.engine.step(choice)
         if self._should_pause(before):
@@ -246,6 +297,8 @@ class SessionManager:
         pause_after_actions: bool = True,
     ) -> GameSession:
         engine = GameEngine()
+        engine.human_seat = human_seat
+        engine.pause_after_actions = pause_after_actions
         engine.reset(num_players=num_players, seed=seed, max_rounds=max_rounds)
         game_id = uuid.uuid4().hex[:10]
         human_id = f"player_{human_seat}"
@@ -262,6 +315,52 @@ class SessionManager:
             pause_after_actions=pause_after_actions,
         )
         session._run_bots()
+        self.sessions[game_id] = session
+        return session
+
+    def create_from_state_string(self, state_string: str) -> GameSession:
+        import json
+        import zlib
+        import base64
+
+        try:
+            compressed = base64.urlsafe_b64decode(state_string.encode("utf-8"))
+            json_bytes = zlib.decompress(compressed)
+            data = json.loads(json_bytes.decode("utf-8"))
+        except Exception as exc:
+            raise ValueError(f"Invalid state string: {exc}")
+
+        num_players = data.get("p", 3)
+        seed = data.get("s")
+        human_seat = data.get("h", 0)
+        pause_after_actions = data.get("pa", True)
+        choices = data.get("c", [])
+
+        engine = GameEngine()
+        engine.human_seat = human_seat
+        engine.pause_after_actions = pause_after_actions
+        engine.reset(num_players=num_players, seed=seed)
+        game_id = uuid.uuid4().hex[:10]
+        human_id = f"player_{human_seat}"
+        bots = {
+            pid: RandomAgent(seed=(engine.seed or 0) + 50 + i)
+            for i, pid in enumerate(engine.agent_ids())
+            if pid != human_id
+        }
+        session = GameSession(
+            game_id=game_id,
+            engine=engine,
+            human_seats={human_id},
+            bots=bots,
+            pause_after_actions=pause_after_actions,
+        )
+
+        session._run_bots()
+        for choice in choices:
+            while session.awaiting_continue:
+                session.continue_play(human_id)
+            session.apply_human_choice(human_id, choice)
+
         self.sessions[game_id] = session
         return session
 

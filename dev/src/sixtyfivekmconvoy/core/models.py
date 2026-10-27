@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .constants import UNIT_TYPE_STR
+from .constants import UNIT_TYPE_STR, PLAYER_COLORS
 from .cards import CardDeck, OfficerCard
 from .i18n import unit_type_label
 
@@ -442,8 +442,13 @@ class Convoy:
         if self.engine is not None and damage > 0:
             self.engine.round_unit_damage.append((unit.index(), damage))
 
+        pos_1based = unit.position()
+        u_idx = unit.index()
+        color = PLAYER_COLORS[unit.player.number % len(PLAYER_COLORS)]
+        troop = unit_type_label(unit.unittype)
+
         status = unit.apply_damage(damage, discards=cards, damage_for_not_discarding=damage_for_not_discarding)
-        msg += f"Unit {unit.index()} takes {damage} damage"
+        msg += f"Unit at position {pos_1based} ({color} {troop}, index {u_idx}) takes {damage} damage"
         if status < 0:
             msg += " and is removed from convoy"
             self.units.pop(unit.index())

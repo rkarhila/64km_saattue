@@ -16,6 +16,9 @@ class ChoiceType(IntEnum):
     CHOOSE_SERVICE = 7
     YES_NO = 8
     PLACE_UNITS = 9
+    CHOOSE_CARDS_TO_SCOUT = 10
+    REORDER_SCOUTED_CARDS = 11
+    LOG_PAUSE = 12
 
 
 class ActionName:
@@ -84,7 +87,7 @@ ATTACK_TYPE_BY_DEFENCE_ACTION = {
     ActionName.PATROL: AttackType.SABOTAGE,
 }
 
-CARDS_TO_DEAL = 5
+CARDS_TO_DEAL = 7
 MIN_PLAYER_CARD_LIMIT = 2
 CARD_TO_POINTS_RATIO = 4
 PLAYER_COLORS = ["red", "green", "blue", "orange", "purple"]

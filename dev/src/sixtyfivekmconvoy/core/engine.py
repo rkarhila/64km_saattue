@@ -28,6 +28,7 @@ from .constants import (
     ChoiceType,
     MIN_PLAYER_CARD_LIMIT,
     UNIT_TYPE_STR,
+    PLAYER_COLORS,
 )
 from .i18n import t, unit_type_label
 from .models import Convoy, Player, Resistance, Unit, UnitType
@@ -70,7 +71,11 @@ class ChoiceRequest:
         if self.choicetype == ChoiceType.PLACE_UNITS:
             return [list(p) for p in itertools.permutations(opts)]
         # Card-to-unit assignment is ordered; discards/cash-in are unordered.
-        ordered = self.choicetype in (ChoiceType.CHOOSE_CARD, ChoiceType.CHOOSE_ACTION)
+        ordered = self.choicetype in (
+            ChoiceType.CHOOSE_CARD,
+            ChoiceType.CHOOSE_ACTION,
+            ChoiceType.REORDER_SCOUTED_CARDS,
+        )
         vectors: list[list[int]] = []
         if ordered:
             for perm in itertools.permutations(indices, n):
@@ -118,6 +123,8 @@ class GameEngine:
     """Authoritative rules engine. No I/O — adapters drive choices via step()."""
 
     def __init__(self) -> None:
+        self.human_seat = 0
+        self.pause_after_actions = True
         self.players: list[Player] = []
         self.convoy: Convoy | None = None  # type: ignore[assignment]
         self.resistance = Resistance(None)
@@ -158,6 +165,9 @@ class GameEngine:
         seed: int | None = None,
         max_rounds: int = 200,
     ) -> None:
+        if seed is None:
+            seed = random.Random().randint(0, 999999)
+        self.seed = seed
         self.rng = random.Random(seed)
         self.terminal = False
         self.ranking = None
@@ -615,6 +625,7 @@ class GameEngine:
 
             # Advance
             self.rounds.next_stage()
+            has_advance_log = False
             if not self.resistance.active:
                 self.convoy.move_resting_and_damaged_units()
                 if self.resistance_queue:
@@ -632,8 +643,19 @@ class GameEngine:
                 else:
                     self.resistance = Resistance(self.resistance_queue.describe(0), self)
                 self._broadcast(f'New resistance "{self.resistance.name}"')
+                has_advance_log = True
             else:
                 self._broadcast("Convoy stuck because of resistance.")
+                has_advance_log = True
+
+            if getattr(self, "pause_after_actions", True) and has_advance_log:
+                yield ChoiceRequest(
+                    player_id=f"player_{getattr(self, 'human_seat', 0)}",
+                    choicetype=ChoiceType.LOG_PAUSE,
+                    options=[0],
+                    num_choices=1,
+                    description="Jatka peliä (Continue)"
+                )
 
             # Mauling (hit-table damage and/or forced discard)
             self.rounds.next_stage()
@@ -645,6 +667,15 @@ class GameEngine:
             self._broadcast(f"Mauling {mauling['name']}: {msg}")
             self.mauling_deck.discard_card(maul_id)
             self.mauling_queue.put_card(self.mauling_deck.get_card())
+
+            if getattr(self, "pause_after_actions", True):
+                yield ChoiceRequest(
+                    player_id=f"player_{getattr(self, 'human_seat', 0)}",
+                    choicetype=ChoiceType.LOG_PAUSE,
+                    options=[0],
+                    num_choices=1,
+                    description="Jatka peliä (Continue)"
+                )
 
             # Bookkeeping
             self.rounds.next_stage()
@@ -674,7 +705,7 @@ class GameEngine:
                             )
                             pl.discard(list(discard))
                         pl.get_cash(1)
-                        self._broadcast(f"Player {pl.number} cashed in cards")
+                        self._broadcast(f"{PLAYER_COLORS[pl.number % len(PLAYER_COLORS)]} player cashed in cards")
 
                 card_limit = MIN_PLAYER_CARD_LIMIT
                 for u in self.convoy.units:
@@ -697,7 +728,7 @@ class GameEngine:
                 for pl in self.players:
                     if pl.this_round_cash == max_score:
                         pl.promotion_points += 1
-                        self._broadcast(f"Player {pl.number} gets promotion point")
+                        self._broadcast(f"{PLAYER_COLORS[pl.number % len(PLAYER_COLORS)]} player gets promotion point")
 
             if not self.resistance.active and self.round_resistance_damage > 0:
                 # count kills when resistance was destroyed this round
@@ -728,7 +759,21 @@ class GameEngine:
                         unit.player.action_deck.discard_card(card)
                 unit.clear_state()
 
+            score_parts = []
+            for pl in self.players:
+                color_name = PLAYER_COLORS[pl.number % len(PLAYER_COLORS)].capitalize()
+                score_parts.append(f"{color_name} {pl.promotion_points} PP, {pl.total_cash} total cash")
+            self._broadcast("Current score: " + ", ".join(score_parts))
+
             self._broadcast(f"—— Kierros {self.rounds.count} päättyy ——")
+            if getattr(self, "pause_after_actions", True):
+                yield ChoiceRequest(
+                    player_id=f"player_{getattr(self, 'human_seat', 0)}",
+                    choicetype=ChoiceType.LOG_PAUSE,
+                    options=[0],
+                    num_choices=1,
+                    description="Jatka peliä (Continue)"
+                )
             self.rounds.next_round()
 
         ranking = self._compute_ranking()

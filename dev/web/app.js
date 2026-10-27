@@ -11,6 +11,9 @@
     CHOOSE_SERVICE: 7,
     YES_NO: 8,
     PLACE_UNITS: 9,
+    CHOOSE_CARDS_TO_SCOUT: 10,
+    REORDER_SCOUTED_CARDS: 11,
+    LOG_PAUSE: 12,
   };
 
   let gameId = null;
@@ -23,6 +26,42 @@
   let payPicks = [];
   /** @type {any} */
   let lastSnap = null;
+
+  // On page load, check for imported state in URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const importState = urlParams.get("state");
+  if (importState) {
+    (async () => {
+      try {
+        const res = await fetch("/games/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state: importState }),
+        });
+        if (!res.ok) {
+          alert("Pelin lataaminen epäonnistui: " + await res.text());
+          return;
+        }
+        const data = await res.json();
+        gameId = data.game_id;
+        seatNum = Number(data.human_seat.split("_")[1]);
+        $("lobby").classList.add("hidden");
+        $("game").classList.remove("hidden");
+        if ($("pauseToggle")) {
+          $("pauseToggle").checked = data.snapshot.pause_after_actions !== false;
+        }
+        resetLocal();
+        render(data.snapshot);
+
+        // Clean query parameter from address bar
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("state");
+        window.history.replaceState({}, document.title, cleanUrl.toString());
+      } catch (err) {
+        alert("Virhe pelin latauksessa: " + err);
+      }
+    })();
+  }
 
   $("startBtn").addEventListener("click", async () => {
     const body = {
@@ -53,6 +92,29 @@
   });
 
   $("continueBtn").addEventListener("click", () => sendContinue());
+
+  $("shareBtn").addEventListener("click", async () => {
+    console.log("lastSnap status:", lastSnap);
+    if (!lastSnap || !lastSnap.shareable_state) {
+      alert("Ei jaettavaa pelitilaa saatavilla. Varmista, että olet käynnistänyt FastAPI-taustapalvelimen (python-palvelimen) uudelleen koodimuutosten jälkeen ja päivittänyt selaimen sivun (Ctrl+F5) tyhjentääksesi välimuistin.");
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set("state", lastSnap.shareable_state);
+
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      const originalText = $("shareBtn").textContent;
+      $("shareBtn").textContent = "Kopioitu!";
+      $("shareBtn").disabled = true;
+      setTimeout(() => {
+        $("shareBtn").textContent = originalText;
+        $("shareBtn").disabled = false;
+      }, 2000);
+    } catch (err) {
+      alert("Linkin kopiointi epäonnistui: " + err);
+    }
+  });
 
   $("pauseToggle").addEventListener("change", async () => {
     if (!gameId) return;
@@ -886,21 +948,26 @@
       title.textContent = "Valitse ryöstökortti";
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent = "Kortit ovat myös ryöstöjonossa (paljastettuina). Napsauta yksi.";
+      hint.textContent = "Kortit ovat myös ryöstöjonossa. Napsauta yksi ryöstääksesi sen.";
       opts.appendChild(hint);
       const row = document.createElement("div");
       row.className = "card-row pillage-choices";
       const cards =
         (snap.pending.payload && snap.pending.payload.pillage_cards) || [];
-      cards.forEach((c) => {
+      cards.forEach((c, idx) => {
         const el = document.createElement("button");
         el.type = "button";
-        el.className = "queue-card face-up pillage-choice";
-        el.innerHTML =
-          `<div class="queue-card-name">${escapeHtml(c.name || `#${c.id}`)}</div>` +
-          (c.detail
-            ? `<div class="queue-card-detail">${escapeHtml(c.detail)}</div>`
-            : "");
+        if (c.visible) {
+          el.className = "queue-card face-up pillage-choice";
+          el.innerHTML =
+            `<div class="queue-card-name">${escapeHtml(c.name || `#${c.id}`)}</div>` +
+            (c.detail
+              ? `<div class="queue-card-detail">${escapeHtml(c.detail)}</div>`
+              : "");
+        } else {
+          el.className = "queue-card face-down pillage-choice";
+          el.innerHTML = `<div class="queue-card-mark">🂠</div><div class="queue-card-detail" style="margin-top: 5px; text-align: center;">Tuntematon (Slot ${idx + 1})</div>`;
+        }
         el.addEventListener("click", () => sendChoice([c.id]));
         row.appendChild(el);
       });
@@ -944,6 +1011,144 @@
       return;
     }
 
+    if (snap.pending.choicetype === CT.CHOOSE_CARDS_TO_SCOUT) {
+      title.textContent = "Scout: Select cards to reveal";
+      const need = snap.pending.payload.count;
+      
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = `Please select exactly ${need} face-down card(s) by clicking on them directly in the queue tracks above. Selected cards will be highlighted with a yellow border.`;
+      opts.appendChild(hint);
+
+      const status = document.createElement("p");
+      status.style.fontSize = "1.1rem";
+      status.style.fontWeight = "bold";
+      status.textContent = `Selected: ${payPicks.length} / ${need}`;
+      opts.appendChild(status);
+
+      const actions = document.createElement("div");
+      actions.className = "choice-actions";
+      
+      const clearBtn = document.createElement("button");
+      clearBtn.type = "button";
+      clearBtn.className = "secondary";
+      clearBtn.textContent = "Clear";
+      clearBtn.addEventListener("click", () => {
+        payPicks = [];
+        render(lastSnap);
+      });
+
+      const okBtn = document.createElement("button");
+      okBtn.type = "button";
+      okBtn.textContent = "Confirm Selection";
+      okBtn.disabled = payPicks.length !== need;
+      okBtn.addEventListener("click", () => {
+        if (payPicks.length === need) {
+          const choice = [...payPicks];
+          payPicks = []; // clear selection
+          sendChoice(choice);
+        }
+      });
+
+      actions.appendChild(clearBtn);
+      actions.appendChild(okBtn);
+      opts.appendChild(actions);
+      return;
+    }
+
+    if (snap.pending.choicetype === CT.REORDER_SCOUTED_CARDS) {
+      title.textContent = `Scout: Reorder ${snap.pending.payload.queue} cards`;
+      const cards = snap.pending.payload.cards || [];
+      const need = cards.length;
+
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = `Drag and drop the cards directly over each other in the queue above to rearrange them. First card (leftmost of the scouted ones) will be placed in the frontmost available slot.`;
+      opts.appendChild(hint);
+
+      const status = document.createElement("p");
+      status.style.fontSize = "1.1rem";
+      status.style.fontWeight = "bold";
+      status.textContent = `Current Order Configured (Drag cards in the queue to rearrange)`;
+      opts.appendChild(status);
+
+      const actions = document.createElement("div");
+      actions.className = "choice-actions";
+      
+      const clearBtn = document.createElement("button");
+      clearBtn.type = "button";
+      clearBtn.className = "secondary";
+      clearBtn.textContent = "Reset Order";
+      clearBtn.addEventListener("click", () => {
+        payPicks = [...snap.pending.options];
+        render(lastSnap);
+      });
+
+      const okBtn = document.createElement("button");
+      okBtn.type = "button";
+      okBtn.textContent = "Confirm Order";
+      okBtn.disabled = payPicks.length !== need;
+      okBtn.addEventListener("click", () => {
+        if (payPicks.length === need) {
+          const choice = [...payPicks];
+          payPicks = []; // clear selection
+          sendChoice(choice);
+        }
+      });
+
+      actions.appendChild(clearBtn);
+      actions.appendChild(okBtn);
+      opts.appendChild(actions);
+      return;
+    }
+
+    if (snap.pending.choicetype === CT.LOG_PAUSE) {
+      title.textContent = "Peli pysäytetty";
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "Lue loki ja napsauta Seuraava jatkaaksesi peliä.";
+      opts.appendChild(hint);
+
+      const actions = document.createElement("div");
+      actions.className = "choice-actions";
+
+      const contBtn = document.createElement("button");
+      contBtn.type = "button";
+      contBtn.textContent = "Seuraava (Continue)";
+      contBtn.addEventListener("click", () => sendChoice([0]));
+
+      actions.appendChild(contBtn);
+      opts.appendChild(actions);
+      return;
+    }
+
+    if (snap.pending.choicetype === CT.CASH_IN_CARDS) {
+      title.textContent = "Vaihda kortteja rahaksi?";
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "Haluatko vaihtaa 4 toimintakorttia 1 PP/rahaan?";
+      opts.appendChild(hint);
+
+      const actions = document.createElement("div");
+      actions.className = "choice-actions";
+
+      const yesBtn = document.createElement("button");
+      yesBtn.type = "button";
+      yesBtn.textContent = "Kyllä (Yes)";
+      yesBtn.addEventListener("click", () => sendChoice([1]));
+
+      const noBtn = document.createElement("button");
+      noBtn.type = "button";
+      noBtn.className = "secondary";
+      noBtn.textContent = "Ei (No)";
+      noBtn.addEventListener("click", () => sendChoice([0]));
+
+      actions.appendChild(yesBtn);
+      actions.appendChild(noBtn);
+      opts.appendChild(actions);
+      return;
+    }
+
     if (isSingleCardPick(snap)) {
       title.textContent = "Valitse kortti";
       const row = document.createElement("div");
@@ -981,6 +1186,19 @@
     el.innerHTML = "";
     const rows =
       (snap.state && snap.state.decks && snap.state.decks.rows) || [];
+
+    // Check if we are in CHOOSE_CARDS_TO_SCOUT or REORDER_SCOUTED_CARDS states
+    const isScoutingSelection = snap.pending && snap.pending.choicetype === CT.CHOOSE_CARDS_TO_SCOUT;
+    const isScoutingReorder = snap.pending && snap.pending.choicetype === CT.REORDER_SCOUTED_CARDS;
+
+    // If reordering, ensure payPicks is initialized correctly
+    if (isScoutingReorder) {
+      const optsList = snap.pending.options || [];
+      if (!Array.isArray(payPicks) || payPicks.length !== optsList.length || !optsList.every(o => payPicks.includes(o))) {
+        payPicks = [...optsList];
+      }
+    }
+
     rows.forEach((row) => {
       const rowEl = document.createElement("div");
       rowEl.className = `deck-row deck-key-${row.key || "unknown"}`;
@@ -1007,16 +1225,35 @@
       const track = document.createElement("div");
       track.className = "queue-track";
       const queue = row.queue || [];
+
+      let queueCode = null;
+      if (row.key === "pillage") queueCode = 0;
+      else if (row.key === "mauling") queueCode = 1;
+      else if (row.key === "resistance") queueCode = 2;
+
       if (!queue.length) {
         const empty = document.createElement("div");
         empty.className = "queue-empty";
         empty.textContent = "—";
         track.appendChild(empty);
       } else {
+        // Reordering specific variables
+        const reorderIndices = (isScoutingReorder && row.key === snap.pending.payload.queue)
+          ? [...snap.pending.options].sort((a,b) => a-b)
+          : [];
+
         for (let i = queue.length - 1; i >= 0; i--) {
-          const card = queue[i];
-          const cardEl = document.createElement("div");
           const isFront = i === 0;
+
+          let cardIdx = i;
+          if (isScoutingReorder && row.key === snap.pending.payload.queue && reorderIndices.includes(i)) {
+            const pos = reorderIndices.indexOf(i);
+            cardIdx = payPicks[pos];
+          }
+
+          const card = queue[cardIdx];
+          const cardEl = document.createElement("div");
+
           if (card && card.visible) {
             cardEl.className =
               "queue-card face-up" + (isFront ? " is-front" : "");
@@ -1030,6 +1267,78 @@
               "queue-card face-down" + (isFront ? " is-front" : "");
             cardEl.innerHTML = `<div class="queue-card-mark">🂠</div>`;
           }
+
+          // --- 1. SELECTION FLOW (Yellow border direct click) ---
+          if (isScoutingSelection && queueCode !== null && card && !card.visible) {
+            const option = queueCode * 100 + i;
+            if ((snap.pending.options || []).includes(option)) {
+              cardEl.classList.add("scout-selectable");
+
+              const isSelected = payPicks.includes(option);
+              if (isSelected) {
+                cardEl.classList.add("scout-selected");
+              }
+
+              cardEl.addEventListener("click", () => {
+                const need = snap.pending.payload.count;
+                if (isSelected) {
+                  payPicks = payPicks.filter((x) => x !== option);
+                } else if (payPicks.length < need) {
+                  payPicks = [...payPicks, option];
+                }
+                render(lastSnap);
+              });
+            }
+          }
+
+          // --- 2. REORDER FLOW (Drag-and-drop to switch places) ---
+          if (isScoutingReorder && row.key === snap.pending.payload.queue && reorderIndices.includes(i)) {
+            cardEl.classList.add("scout-reorderable");
+            cardEl.draggable = true;
+
+            // Drag Start
+            cardEl.addEventListener("dragstart", (ev) => {
+              ev.dataTransfer.setData("text/scout-reorder-value", cardIdx);
+              cardEl.classList.add("dragging");
+            });
+
+            // Drag End
+            cardEl.addEventListener("dragend", () => {
+              cardEl.classList.remove("dragging");
+            });
+
+            // Drag Over
+            cardEl.addEventListener("dragover", (ev) => {
+              ev.preventDefault();
+              cardEl.classList.add("drag-over");
+            });
+
+            // Drag Leave
+            cardEl.addEventListener("dragleave", () => {
+              cardEl.classList.remove("drag-over");
+            });
+
+            // Drop
+            cardEl.addEventListener("drop", (ev) => {
+              ev.preventDefault();
+              cardEl.classList.remove("drag-over");
+
+              const fromVal = Number(ev.dataTransfer.getData("text/scout-reorder-value"));
+              const toVal = cardIdx;
+
+              if (Number.isInteger(fromVal) && fromVal !== toVal) {
+                const idxFrom = payPicks.indexOf(fromVal);
+                const idxTo = payPicks.indexOf(toVal);
+                if (idxFrom !== -1 && idxTo !== -1) {
+                  const temp = payPicks[idxFrom];
+                  payPicks[idxFrom] = payPicks[idxTo];
+                  payPicks[idxTo] = temp;
+                  render(lastSnap);
+                }
+              }
+            });
+          }
+
           track.appendChild(cardEl);
         }
       }
@@ -1051,7 +1360,111 @@
       if (/kierros|alkaa|päättyy|——|=====/i.test(text)) {
         line.classList.add("round-marker");
       }
-      line.textContent = text;
+
+      // Prettify/translate the technical frustrated messages for easier player readability
+      let displayText = text;
+      if (text.includes(" frustrated on card ")) {
+        // Example:
+        // "blue panssarit frustrated on card 10 (unit#1 zone=A type=panssarit; resistance:3up/0hid mauling:2up/1hid pillage:0up/0hid): exit:zone ['A'] not in allowed 'E' for P; scout:troop P not in face limits ['I']; promote:troop P not in face limits ['L']"
+        // Target format: "blue panssarit frustrated on card 10: wrong zone for "sayonara suckers", wrong troop type for Tiedustele or Ylennä."
+        const frustratedRegex = /^(.+? frustrated on card \d+)(?:\s*\(.*?\))?:\s*(.+)$/i;
+        const match = text.match(frustratedRegex);
+        if (match) {
+          const header = match[1];
+          const rawReasons = match[2];
+          
+          // Split reasons by semicolon
+          const reasons = rawReasons.split(";").map(r => r.trim()).filter(Boolean);
+          const translatedReasons = [];
+
+          let wrongZoneActions = [];
+          let wrongTroopActions = [];
+          let tooExpensiveActions = [];
+          let otherBlockedActions = [];
+
+          reasons.forEach((reason) => {
+            const partMatch = reason.match(/^([^:]+):(.*)$/);
+            if (partMatch) {
+              const actionCode = partMatch[1].trim();
+              const actionDetail = partMatch[2].trim();
+
+              // Map action names to human-readable names (Finnish or English/quoted nicknames)
+              const actionNames = {
+                "exit": '"sayonara suckers" (Pakene)',
+                "scout": 'Tiedustele (Scout)',
+                "promote": 'Ylennä (Promote)',
+                "pillage": 'Ryöstä (Pillage)',
+                "attack": 'Hyökkää (Attack)',
+                "assault": 'Assault',
+                "bypass": 'Ohita (Bypass)',
+                "defend": 'Puolusta (Defend)',
+                "human shields": 'Ihmiskilvet (Human Shields)',
+                "patrol": 'Partioi (Patrol)',
+                "rest": 'Lepää (Rest)',
+                "retreat": 'Peräänny (Retreat)',
+                "search": 'Etsi (Search)',
+                "service": 'Huolla (Service)',
+                "sober_up": 'Sober Up',
+                "wait": 'Wait',
+                "suicidal_attack": 'Suicidal Attack'
+              };
+
+              const actionName = actionNames[actionCode.toLowerCase()] || actionCode;
+
+              if (actionDetail.includes("zone")) {
+                wrongZoneActions.push(actionName);
+              } else if (actionDetail.includes("troop") || actionDetail.includes("limits")) {
+                wrongTroopActions.push(actionName);
+              } else if (actionDetail.includes("cost") || actionDetail.includes("hand")) {
+                tooExpensiveActions.push(actionName);
+              } else {
+                otherBlockedActions.push(`${actionName} (${actionDetail})`);
+              }
+            } else {
+              otherBlockedActions.push(reason);
+            }
+          });
+
+          if (wrongZoneActions.length > 0) {
+            translatedReasons.push(`wrong zone for ${wrongZoneActions.join(" or ")}`);
+          }
+          if (wrongTroopActions.length > 0) {
+            translatedReasons.push(`wrong troop type for ${wrongTroopActions.join(" or ")}`);
+          }
+          if (tooExpensiveActions.length > 0) {
+            translatedReasons.push(`too expensive for ${tooExpensiveActions.join(" or ")}`);
+          }
+          if (otherBlockedActions.length > 0) {
+            translatedReasons.push(otherBlockedActions.join(", "));
+          }
+
+      if (translatedReasons.length > 0) {
+            displayText = `${header}: ${translatedReasons.join(", ")}.`;
+          } else {
+            displayText = `${header}: no valid actions available.`;
+          }
+        }
+      }
+
+      // Prettify player color keywords and Player X mentions using HTML
+      let html = escapeHtml(displayText);
+      const colors = ["red", "green", "blue", "orange", "purple"];
+      colors.forEach((color, num) => {
+        // Match color word if followed by unit type, position info, or player keyword
+        const regex = new RegExp(`\\b(${color})(?=\\s+(?:player|panssarit|jalkaväki|huolto|unit|panssari|logistics|panzer|infantry))`, "gi");
+        html = html.replace(regex, `<span class="player-color-${num}" style="color: var(--pc); font-weight: bold;">$1</span>`);
+
+        // Match capitalized colors for score display "Red", "Green", etc.
+        const capColor = color.charAt(0).toUpperCase() + color.slice(1);
+        const capRegex = new RegExp(`\\b(${capColor})\\b`, "g");
+        html = html.replace(capRegex, `<span class="player-color-${num}" style="color: var(--pc); font-weight: bold;">$1</span>`);
+
+        // Also match Player X
+        const playerRegex = new RegExp(`\\b(Player\\s+${num})\\b`, "gi");
+        html = html.replace(playerRegex, `<span class="player-color-${num}" style="color: var(--pc); font-weight: bold;">$1</span>`);
+      });
+
+      line.innerHTML = html;
       logEl.appendChild(line);
     });
     if (atBottom || lines.length) {

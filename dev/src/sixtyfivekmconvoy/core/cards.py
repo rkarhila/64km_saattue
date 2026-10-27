@@ -46,7 +46,7 @@ def parse_mauling_target(target: str) -> dict[str, Any]:
         raise ValueError("mauling target is empty")
 
     lower = text.lower()
-    if lower.startswith("first:") or lower.startswith("last:"):
+    if lower.startswith("first:") or lower.startswith("last:") or lower.startswith("second:") or lower.startswith("second_last:"):
         which, _, key = lower.partition(":")
         key = key.strip()
         if key in _MAULING_ATROCITY_KEYS:
@@ -59,7 +59,7 @@ def parse_mauling_target(target: str) -> dict[str, Any]:
             }
         raise ValueError(
             f"unknown mauling selector '{text}'; "
-            "use first|last:(P|I|L|panzer|infantry|logistics|atrocity)"
+            "use first|last|second|second_last:(P|I|L|panzer|infantry|logistics|atrocity)"
         )
 
     if text in "ABCE":
@@ -76,7 +76,7 @@ def parse_mauling_target(target: str) -> dict[str, Any]:
     raise ValueError(
         f"invalid mauling target '{text}'; "
         "expected zone (A/B/C/E), relative (A1/B-1), "
-        "or first|last:(type|atrocity)"
+        "or first|last|second|second_last:(type|atrocity)"
     )
 
 

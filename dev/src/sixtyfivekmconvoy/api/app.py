@@ -40,6 +40,10 @@ class PauseSettingMessage(BaseModel):
     pause_after_actions: bool
 
 
+class ImportGameRequest(BaseModel):
+    state: str
+
+
 @app.post("/games", response_model=CreateGameResponse)
 def create_game(body: CreateGameRequest):
     if body.human_seat >= body.num_players:
@@ -56,6 +60,20 @@ def create_game(body: CreateGameRequest):
         game_id=session.game_id,
         human_seat=human,
         snapshot=session.snapshot(human),
+    )
+
+
+@app.post("/games/import", response_model=CreateGameResponse)
+def import_game(body: ImportGameRequest):
+    try:
+        session = manager.create_from_state_string(body.state)
+    except Exception as exc:
+        raise HTTPException(400, f"Failed to import game: {exc}")
+    human_id = next(iter(session.human_seats))
+    return CreateGameResponse(
+        game_id=session.game_id,
+        human_seat=human_id,
+        snapshot=session.snapshot(human_id),
     )
 
 

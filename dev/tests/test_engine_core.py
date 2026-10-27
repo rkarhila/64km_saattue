@@ -170,10 +170,10 @@ def test_pillage_keeps_queue_populated_during_choice():
 
     assert req.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
     assert len(req.options) >= 1
-    # Cards must still sit in the queue (revealed) while the player chooses
+    # Cards must still sit in the queue (face-down) while the player chooses
     assert len(engine.pillage_queue) >= len(req.options)
     assert all(
-        vis for _, vis in engine.pillage_queue.cards_and_visibilities[: len(req.options)]
+        not vis for _, vis in engine.pillage_queue.cards_and_visibilities[: len(req.options)]
     )
     assert req.payload and req.payload.get("pillage_cards")
 
