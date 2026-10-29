@@ -77,7 +77,8 @@ class AttackType:
     AIR = "A"
     GROUND = "G"
     SABOTAGE = "S"
-    ALL = frozenset({AIR, GROUND, SABOTAGE})
+    RESISTANCE = "R"
+    ALL = frozenset({AIR, GROUND, SABOTAGE, RESISTANCE})
 
 
 # Defence action → attack letter it soaks.

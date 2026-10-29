@@ -1,21 +1,21 @@
-card_id,name,attack,target,loot,durability,damage_I,damage_P,min_players,starting
-19,Rajapuomi,0,A1,3,1,1,1,2,1
-0,Peltoja ja PST-sissejä (1),3,A1,3,3,1,2,2,0
-1,Peltoja ja PST-sissejä (2),3,A1,3,3,1,2,2,0
-2,Metsää ja metsäsissejä (1),3,A1,3,3,1,2,2,0
-3,Metsää ja metsäsissejä (2),3,A1,3,3,1,2,2,0
-4,Käännetty kyltti ja jalkaväkeä (1),3,A1,3,3,1,2,2,0
-5,Käännetty kyltti ja jalkaväkeä (2),3,A1,3,3,1,2,2,0
-6,Käännetty kyltti ja jalkaväkeä (3),3,A1,3,3,1,2,3,0
-7,Pieni kylä,3,A1,3,3,1,2,2,0
-8,Pieni kylä,3,A1,3,3,1,2,2,0
-9,Kirkonkylä,3,A1,3,3,1,2,3,0
-10,Kirkonkylä,3,A1,3,3,1,2,3,0
-11,Kirkonkylä,3,A1,3,3,1,2,4,0
-12,Käännetty kyltti ja tark'ampujia (1),3,A1,3,3,1,2,3,0
-13,Käännetty kyltti ja tark'ampujia (2),3,A1,3,3,1,2,3,0
-14,Käännetty kyltti ja tark'ampujia (3),3,A1,3,3,1,2,4,0
-15,Kaupunki,3,A1,3,3,1,2,4,0
-16,Kaupunki,3,A1,3,3,1,2,4,0
-17,Kaupunki,3,A1,3,3,1,2,5,0
-18,Kasarmi,3,A1,3,3,1,2,5,0
+card_id,name,ambush_attack,ambush_damage,ambush_target,resistance_attack,resistance_damage,resistance_target,loot,durability,,,min_players,starting
+19,Rajapuomi,,0,A1,,0,A1,3,1,,,2,1
+0,Metsätie ja tiesulku,Käännetty kyltti,reorder,A,Tarkk’ampujia,1,A1,1,1,,,2,0
+1,Metsätie ja tiesulku,Käännetty kyltti,reorder,AB,Tarkk’ampujia,1,A2,1,1,,,2,0
+2,Maantie ja tiesulku,Käännetty kyltti,reorder,ABC,Sinkomiehiä mönkijöillä,2,A1,2,1,,,2,0
+3,Maantie ja tiesulku,Käännetty kyltti,reorder,A,Sinkomiehiä mönkijöillä,2,A2,2,1,,,2,0
+4,Metsätie ja tiesulku,Tienvarsiräjähde,2,first:I,Tarkk’ampujia,1,A1,1,1,,,2,0
+5,Metsätie ja tiesulku,Telamiinoja,2,first:P,Tarkk’ampujia,1,A1,1,1,,,2,0
+6,Maantie ja tiesulku,Tienvarsiräjähde,2,first:L,Sinkomiehiä mönkijöillä,2,A1,2,1,,,3,0
+7,Maantie ja tiesulku,Tienvarsiräjähde,2,A1,Sinkomiehiä mönkijöillä,2,A1,2,1,,,2,0
+8,Kylä,Sinkomiesten väijytys,2,A1,Tarkk’ampujia,1,A1,3,2,,,2,0
+9,Kylä,Kiväärimiestin väijytys,2,A1,Konekiväärikompania,2,A1,3,2,,,2,0
+10,Kylä,Telamiinoja,2,first:P,Tarkk’ampujia,1,A1,3,2,,,2,0
+11,Kirkonkylä,Tienvarsiräjähde,2,A1,Konekiväärikompania,2,A1,4,4,,,2,0
+12,Kirkonkylä,Sinkomiesten väijytys,2,A2,Tarkk’ampujia,1,A1,4,4,,,2,0
+13,Kirkonkylä,Tienvarsiräjähde,2,A1,Konekiväärikompania,2,A1,4,5,,,2,0
+14,Pieni kaupunki,Tienvarsiräjähde,2,A2,Tarkk’ampujia,1,A1,5,6,,,2,0
+15,Pieni kaupunki,Sinkomiesten väijytys,2,A1,Panssariprikaati,3,A1,5,8,,,2,0
+16,Suurkaupunki,Kiväärimiestin väijytys,2,A2,Tarkk’ampujia,1,A1,6,10,,,2,0
+17,Suurkaupunki,Panssariprikaati,3,A1,Panssariprikaati,3,A1,6,12,,,2,0
+18,Kasarmi,Kaikenlaisia sotijoita,3,A,Kaikenlaisia sotijoita,3,A,3,9,,,2,0

@@ -492,36 +492,64 @@ class Resistance:
         self.engine = engine
         self.active = False
         self.name: str | None = None
-        # `attack` on the card is a hit-table category (1–4), or 0 = no attack.
+        
+        # New model attributes:
+        self.ambush_attack = ""
+        self.ambush_damage = "0"
+        self.ambush_target = ""
+        self.resistance_attack = ""
+        self.resistance_damage = 0
+        self.resistance_target = ""
+
+        # Compatibility attributes:
         self.attack_category = 0
+        self.ambush_attack_category = 0
+        self.resistance_attack_category = 0
         self.damage_to_convoy = 0  # kept as alias of attack_category for JSON compat
         self.target = ""
         self.loot = 0
         self.durability = 0
         self.damage_from_convoy: dict[str, int] = {}
         self.status = "inactive"
+
         if description is not None:
             self.name = description["name"]
             effect = description["effect"]
-            self.attack_category = int(effect["attack"])
+            self.ambush_attack = effect.get("ambush_attack") or ""
+            self.ambush_damage = str(effect.get("ambush_damage") or effect.get("attack") or "0")
+            self.ambush_target = effect.get("ambush_target") or effect.get("target") or ""
+            self.resistance_attack = effect.get("resistance_attack") or ""
+            res_dmg = effect.get("resistance_damage") or "0"
+            self.resistance_damage = int(res_dmg) if str(res_dmg).isdigit() else 0
+            self.resistance_target = effect.get("resistance_target") or ""
+
+            # Mapping for compatibility:
+            if str(self.ambush_damage).isdigit():
+                self.attack_category = int(self.ambush_damage)
+            else:
+                self.attack_category = 0
+            self.ambush_attack_category = self.attack_category
+            self.resistance_attack_category = self.resistance_damage
             self.damage_to_convoy = self.attack_category
-            self.target = effect["target"]
-            self.loot = effect["loot"]
-            self.durability = effect["durability"]
-            self.damage_from_convoy = effect["damage"]
+            self.target = self.ambush_target
+            self.loot = effect.get("loot") or 0
+            self.durability = effect.get("durability") or 0
+            self.damage_from_convoy = effect.get("damage") or {}
             self.active = True
             self.status = "active"
 
-    def take_damage(self, damagetype: str, modifier: int | str) -> tuple[int, str]:
+    def take_damage(self, damagetype: str, modifier: int | str, player: Player | None = None) -> tuple[int, str]:
         if isinstance(modifier, int):
             damage = modifier
         elif isinstance(modifier, str):
             if modifier.startswith("="):
                 damage = int(modifier[1:])
             elif modifier.startswith("+"):
-                damage = self.damage_from_convoy[damagetype] + int(modifier[1:])
+                base_damage = self.damage_from_convoy.get(damagetype, 1)
+                damage = base_damage + int(modifier[1:])
             elif modifier.startswith("-"):
-                damage = self.damage_from_convoy[damagetype] - int(modifier[1:])
+                base_damage = self.damage_from_convoy.get(damagetype, 1)
+                damage = base_damage - int(modifier[1:])
             else:
                 damage = int(modifier)
         else:
@@ -536,23 +564,75 @@ class Resistance:
             self.status = "destroyed"
             self.active = False
             self.distribute_loot()
+            if player is not None:
+                from .config import INCENTIVE_DESTROY_RESISTANCE_CASH
+                if INCENTIVE_DESTROY_RESISTANCE_CASH > 0:
+                    player.get_cash(INCENTIVE_DESTROY_RESISTANCE_CASH)
+                    if self.engine is not None:
+                        self.engine._broadcast(
+                            f"{player.agent_id()} rewarded {INCENTIVE_DESTROY_RESISTANCE_CASH} cash for destroying the resistance"
+                        )
             return 2, f"Resistance took {damage} damage and is destroyed"
         return 1, f"Resistance took {damage} damage, durability {self.durability}"
 
     def attack(self) -> str:
         """
-        Ambush the convoy using the hit table.
-
-        Card `attack` is a hit category (1–4). Category 0 means no attack.
+        Ambush the convoy. Can be "reorder" or hit category damage.
         """
         assert self.engine is not None
+        
+        # 1. "reorder" ambush
+        if self.ambush_damage == "reorder":
+            in_target_zones: list[Unit] = []
+            not_in_target_zones: list[Unit] = []
+            for u in self.engine.convoy.units:
+                if u.zone() in self.ambush_target:
+                    in_target_zones.append(u)
+                else:
+                    not_in_target_zones.append(u)
+            self.engine.convoy.units = not_in_target_zones + list(reversed(in_target_zones))
+            return (
+                f"{self.name} ambush ({self.ambush_attack}) reordered units in zones "
+                f"{self.ambush_target} to the back in reverse order"
+            )
+
+        # 2. Normal hit-table ambush
         if self.attack_category <= 0:
             return f"{self.name} does not attack (attack 0)"
+        
         damage = self.engine.draw_hit_damage(self.attack_category)
         if damage <= 0:
             return f"{self.name} attacks (cat {self.attack_category}) for 0 damage"
-        msg = self.engine.convoy.apply_damage(damage, unit=1)
-        return f"{self.name} attacks (cat {self.attack_category}) for {damage}: {msg}"
+
+        from .actions import mauling_target_units
+        try:
+            targets = mauling_target_units(self.engine.convoy, self.ambush_target)
+        except ValueError:
+            targets = []
+            for char in self.ambush_target:
+                if char in "ABCE":
+                    targets.extend(self.engine.convoy.get_units_in_zone(char))
+
+        # Backward compatibility for legacy tests that don't specify target or expect target unit=1
+        if not targets:
+            targets = [self.engine.convoy.units[0]] if self.engine.convoy.units else []
+
+        if not targets:
+            return f"{self.name} attacks (cat {self.attack_category}) for {damage}: no units to hit"
+
+        msgs = []
+        for unit in targets:
+            if unit not in self.engine.convoy.units:
+                continue
+            dmg_msg = self.engine.convoy.apply_damage(damage, unit=unit)
+            msgs.append(dmg_msg)
+        
+        # If there's only one message and it's a single-unit attack (or legacy), match old message format:
+        if len(targets) == 1 and not self.ambush_attack:
+            return f"{self.name} attacks (cat {self.attack_category}) for {damage}: " + msgs[0]
+
+        prefix = f"{self.name} ambush ({self.ambush_attack}) " if self.ambush_attack else f"{self.name} attacks "
+        return prefix + f"cat {self.attack_category} (damage {damage}): " + "; ".join(msgs)
 
     def distribute_loot(self) -> None:
         if self.engine is None:
@@ -574,6 +654,14 @@ class Resistance:
             "status": self.status,
             "durability": self.durability,
             "attack": self.damage_to_convoy,
+            "ambush_attack": self.attack_category,
+            "ambush_attack_name": self.ambush_attack,
+            "ambush_damage": self.ambush_damage,
+            "ambush_target": self.ambush_target,
+            "resistance_attack": self.resistance_attack_category,
+            "resistance_attack_name": self.resistance_attack,
+            "resistance_damage": self.resistance_damage,
+            "resistance_target": self.resistance_target,
             "target": self.target,
             "loot": self.loot,
             "damage": dict(self.damage_from_convoy),

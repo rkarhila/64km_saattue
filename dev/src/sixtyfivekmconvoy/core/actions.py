@@ -281,10 +281,17 @@ def resolve_action(
             ):
                 # optional boost only via discard effect handled separately
                 pass
-        result = engine.resistance.take_damage(UNIT_TYPE_LETTER[unit.unittype], f"={damage}")
+        result = engine.resistance.take_damage(UNIT_TYPE_LETTER[unit.unittype], f"={damage}", player=player)
         reward, msg = result
         player.get_cash(reward)
         parts.append(msg)
+
+        from .config import INCENTIVE_ATTACK_CASH
+        if INCENTIVE_ATTACK_CASH > 0:
+            player.get_cash(INCENTIVE_ATTACK_CASH)
+            engine._broadcast(
+                f"{unit_log_label(unit)} rewarded {INCENTIVE_ATTACK_CASH} cash for attacking"
+            )
 
     elif name == ActionName.ASSAULT:
         old_pos = actor_idx
@@ -293,7 +300,7 @@ def resolve_action(
         actor_idx = unit.index()
         parts.append(f"assaulted {old_pos}({old_zone})→{new_pos}({unit.zone()})")
         reward, msg = engine.resistance.take_damage(
-            UNIT_TYPE_LETTER[unit.unittype], f"={modifier}"
+            UNIT_TYPE_LETTER[unit.unittype], f"={modifier}", player=player
         )
         player.get_cash(reward)
         parts.append(msg)
@@ -308,7 +315,7 @@ def resolve_action(
             f"retreated {old_pos}({old_zone})→{new_pos}({unit.zone()})"
         )
         reward, msg = engine.resistance.take_damage(
-            UNIT_TYPE_LETTER[unit.unittype], modifier
+            UNIT_TYPE_LETTER[unit.unittype], modifier, player=player
         )
         player.get_cash(reward)
         parts.append(msg)
@@ -433,7 +440,7 @@ def resolve_action(
     elif name == ActionName.SUICIDAL_ATTACK:
         damage = modifier if modifier else 5
         reward, msg = engine.resistance.take_damage(
-            UNIT_TYPE_LETTER[unit.unittype], damage
+            UNIT_TYPE_LETTER[unit.unittype], damage, player=player
         )
         player.get_cash(reward)
         convoy.apply_damage(1, unit=unit)
@@ -488,6 +495,7 @@ def _resolve_pillage(
                     "id": pc,
                     "name": detail.get("name", str(pc)),
                     "detail": queue_card_detail(detail),
+                    "reward": detail.get("reward"),
                     "visible": True,
                 }
             )
@@ -553,7 +561,17 @@ def _resolve_service(
         target = following
     assert target is not None
     target.tired = max(0, target.tired - 1)
-    return f"serviced {unit_log_label(target)}"
+    
+    msg = f"serviced {unit_log_label(target)}"
+    if target.player != unit.player:
+        from .config import INCENTIVE_SERVICE_CASH
+        if INCENTIVE_SERVICE_CASH > 0:
+            unit.player.get_cash(INCENTIVE_SERVICE_CASH)
+            engine._broadcast(
+                f"{unit_log_label(unit)} rewarded {INCENTIVE_SERVICE_CASH} cash for servicing another player's unit"
+            )
+            msg += f" (rewarded {INCENTIVE_SERVICE_CASH} cash)"
+    return msg
 
 
 def _queue_by_scout_code(engine: GameEngine, code: int):
@@ -781,6 +799,15 @@ def resolve_scout(
         idx = opt % 100
         chosen_by_queue.setdefault(code, []).append(idx)
 
+    # Scout incentive:
+    if SCOUT_QUEUE_RESISTANCE in chosen_by_queue:
+        from .config import INCENTIVE_SCOUT_CASH
+        if INCENTIVE_SCOUT_CASH > 0:
+            unit.player.get_cash(INCENTIVE_SCOUT_CASH)
+            engine._broadcast(
+                f"{label} rewarded {INCENTIVE_SCOUT_CASH} cash for scouting resistance card(s)"
+            )
+
     # Process each queue
     for code, indices in chosen_by_queue.items():
         queue = _queue_by_scout_code(engine, code)
@@ -933,6 +960,17 @@ def resolve_mauling(
     if isinstance(atype, (list, tuple)):
         atype = atype[0]
     atype = str(atype)[0].upper() if atype else AttackType.GROUND
+
+    if atype == AttackType.RESISTANCE:
+        atype = AttackType.GROUND
+        if engine.resistance.active:
+            if hit_cat > 0:
+                hit_cat = engine.resistance.resistance_attack_category
+            if fail_hit > 0:
+                fail_hit = engine.resistance.resistance_attack_category
+        else:
+            hit_cat = 0
+            fail_hit = 0
 
     parts: list[str] = []
     convoy = engine.convoy

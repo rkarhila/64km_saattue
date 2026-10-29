@@ -628,6 +628,14 @@ class GameEngine:
             has_advance_log = False
             if not self.resistance.active:
                 self.convoy.move_resting_and_damaged_units()
+                if self.convoy.units:
+                    from .config import INCENTIVE_FIRST_UNIT_ADVANCE_CASH
+                    if INCENTIVE_FIRST_UNIT_ADVANCE_CASH > 0:
+                        first_unit = self.convoy.units[0]
+                        first_unit.player.get_cash(INCENTIVE_FIRST_UNIT_ADVANCE_CASH)
+                        self._broadcast(
+                            f"{first_unit.player.agent_id()} rewarded {INCENTIVE_FIRST_UNIT_ADVANCE_CASH} cash for having the first unit when the convoy advanced"
+                        )
                 if self.resistance_queue:
                     res_id, _ = self.resistance_queue.remove_card(0)
                     self.resistance_deck.discard_card(res_id)

@@ -204,6 +204,11 @@ class CardQueue:
                 except KeyError:
                     desc = None
                 entry["detail"] = queue_card_detail(desc)
+                if isinstance(desc, dict):
+                    if "effect" in desc:
+                        entry["effect"] = desc["effect"]
+                    if "reward" in desc:
+                        entry["reward"] = desc["reward"]
             else:
                 entry["name"] = str(card_id)
             out.append(entry)
@@ -533,7 +538,7 @@ def load_mauling_deck() -> dict[int, MaulingCard]:
                 attack_type = attack_type.upper()
             if attack_type not in AttackType.ALL:
                 raise ValueError(
-                    f"mauling {cid}: attack_type must be A/G/S, got {attack_type!r}"
+                    f"mauling {cid}: attack_type must be A/G/S/R, got {attack_type!r}"
                 )
             hit_category = _int_or_zero(row.get("hit_category"))
             discard = _int_or_zero(row.get("discard"))
@@ -582,14 +587,17 @@ def load_resistance_deck() -> dict[int, ResistanceCard]:
                 id=cid,
                 name=row["name"].strip(),
                 effect={
-                    "attack": int(row["attack"].strip()),
-                    "target": row["target"].strip(),
-                    "loot": int(row["loot"].strip()),
-                    "durability": int(row["durability"].strip()),
-                    "damage": {
-                        "I": int(row["damage_I"].strip()),
-                        "P": int(row["damage_P"].strip()),
-                    },
+                    "ambush_attack": row.get("ambush_attack", "").strip(),
+                    "ambush_damage": row.get("ambush_damage", "").strip(),
+                    "ambush_target": row.get("ambush_target", "").strip(),
+                    "resistance_attack": row.get("resistance_attack", "").strip(),
+                    "resistance_damage": row.get("resistance_damage", "").strip(),
+                    "resistance_target": row.get("resistance_target", "").strip(),
+                    "attack": 0,
+                    "target": row.get("ambush_target", "").strip(),
+                    "loot": int(row["loot"].strip()) if row.get("loot") else 0,
+                    "durability": int(row["durability"].strip()) if row.get("durability") else 0,
+                    "damage": {},
                 },
                 min_players=min_players,
                 starting=starting,

@@ -171,6 +171,196 @@
       .replace(/"/g, "&quot;");
   }
 
+  // Client-side Finnish strings (mirror core/i18n.py keys).
+  const I18N = {
+    "deck.resistance": "Vastarinta",
+    "deck.pillage": "Ryöstö",
+    "deck.mauling": "Moukarointi",
+    "resistance.ambush": "Väijytys",
+    "resistance.counterattack": "Vastahyökkäys",
+    "resistance.hitpoints": "Osumapisteet",
+    "resistance.durability": "Kestävyys",
+    "resistance.pillage_cards": "Ryöstökortteja",
+    "resistance.damage": "Vahinko",
+    "mauling.target_type": "Kohde / tyyppi",
+    "mauling.target": "Kohde",
+    "mauling.type": "Tyyppi",
+    "mauling.damage": "Vahinko",
+    "mauling.hit_category": "Osumaluokka",
+    "mauling.discard": "Korttien poisto",
+    "mauling.must_discard": "Poista {n} korttia.",
+    "mauling.fail_hit": "Jos kortteja ei ole tarpeeksi, ota osumaluokan {m} vahinko.",
+    "attack.A": "A (ilma)",
+    "attack.G": "G (maa)",
+    "attack.S": "S (sabotaasi)",
+    "attack.R": "R (vastarinta)",
+    "pillage.cash": "Rahaa",
+    "pillage.loot": "Ryöstösaalis",
+    "pillage.atrocities": "Hirmutekoja",
+  };
+
+  function t(key, vars) {
+    let s = I18N[key] || key;
+    if (vars) {
+      Object.keys(vars).forEach((k) => {
+        s = s.replaceAll(`{${k}}`, String(vars[k]));
+      });
+    }
+    return s;
+  }
+
+  function attackTypeLabel(atype) {
+    const letter = String(atype || "G").charAt(0).toUpperCase();
+    return t(`attack.${letter}`) !== `attack.${letter}`
+      ? t(`attack.${letter}`)
+      : letter;
+  }
+
+  function fancyBox(title, linesHtml) {
+    return (
+      `<div class="fancy-section-box">` +
+      (title ? `<span class="section-title">${escapeHtml(title)}</span>` : "") +
+      linesHtml +
+      `</div>`
+    );
+  }
+
+  function renderResistanceFancyHtml(data, { eyebrow } = {}) {
+    const name = data.name || "?";
+    const ambushName = data.ambush_attack_name || data.effect?.ambush_attack || "-";
+    const ambushDmg = data.ambush_damage ?? data.effect?.ambush_damage ?? "?";
+    const ambushTarget = data.ambush_target || data.effect?.ambush_target || "";
+    const counterName =
+      data.resistance_attack_name || data.effect?.resistance_attack || "-";
+    const counterDmg =
+      data.resistance_damage ?? data.effect?.resistance_damage ?? "?";
+    const counterTarget =
+      data.resistance_target || data.effect?.resistance_target || "";
+    const durability = data.durability ?? data.effect?.durability ?? "?";
+    const loot = data.loot ?? data.effect?.loot ?? 0;
+
+    const ambushBox = fancyBox(
+      t("resistance.ambush"),
+      `<span><strong>${escapeHtml(String(ambushName))}</strong></span>` +
+        `<span>${escapeHtml(t("resistance.damage"))}: <strong>${escapeHtml(String(ambushDmg))}</strong>` +
+        (ambushTarget
+          ? ` → <strong>${escapeHtml(String(ambushTarget))}</strong>`
+          : "") +
+        `</span>`
+    );
+    const counterBox = fancyBox(
+      t("resistance.counterattack"),
+      `<span><strong>${escapeHtml(String(counterName))}</strong></span>` +
+        `<span>${escapeHtml(t("resistance.damage"))}: <strong>${escapeHtml(String(counterDmg))}</strong>` +
+        (counterTarget
+          ? ` → <strong>${escapeHtml(String(counterTarget))}</strong>`
+          : "") +
+        `</span>`
+    );
+    const durBox = fancyBox(
+      t("resistance.hitpoints"),
+      `<span>${escapeHtml(t("resistance.durability"))}: <strong>${escapeHtml(String(durability))}</strong></span>` +
+        (loot
+          ? `<span>${escapeHtml(t("resistance.pillage_cards"))}: <strong>${escapeHtml(String(loot))} kpl</strong></span>`
+          : "")
+    );
+
+    return (
+      (eyebrow
+        ? `<div class="fancy-eyebrow">${escapeHtml(eyebrow)}</div>`
+        : `<div class="fancy-eyebrow">${escapeHtml(t("deck.resistance"))}</div>`) +
+      `<div class="fancy-title">${escapeHtml(name)}</div>` +
+      `<div class="fancy-body">${ambushBox}${counterBox}${durBox}</div>`
+    );
+  }
+
+  function renderMaulingFancyHtml(card) {
+    const effect = card.effect || {};
+    const target = effect.target || "?";
+    const atype = effect.attack_type || "G";
+    const hitCat = Number(effect.hit_category || 0);
+    const discardN = Number(effect.discard || 0);
+    const failHit = Number(effect.fail_hit_category || 0);
+
+    const targetBox = fancyBox(
+      t("mauling.target_type"),
+      `<span>${escapeHtml(t("mauling.target"))}: <strong>${escapeHtml(String(target))}</strong></span>` +
+        `<span>${escapeHtml(t("mauling.type"))}: <strong>${escapeHtml(attackTypeLabel(atype))}</strong></span>`
+    );
+
+    let effectBox = "";
+    if (discardN > 0) {
+      effectBox = fancyBox(
+        t("mauling.discard"),
+        `<span>${escapeHtml(t("mauling.must_discard", { n: discardN }))}</span>` +
+          (failHit > 0
+            ? `<span>${escapeHtml(t("mauling.fail_hit", { m: failHit }))}</span>`
+            : "")
+      );
+    } else if (hitCat > 0) {
+      effectBox = fancyBox(
+        t("mauling.damage"),
+        `<span>${escapeHtml(t("mauling.hit_category"))}: <strong>${escapeHtml(String(hitCat))}</strong></span>`
+      );
+    }
+
+    return (
+      `<div class="fancy-eyebrow">${escapeHtml(t("deck.mauling"))}</div>` +
+      `<div class="fancy-title">${escapeHtml(card.name || "?")}</div>` +
+      `<div class="fancy-body">${targetBox}${effectBox}</div>`
+    );
+  }
+
+  function renderPillageFancyHtml(card) {
+    const reward = card.reward || {};
+    const cash = Number(reward.cash || 0);
+    const loot = Array.isArray(reward.loot) ? reward.loot : [];
+    const atrocities = Number(reward.atrocities || 0);
+    const lines = [];
+    if (cash > 0) {
+      lines.push(
+        `<span>${escapeHtml(t("pillage.cash"))}: <strong>${cash}</strong></span>`
+      );
+    }
+    if (loot.length) {
+      lines.push(
+        `<span>${escapeHtml(t("pillage.loot"))}: <strong>${escapeHtml(loot.join(" · "))}</strong></span>`
+      );
+    }
+    if (atrocities > 0) {
+      lines.push(
+        `<span>${escapeHtml(t("pillage.atrocities"))}: <strong>${atrocities}</strong></span>`
+      );
+    }
+    const body = lines.length
+      ? fancyBox("", lines.join(""))
+      : fancyBox("", `<span class="muted">—</span>`);
+
+    return (
+      `<div class="fancy-eyebrow">${escapeHtml(t("deck.pillage"))}</div>` +
+      `<div class="fancy-title">${escapeHtml(card.name || "?")}</div>` +
+      `<div class="fancy-body">${body}</div>`
+    );
+  }
+
+  function fillFancyQueueCard(el, card, deckKey) {
+    el.classList.add("fancy-queue-card", `fancy-${deckKey}`);
+    if (deckKey === "resistance" && (card.effect || card.ambush_attack_name != null)) {
+      el.innerHTML = renderResistanceFancyHtml(card);
+    } else if (deckKey === "mauling" && card.effect) {
+      el.innerHTML = renderMaulingFancyHtml(card);
+    } else if (deckKey === "pillage" && card.reward) {
+      el.innerHTML = renderPillageFancyHtml(card);
+    } else {
+      el.classList.remove("fancy-queue-card", `fancy-${deckKey}`);
+      el.innerHTML =
+        `<div class="queue-card-name">${escapeHtml(card.name || `#${card.id}`)}</div>` +
+        (card.detail
+          ? `<div class="queue-card-detail">${escapeHtml(card.detail)}</div>`
+          : "");
+    }
+  }
+
   function catalog(snap) {
     return {
       ...(snap.hand_cards || {}),
@@ -282,7 +472,10 @@
       : null;
     const contrastMode = choosing || Boolean(legalSet) || resolved || frustrated;
 
-    (cardData.faces || []).forEach((face, faceIndex) => {
+    const facesList = cardData.faces || [];
+    const isSingleActionCard = facesList.length === 1;
+
+    facesList.forEach((face, faceIndex) => {
       let clickable = false;
       let strike = false;
       let chosen = false;
@@ -311,16 +504,28 @@
         strike = true;
       }
 
-      el.appendChild(
-        buildFaceEl(face, {
-          clickable,
-          strikethrough: strike,
-          chosen,
-          available: contrastMode && !strike,
-          onClick: handler,
-        })
-      );
+      const faceEl = buildFaceEl(face, {
+        clickable,
+        strikethrough: strike,
+        chosen,
+        available: contrastMode && !strike,
+        onClick: handler,
+      });
+
+      if (isSingleActionCard) {
+        faceEl.classList.add("single-action-face");
+      }
+
+      el.appendChild(faceEl);
     });
+
+    if (facesList.length === 3) {
+      // Append a 4th empty face block
+      const emptyFaceEl = document.createElement("div");
+      emptyFaceEl.className = "face empty-face";
+      emptyFaceEl.innerHTML = `<div class="face-title" style="visibility: hidden; font-size: 0.92rem;">&nbsp;</div>`;
+      el.appendChild(emptyFaceEl);
+    }
 
     if (choosing && highlightOptions) {
       highlightOptions
@@ -626,22 +831,10 @@
       el.appendChild(card);
       return;
     }
-    card.className = "resistance-card";
-    const dmg = res.damage || {};
-    const dmgBits = Object.keys(dmg)
-      .map((k) => `${escapeHtml(k)} ${escapeHtml(String(dmg[k]))}`)
-      .join(" · ");
-    card.innerHTML =
-      `<div class="resistance-eyebrow">Vastarinta · estää etenemisen</div>` +
-      `<div class="resistance-name">${escapeHtml(res.name)}</div>` +
-      `<div class="resistance-stats">` +
-      `<div>Kestävyys <strong>${escapeHtml(String(res.durability ?? "?"))}</strong></div>` +
-      `<div>Hyökkäys <strong>${escapeHtml(String(res.attack ?? "?"))}</strong>` +
-      (res.target ? ` → ${escapeHtml(res.target)}` : "") +
-      `</div>` +
-      (res.loot ? `<div>Ryöstö <strong>${escapeHtml(String(res.loot))}</strong></div>` : "") +
-      (dmgBits ? `<div>Vahinko: ${dmgBits}</div>` : "") +
-      `</div>`;
+    card.className = "resistance-card fancy-queue-card fancy-resistance";
+    card.innerHTML = renderResistanceFancyHtml(res, {
+      eyebrow: `${t("deck.resistance")} · este`,
+    });
     el.appendChild(card);
   }
 
@@ -959,11 +1152,7 @@
         el.type = "button";
         if (c.visible) {
           el.className = "queue-card face-up pillage-choice";
-          el.innerHTML =
-            `<div class="queue-card-name">${escapeHtml(c.name || `#${c.id}`)}</div>` +
-            (c.detail
-              ? `<div class="queue-card-detail">${escapeHtml(c.detail)}</div>`
-              : "");
+          fillFancyQueueCard(el, c, "pillage");
         } else {
           el.className = "queue-card face-down pillage-choice";
           el.innerHTML = `<div class="queue-card-mark">🂠</div><div class="queue-card-detail" style="margin-top: 5px; text-align: center;">Tuntematon (Slot ${idx + 1})</div>`;
@@ -1257,11 +1446,19 @@
           if (card && card.visible) {
             cardEl.className =
               "queue-card face-up" + (isFront ? " is-front" : "");
-            cardEl.innerHTML =
-              `<div class="queue-card-name">${escapeHtml(card.name || `#${card.id}`)}</div>` +
-              (card.detail
-                ? `<div class="queue-card-detail">${escapeHtml(card.detail)}</div>`
-                : "");
+            if (
+              row.key === "resistance" ||
+              row.key === "mauling" ||
+              row.key === "pillage"
+            ) {
+              fillFancyQueueCard(cardEl, card, row.key);
+            } else {
+              cardEl.innerHTML =
+                `<div class="queue-card-name">${escapeHtml(card.name || `#${card.id}`)}</div>` +
+                (card.detail
+                  ? `<div class="queue-card-detail">${escapeHtml(card.detail)}</div>`
+                  : "");
+            }
           } else {
             cardEl.className =
               "queue-card face-down" + (isFront ? " is-front" : "");
