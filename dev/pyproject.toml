@@ -19,9 +19,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx>=0.27"]
+rl = ["torch>=2.1"]
 
 [project.scripts]
 convoy-selfplay = "sixtyfivekmconvoy.cli.selfplay:main"
+convoy-train = "sixtyfivekmconvoy.cli.train:main"
+convoy-league = "sixtyfivekmconvoy.cli.league_cli:main"
 convoy-web = "sixtyfivekmconvoy.api.app:main"
 convoy-terminal = "sixtyfivekmconvoy.cli.terminal:main"
 

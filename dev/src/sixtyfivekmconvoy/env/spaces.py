@@ -10,6 +10,8 @@ import numpy as np
 MAX_UNITS = 15
 MAX_HAND = 20
 MAX_PLAYERS = 5
+# Discrete action index budget shared by ConvoyEnv + RL policies.
+MAX_LEGAL = 256
 
 
 def flatten_observation(obs: dict[str, Any], agent_index: int, num_players: int) -> np.ndarray:

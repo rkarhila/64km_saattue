@@ -11,9 +11,11 @@ from pettingzoo import AECEnv
 from pettingzoo.utils import agent_selector, wrappers
 
 from sixtyfivekmconvoy.core.engine import GameEngine
-from sixtyfivekmconvoy.env.spaces import flatten_observation, observation_size
-
-MAX_LEGAL = 256
+from sixtyfivekmconvoy.env.spaces import (
+    MAX_LEGAL,
+    flatten_observation,
+    observation_size,
+)
 
 
 def env(**kwargs):
@@ -49,6 +51,8 @@ class ConvoyEnv(AECEnv):
         self.max_cycles = max_cycles
         self.render_mode = render_mode
         self.engine = GameEngine()
+        # RL / bot self-play must not pause for human "continue" prompts.
+        self.engine.pause_after_actions = False
         self.possible_agents = [f"player_{i}" for i in range(num_players)]
         self.agents: list[str] = []
         self._obs_size = observation_size(num_players)
@@ -67,6 +71,7 @@ class ConvoyEnv(AECEnv):
         if seed is None:
             seed = self._seed
         self.engine.reset(num_players=self.num_players, seed=seed)
+        self.engine.pause_after_actions = False
         self.agents = self.possible_agents[:]
         self.rewards = {a: 0.0 for a in self.agents}
         self._cumulative_rewards = {a: 0.0 for a in self.agents}

@@ -19,6 +19,21 @@ convoy-selfplay --players 3 --seed 0 --episodes 5 -o stats.jsonl
 python -m sixtyfivekmconvoy.cli.selfplay --players 3 --seed 0 --verbose
 ```
 
+## RL training (self-play + bot league)
+
+Install the optional torch extra, then train a PPO policy into a **league** of
+versioned / branchable bots. Full command walkthrough: **[docs/rl-training.md](docs/rl-training.md)**.
+
+```bash
+pip install -e ".[rl]"
+
+convoy-train --league runs/league --name main --players 3 --timesteps 50000
+convoy-league --league runs/league list
+convoy-league --league runs/league branch <id> --name aggressive
+convoy-train --league runs/league --from <id> --branch-as aggressive --timesteps 20000
+convoy-league --league runs/league eval aggressive --episodes 20
+```
+
 ## PettingZoo env
 
 ```python
@@ -68,9 +83,10 @@ pytest
 |------|------|
 | `src/sixtyfivekmconvoy/core/` | Pure engine (no I/O) |
 | `src/sixtyfivekmconvoy/env/` | PettingZoo `AECEnv` |
-| `src/sixtyfivekmconvoy/agents/` | Random / human bridges |
+| `src/sixtyfivekmconvoy/rl/` | PPO self-play, league checkpoints, branching |
+| `src/sixtyfivekmconvoy/agents/` | Random / human / RL bridges |
 | `src/sixtyfivekmconvoy/api/` | FastAPI sessions |
-| `src/sixtyfivekmconvoy/cli/` | Self-play + terminal |
+| `src/sixtyfivekmconvoy/cli/` | Self-play, train, league, terminal |
 | `src/sixtyfivekmconvoy/data/cards/` | CSV decks |
 | `web/` | Vanilla JS UI |
 
