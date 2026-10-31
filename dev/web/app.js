@@ -1733,21 +1733,27 @@
     }
 
     if (isPillagePick(snap)) {
-      title.textContent = "Valitse ryöstökortti";
+      const payload = snap.pending.payload || {};
+      const deckPick = payload.reason === "scout_deck_pick";
+      const queueKey = payload.queue || "pillage";
+      title.textContent = deckPick
+        ? `Valitse kortti jonoon (${queueKey})`
+        : "Valitse ryöstökortti";
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent = "Kortit ovat myös ryöstöjonossa. Napsauta yksi ryöstääksesi sen.";
+      hint.textContent = deckPick
+        ? `Napsauta yksi nostetuista korteista — se menee ${queueKey}-jonoon kuvapuoli ylöspäin; muut poistetaan.`
+        : "Kortit ovat myös ryöstöjonossa. Napsauta yksi ryöstääksesi sen.";
       opts.appendChild(hint);
       const row = document.createElement("div");
       row.className = "card-row pillage-choices";
-      const cards =
-        (snap.pending.payload && snap.pending.payload.pillage_cards) || [];
+      const cards = payload.pillage_cards || [];
       cards.forEach((c, idx) => {
         const el = document.createElement("button");
         el.type = "button";
         if (c.visible) {
           el.className = "queue-card face-up pillage-choice";
-          fillFancyQueueCard(el, c, "pillage");
+          fillFancyQueueCard(el, c, queueKey);
         } else {
           el.className = "queue-card face-down pillage-choice";
           el.innerHTML = `<div class="queue-card-mark">🂠</div><div class="queue-card-detail" style="margin-top: 5px; text-align: center;">Tuntematon (Slot ${idx + 1})</div>`;
@@ -1756,6 +1762,29 @@
         row.appendChild(el);
       });
       opts.appendChild(row);
+      return;
+    }
+
+    if (snap.pending.choicetype === CT.CHOOSE_QUEUE_TO_SCOUT) {
+      const payload = snap.pending.payload || {};
+      const verb = payload.verb || "scout";
+      const need = payload.count || 2;
+      title.textContent = `${verb}: Valitse pakka`;
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent =
+        `Kaikki jonokortit on jo paljastettu. Valitse pakka, josta nostetaan ${need} korttia; yksi niistä menee jonoon kuvapuoli ylöspäin.`;
+      opts.appendChild(hint);
+      const actions = document.createElement("div");
+      actions.className = "choice-actions";
+      (payload.queues || []).forEach((q) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = `${q.queue} (pakka ${q.deck}, poisto ${q.discard})`;
+        btn.addEventListener("click", () => sendChoice([q.option]));
+        actions.appendChild(btn);
+      });
+      opts.appendChild(actions);
       return;
     }
 

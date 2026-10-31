@@ -1,4 +1,4 @@
-"""Sigint action: scout-like reveal, but only mauling queue cards."""
+"""Sigint action: scout-like, limited to the mauling queue/deck."""
 
 from sixtyfivekmconvoy.core import actions as action_mod
 from sixtyfivekmconvoy.core.cards import ACTION_CATALOG
@@ -16,7 +16,6 @@ def _seat_logistics_in_zone_ab(engine: GameEngine):
         u.convoy = engine.convoy
         u.engine = engine
     logi = next(u for u in engine.convoy.units if u.unittype == UnitType.LOGISTICS)
-    # Put logistics near the front so zone is A or B (card allows AB).
     others = [u for u in engine.convoy.units if u is not logi]
     engine.convoy.units = [logi] + others
     assert logi.zone() in ("A", "B")
@@ -54,19 +53,15 @@ def test_sigint_legal_when_mauling_has_hidden():
     assert codes == [action_mod.SCOUT_QUEUE_MAULING]
 
 
-def test_sigint_blocked_when_mauling_fully_revealed():
+def test_sigint_still_legal_when_mauling_fully_revealed():
     engine = GameEngine()
     engine.reset(num_players=2, seed=5)
     logi = _seat_logistics_in_zone_ab(engine)
     for i, (_, vis) in enumerate(list(engine.mauling_queue.cards_and_visibilities)):
         if not vis:
             engine.mauling_queue.reveal_card(i)
-    # Resistance/pillage may still be hidden — sigint must still be blocked.
-    assert engine.resistance_queue.contains_hidden_cards() or True
     face = _sigint_face()
-    why = action_mod.why_action_impossible(engine, logi.index(), face)
-    assert why
-    assert "sigint" in why[0]
+    assert action_mod.why_action_impossible(engine, logi.index(), face) == []
 
 
 def test_resolve_sigint_only_offers_mauling_options():
@@ -93,7 +88,6 @@ def test_resolve_sigint_only_offers_mauling_options():
     assert req.choicetype == ChoiceType.CHOOSE_CARDS_TO_SCOUT
     assert req.payload.get("verb") == "sigint"
     assert req.payload.get("allowed_queues") == ["mauling"]
-    # Options encode queue code * 100 + index; mauling code is 1.
     assert req.options
     assert all(opt // 100 == action_mod.SCOUT_QUEUE_MAULING for opt in req.options)
 
@@ -109,3 +103,40 @@ def test_resolve_sigint_only_offers_mauling_options():
         f"mauling:{engine.mauling_queue.deck.get_name(engine.mauling_queue.cards_and_visibilities[mauling_hidden[0]][0])}"
     ]
     assert engine.mauling_queue.cards_and_visibilities[mauling_hidden[0]][1] is True
+
+
+def test_resolve_sigint_draws_from_mauling_deck_when_known():
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=11)
+    engine.pause_after_actions = False
+    logi = _seat_logistics_in_zone_ab(engine)
+    for i, (_, vis) in enumerate(list(engine.mauling_queue.cards_and_visibilities)):
+        if not vis:
+            engine.mauling_queue.reveal_card(i)
+
+    before = len(engine.mauling_queue)
+    gen = action_mod.resolve_scout(
+        engine,
+        logi,
+        count=3,
+        allowed_queue_codes={action_mod.SCOUT_QUEUE_MAULING},
+        verb="sigint",
+    )
+    # Single allowed deck → no queue choice.
+    req = next(gen)
+    assert req.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
+    assert req.payload.get("queue") == "mauling"
+    assert len(req.options) == 3
+
+    keep = req.options[1]
+    try:
+        gen.send([keep])
+        raise AssertionError("expected StopIteration")
+    except StopIteration as stop:
+        revealed = stop.value
+
+    assert len(revealed) == 1
+    assert revealed[0].startswith("mauling:")
+    assert len(engine.mauling_queue) == before + 1
+    assert engine.mauling_queue.cards_and_visibilities[-1][0] == keep
+    assert engine.mauling_queue.cards_and_visibilities[-1][1] is True

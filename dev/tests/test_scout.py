@@ -1,4 +1,4 @@
-"""Scout action: reveal hidden resistance/mauling/pillage queue cards."""
+"""Scout action: reveal hidden queue cards, or draw from a deck when all known."""
 
 from sixtyfivekmconvoy.core import actions as action_mod
 from sixtyfivekmconvoy.core.cards import ACTION_CATALOG
@@ -19,6 +19,17 @@ def _seat_front_infantry(engine: GameEngine):
     others = [u for u in engine.convoy.units if u is not inf]
     engine.convoy.units = [inf] + others
     return inf
+
+
+def _reveal_all_queues(engine: GameEngine) -> None:
+    for queue in (
+        engine.resistance_queue,
+        engine.mauling_queue,
+        engine.pillage_queue,
+    ):
+        for i, (_, vis) in enumerate(list(queue.cards_and_visibilities)):
+            if not vis:
+                queue.reveal_card(i)
 
 
 def _scout_face():
@@ -48,31 +59,20 @@ def test_front_infantry_can_scout_hidden_resistance_on_card_10():
     assert action_mod.SCOUT_QUEUE_RESISTANCE in codes
 
 
-def test_scout_blocked_when_no_hidden_cards():
+def test_scout_still_legal_when_no_hidden_cards():
     engine = GameEngine()
     engine.reset(num_players=2, seed=5)
     inf = _seat_front_infantry(engine)
-    # Reveal everything
-    for queue in (
-        engine.resistance_queue,
-        engine.mauling_queue,
-        engine.pillage_queue,
-    ):
-        for i, (_, vis) in enumerate(list(queue.cards_and_visibilities)):
-            if not vis:
-                queue.reveal_card(i)
+    _reveal_all_queues(engine)
     assert action_mod.scoutable_queues(engine) == []
     face = _scout_face()
-    why = action_mod.why_action_impossible(engine, inf.index(), face)
-    assert why
-    assert "nothing to scout" in why[0]
+    assert action_mod.why_action_impossible(engine, inf.index(), face) == []
 
 
 def test_scout_blocked_outside_zone_a():
     engine = GameEngine()
     engine.reset(num_players=2, seed=7)
     inf = _seat_front_infantry(engine)
-    # Move infantry to the back (zone E for 2p)
     others = [u for u in engine.convoy.units if u is not inf]
     engine.convoy.units = others + [inf]
     assert inf.zone() == "E"
@@ -86,25 +86,23 @@ def test_resolve_scout_reveals_resistance_hidden_card():
     engine.reset(num_players=2, seed=9)
     engine.pause_after_actions = False
     inf = _seat_front_infantry(engine)
-    
-    # Check that we have hidden cards in resistance queue
+
     resistance_hidden_indices = [
-        idx for idx, (_, vis) in enumerate(engine.resistance_queue.cards_and_visibilities) if not vis
+        idx
+        for idx, (_, vis) in enumerate(engine.resistance_queue.cards_and_visibilities)
+        if not vis
     ]
     assert resistance_hidden_indices
 
-    # Run scout action for 1 card
     gen = action_mod.resolve_scout(engine, inf, count=1)
     req = next(gen)
-    
+
     assert req.choicetype == ChoiceType.CHOOSE_CARDS_TO_SCOUT
     assert req.num_choices == 1
-    
-    # Option for resistance queue index 0 should be 200 (since 2 = resistance queue code)
+
     resistance_opt = 200 + resistance_hidden_indices[0]
     assert resistance_opt in req.options
-    
-    # Send choice to scout that card
+
     try:
         gen.send([resistance_opt])
         raise AssertionError("expected StopIteration")
@@ -113,7 +111,6 @@ def test_resolve_scout_reveals_resistance_hidden_card():
 
     assert len(revealed) == 1
     assert revealed[0].startswith("resistance:")
-    # Verify the selected card is now face-up (visible = True)
     assert engine.resistance_queue.cards_and_visibilities[resistance_hidden_indices[0]][1] is True
 
 
@@ -122,74 +119,80 @@ def test_resolve_scout_reorders_when_multiple_from_same_queue():
     engine.reset(num_players=2, seed=12)
     engine.pause_after_actions = False
     inf = _seat_front_infantry(engine)
-    
-    # Ensure there are at least two hidden cards in resistance queue
+
     resistance_queue = engine.resistance_queue
     hidden_indices = [
         idx for idx, (_, vis) in enumerate(resistance_queue.cards_and_visibilities) if not vis
     ]
     assert len(hidden_indices) >= 2
-    
+
     idx1, idx2 = hidden_indices[0], hidden_indices[1]
     card_id1 = resistance_queue.cards_and_visibilities[idx1][0]
     card_id2 = resistance_queue.cards_and_visibilities[idx2][0]
-    
-    # Start scouting 2 cards
+
     gen = action_mod.resolve_scout(engine, inf, count=2)
     req = next(gen)
-    
+
     assert req.choicetype == ChoiceType.CHOOSE_CARDS_TO_SCOUT
     assert req.num_choices == 2
-    
+
     opt1 = 200 + idx1
     opt2 = 200 + idx2
-    assert opt1 in req.options
-    assert opt2 in req.options
-    
-    # Select both options
     req2 = gen.send([opt1, opt2])
-    
-    # Because we selected multiple cards from the same queue, it should ask us to reorder them
+
     assert req2.choicetype == ChoiceType.REORDER_SCOUTED_CARDS
     assert req2.num_choices == 2
     assert set(req2.options) == {idx1, idx2}
-    
-    # Send reordered option: swap their order
+
     try:
         gen.send([idx2, idx1])
         raise AssertionError("expected StopIteration")
     except StopIteration as stop:
         revealed = stop.value
-        
+
     assert len(revealed) == 2
-    # Verify that cards are indeed swapped and both are now face-up
     assert resistance_queue.cards_and_visibilities[idx1][0] == card_id2
     assert resistance_queue.cards_and_visibilities[idx1][1] is True
     assert resistance_queue.cards_and_visibilities[idx2][0] == card_id1
     assert resistance_queue.cards_and_visibilities[idx2][1] is True
 
 
-def test_frustrated_log_includes_block_reasons_for_scout():
+def test_resolve_scout_draws_from_deck_when_queues_known():
     engine = GameEngine()
-    engine.reset(num_players=2, seed=13)
+    engine.reset(num_players=2, seed=15)
+    engine.pause_after_actions = False
     inf = _seat_front_infantry(engine)
-    # Exhaust scoutability
-    for queue in (engine.resistance_queue, engine.mauling_queue, engine.pillage_queue):
-        for i, (_, vis) in enumerate(list(queue.cards_and_visibilities)):
-            if not vis:
-                queue.reveal_card(i)
+    _reveal_all_queues(engine)
 
-    face = _scout_face()
-    why = action_mod.why_action_impossible(engine, inf.index(), face)
-    assert why
-    # Simulate the frustrated broadcast shape used by the engine
-    engine._broadcast(
-        f"{action_mod.unit_log_label(inf)} frustrated on card 10 "
-        f"(unit#{inf.index()} zone={inf.zone()} type=jalkaväki; "
-        f"{action_mod.hidden_queue_summary(engine)}): scout:{','.join(why)}",
-        kind="frustrated",
-        blocked=[{"action_name": "scout", "reasons": why}],
+    before_res_queue = len(engine.resistance_queue)
+    before_deck = len(engine.resistance_deck.deck) + len(engine.resistance_deck.discard)
+
+    gen = action_mod.resolve_scout(engine, inf, count=2)
+    req = next(gen)
+    assert req.choicetype == ChoiceType.CHOOSE_QUEUE_TO_SCOUT
+    assert action_mod.SCOUT_QUEUE_RESISTANCE in req.options
+
+    req2 = gen.send([action_mod.SCOUT_QUEUE_RESISTANCE])
+    assert req2.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
+    assert req2.payload.get("reason") == "scout_deck_pick"
+    assert req2.payload.get("queue") == "resistance"
+    assert len(req2.options) == 2
+
+    keep = req2.options[0]
+    other = req2.options[1]
+    try:
+        gen.send([keep])
+        raise AssertionError("expected StopIteration")
+    except StopIteration as stop:
+        revealed = stop.value
+
+    assert len(revealed) == 1
+    assert revealed[0].startswith("resistance:")
+    assert len(engine.resistance_queue) == before_res_queue + 1
+    assert engine.resistance_queue.cards_and_visibilities[-1][0] == keep
+    assert engine.resistance_queue.cards_and_visibilities[-1][1] is True
+    assert other in engine.resistance_deck.discard
+    assert (
+        len(engine.resistance_deck.deck) + len(engine.resistance_deck.discard)
+        == before_deck - 1
     )
-    assert engine.event_log
-    assert engine.event_log[-1]["detail"]["kind"] == "frustrated"
-    assert "nothing to scout" in engine.messages[-1]

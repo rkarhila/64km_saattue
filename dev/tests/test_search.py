@@ -1,8 +1,8 @@
-"""Search action (Etsi ryöstettävää): always legal; fills pillage queue."""
+"""Search action: scout limited to the pillage queue/deck."""
 
 from sixtyfivekmconvoy.core import actions as action_mod
 from sixtyfivekmconvoy.core.cards import ACTION_CATALOG
-from sixtyfivekmconvoy.core.constants import ActionName
+from sixtyfivekmconvoy.core.constants import ActionName, ChoiceType
 from sixtyfivekmconvoy.core.engine import GameEngine
 from sixtyfivekmconvoy.core.models import UnitType
 
@@ -39,16 +39,12 @@ def test_card_9_search_always_legal_for_panzer():
     _seat(engine)
     panzer = next(u for u in engine.convoy.units if u.unittype == UnitType.PANZER)
     face = _search_face_card_9()
-    # Even with empty pillage queue / no hidden cards, search is legal.
     assert len(engine.pillage_queue) == 0
-    assert action_mod.scoutable_queues(engine)  # resistance/mauling still hidden
     assert action_mod.why_action_impossible(engine, panzer.index(), face) == []
     assert action_mod.is_action_possible(engine, panzer.index(), face)
 
 
-def test_resolve_search_draws_and_scouts_interactive():
-    from sixtyfivekmconvoy.core.constants import ChoiceType
-
+def test_resolve_search_draws_from_pillage_deck_when_queue_empty():
     engine = GameEngine()
     engine.reset(num_players=2, seed=4)
     engine.pause_after_actions = False
@@ -57,37 +53,70 @@ def test_resolve_search_draws_and_scouts_interactive():
     face = _search_face_card_9()
     count = int(face["action_modifier"])
     assert count == 2
-    before_deck = len(engine.pillage_deck.deck)
-    before_queue = len(engine.pillage_queue)
+    assert len(engine.pillage_queue) == 0
+    before_deck = len(engine.pillage_deck.deck) + len(engine.pillage_deck.discard)
 
     gen = action_mod.resolve_search(engine, panzer, count)
+    # Only pillage is allowed → skip deck choice, go straight to pick-one-of-N.
     req = next(gen)
-    
+    assert req.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
+    assert req.payload.get("reason") == "scout_deck_pick"
+    assert req.payload.get("queue") == "pillage"
+    assert req.num_choices == 1
+    assert len(req.options) == count
+
+    keep = req.options[0]
+    other = req.options[1]
+    try:
+        gen.send([keep])
+        raise AssertionError("expected StopIteration")
+    except StopIteration as stop:
+        revealed = stop.value
+
+    assert len(revealed) == 1
+    assert revealed[0].startswith("pillage:")
+    assert len(engine.pillage_queue) == 1
+    assert engine.pillage_queue.cards_and_visibilities[0][0] == keep
+    assert engine.pillage_queue.cards_and_visibilities[0][1] is True
+    assert other in engine.pillage_deck.discard
+    assert (
+        len(engine.pillage_deck.deck) + len(engine.pillage_deck.discard)
+        == before_deck - 1
+    )
+
+
+def test_resolve_search_reveals_existing_face_down_pillage():
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=6)
+    engine.pause_after_actions = False
+    _seat(engine)
+    panzer = next(u for u in engine.convoy.units if u.unittype == UnitType.PANZER)
+
+    # Seed two face-down pillage cards — search must reveal, not pad from deck.
+    c1 = engine.pillage_deck.get_card()
+    c2 = engine.pillage_deck.get_card()
+    engine.pillage_queue.put_card(c1, visible=False)
+    engine.pillage_queue.put_card(c2, visible=False)
+    before_deck = len(engine.pillage_deck.deck)
+
+    gen = action_mod.resolve_search(engine, panzer, count=2)
+    req = next(gen)
     assert req.choicetype == ChoiceType.CHOOSE_CARDS_TO_SCOUT
     assert req.num_choices == 2
-    # The options should be the indices [0, 1] of the newly added face-down pillage cards
-    assert 0 in req.options
-    assert 1 in req.options
+    # Scout encoding: pillage code 0 → options are queue indices 0 and 1.
+    assert set(req.options) == {0, 1}
 
-    # Choose to reveal them
     req2 = gen.send([0, 1])
-    
-    # Since we chose 2 cards, it should prompt to reorder them
     assert req2.choicetype == ChoiceType.REORDER_SCOUTED_CARDS
-    assert req2.num_choices == 2
-    
-    # Send swap order
+
     try:
         gen.send([1, 0])
         raise AssertionError("expected StopIteration")
     except StopIteration as stop:
-        summary_parts = stop.value
+        revealed = stop.value
 
-    assert len(summary_parts) == 1
-    assert "searched and revealed" in summary_parts[0]
-    
-    # Verify that the two cards in the queue are now face up
-    assert len(engine.pillage_queue) == before_queue + count
+    assert len(revealed) == 2
+    assert all(r.startswith("pillage:") for r in revealed)
+    assert len(engine.pillage_deck.deck) == before_deck  # no extra draws
     assert engine.pillage_queue.cards_and_visibilities[0][1] is True
     assert engine.pillage_queue.cards_and_visibilities[1][1] is True
-    assert any("search → pillage queue" in m for m in engine.messages)
