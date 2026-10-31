@@ -26,6 +26,37 @@
   let payPicks = [];
   /** @type {any} */
   let lastSnap = null;
+  /** @type {Record<string, boolean[]>} deckKey -> visibility flags */
+  let prevQueueVis = {};
+  /** @type {Record<string, {tired:number,influence:number,damage:number,atrocity:number}>} */
+  let prevStatus = {};
+  /** Round number for which marker/action halos are kept. */
+  let fxRound = null;
+  /**
+   * Static halo kinds gained this round: targetKey -> Set(kind).
+   * Survives continue; cleared when the round advances.
+   * @type {Record<string, Set<string>>}
+   */
+  let markerHalo = {};
+  /**
+   * Blink FX only while awaiting continue for the latest pause.
+   * @type {Record<string, {addedKinds:string[], removedCounts:Record<string,number>}>}
+   */
+  let markerBlink = {};
+  /**
+   * Chosen action face halo this round: `${unitIdx}:${cardId}` -> {faceIndex, frustrated}.
+   * @type {Record<string, {faceIndex:number|null, frustrated:boolean}>}
+   */
+  let actionHalo = {};
+  /** Unit/card keys whose chosen action is currently blinking. */
+  let actionBlink = new Set();
+  /**
+   * Last seen resolution signature per unit stack entry, to detect new resolves.
+   * @type {Record<string, string>}
+   */
+  let prevActionSig = {};
+  /** Just-revealed queue keys for flip animation: "pillage:0" */
+  let pendingReveals = new Set();
 
   // On page load, check for imported state in URL
   const urlParams = new URLSearchParams(window.location.search);
@@ -92,6 +123,7 @@
   });
 
   $("continueBtn").addEventListener("click", () => sendContinue());
+  $("randomChoiceBtn").addEventListener("click", () => sendRandomChoice());
 
   $("shareBtn").addEventListener("click", async () => {
     console.log("lastSnap status:", lastSnap);
@@ -131,10 +163,33 @@
     render(await res.json());
   });
 
-  function resetLocal() {
+  function clearRoundFx() {
+    markerHalo = {};
+    markerBlink = {};
+    actionHalo = {};
+    actionBlink = new Set();
+  }
+
+  function demoteBlinkToHalo() {
+    // Continue clicked (or pause ended): stop blinking; static halo remains.
+    markerBlink = {};
+    actionBlink = new Set();
+  }
+
+  function resetPicks() {
     slotCards = {};
     placementMap = {};
     payPicks = [];
+  }
+
+  function resetLocal() {
+    resetPicks();
+    prevQueueVis = {};
+    prevStatus = {};
+    prevActionSig = {};
+    fxRound = null;
+    clearRoundFx();
+    pendingReveals = new Set();
   }
 
   async function sendChoice(choice) {
@@ -147,7 +202,7 @@
       alert(await res.text());
       return;
     }
-    resetLocal();
+    resetPicks();
     render(await res.json());
   }
 
@@ -159,8 +214,25 @@
       alert(await res.text());
       return;
     }
-    resetLocal();
+    resetPicks();
+    // Stop prior blinks; static round halos stay. New pause in this snap can blink again.
+    demoteBlinkToHalo();
     render(await res.json());
+  }
+
+  async function sendRandomChoice() {
+    if (!lastSnap || lastSnap.terminal) return;
+    if (lastSnap.awaiting_continue) {
+      await sendContinue();
+      return;
+    }
+    const legal = lastSnap.legal_actions || [];
+    if (!legal.length) {
+      alert("Ei laillisia valintoja.");
+      return;
+    }
+    const pick = legal[Math.floor(Math.random() * legal.length)];
+    await sendChoice(Array.isArray(pick) ? [...pick] : [pick]);
   }
 
   function escapeHtml(s) {
@@ -197,6 +269,13 @@
     "pillage.cash": "Rahaa",
     "pillage.loot": "Ryöstösaalis",
     "pillage.atrocities": "Hirmutekoja",
+    "deck.officer": "Upseeri",
+    "officer.always_on": "Aina päällä",
+    "officer.discard": "Poista",
+    "officer.troop": "Joukko",
+    "officer.zone": "Alue",
+    "officer.cost": "Hinta",
+    "resistance.destroy_cash": "Tuhoaminen",
   };
 
   function t(key, vars) {
@@ -257,11 +336,18 @@
           : "") +
         `</span>`
     );
+    const destroyCash = Number(
+      data.cash_for_destroying ?? data.effect?.cash_for_destroying ?? 0
+    );
+    const destroyLabel = destroyCash > 0 ? `(+${destroyCash})` : "";
     const durBox = fancyBox(
       t("resistance.hitpoints"),
       `<span>${escapeHtml(t("resistance.durability"))}: <strong>${escapeHtml(String(durability))}</strong></span>` +
         (loot
           ? `<span>${escapeHtml(t("resistance.pillage_cards"))}: <strong>${escapeHtml(String(loot))} kpl</strong></span>`
+          : "") +
+        (destroyLabel
+          ? `<span>${escapeHtml(t("resistance.destroy_cash"))}: <strong class="reward-chip contingent">${escapeHtml(destroyLabel)}</strong></span>`
           : "")
     );
 
@@ -269,7 +355,11 @@
       (eyebrow
         ? `<div class="fancy-eyebrow">${escapeHtml(eyebrow)}</div>`
         : `<div class="fancy-eyebrow">${escapeHtml(t("deck.resistance"))}</div>`) +
-      `<div class="fancy-title">${escapeHtml(name)}</div>` +
+      `<div class="fancy-title">${escapeHtml(name)}` +
+      (destroyLabel
+        ? `<span class="reward-chip contingent title-cash" title="Vain jos vastarinta tuhotaan">${escapeHtml(destroyLabel)}</span>`
+        : "") +
+      `</div>` +
       `<div class="fancy-body">${ambushBox}${counterBox}${durBox}</div>`
     );
   }
@@ -343,6 +433,76 @@
     );
   }
 
+  function officerMode(card) {
+    const hasDiscard = Boolean(
+      card.discard_effect || card.action_type || card.discard_description
+    );
+    const hasPassive = Boolean(card.passive_effect || card.passive_description);
+    if (hasDiscard && !hasPassive) return "discard";
+    if (hasPassive && !hasDiscard) return "always_on";
+    // Prefer discard if both somehow present; else always-on.
+    if (hasDiscard) return "discard";
+    return "always_on";
+  }
+
+  function officerActionDescription(card) {
+    const mode = officerMode(card);
+    if (mode === "discard") {
+      return (
+        card.discard_description ||
+        card.action_type ||
+        card.discard_effect ||
+        "—"
+      );
+    }
+    return card.passive_description || card.passive_effect || "—";
+  }
+
+  function officerTroopLabel(troop) {
+    const raw = String(troop || "A").toUpperCase();
+    if (raw === "A") return "P/I/L";
+    return raw.split("").join("/");
+  }
+
+  function renderOfficerFancyHtml(card) {
+    const mode = officerMode(card);
+    const modeLabel =
+      mode === "discard" ? t("officer.discard") : t("officer.always_on");
+    const desc = officerActionDescription(card);
+    const troop = officerTroopLabel(card.troop_type);
+    const zone = card.zone ? String(card.zone) : "—";
+    const limitsBox = fancyBox(
+      "",
+      `<span>${escapeHtml(t("officer.troop"))}: <strong>${escapeHtml(troop)}</strong>` +
+        ` · ${escapeHtml(t("officer.zone"))}: <strong>${escapeHtml(zone)}</strong></span>` +
+        (mode === "discard" && card.cost != null && String(card.cost) !== ""
+          ? `<span>${escapeHtml(t("officer.cost"))}: <strong>${escapeHtml(String(card.cost))}</strong></span>`
+          : "")
+    );
+    const actionBox = fancyBox(
+      modeLabel,
+      `<span>${escapeHtml(String(desc))}</span>`
+    );
+    return (
+      `<div class="fancy-eyebrow">${escapeHtml(t("deck.officer"))}</div>` +
+      `<div class="fancy-title">${escapeHtml(card.name || "?")}</div>` +
+      `<div class="fancy-body">${limitsBox}${actionBox}</div>`
+    );
+  }
+
+  function renderOfficerTuckHtml(card) {
+    const mode = officerMode(card);
+    const modeLabel =
+      mode === "discard" ? t("officer.discard") : t("officer.always_on");
+    const desc = officerActionDescription(card);
+    return (
+      `<div class="officer-tuck-name">${escapeHtml(card.name || "Upseeri")}</div>` +
+      `<div class="officer-tuck-action">${escapeHtml(modeLabel)} · ${escapeHtml(
+        String(desc)
+      )}</div>`
+    );
+  }
+
   function fillFancyQueueCard(el, card, deckKey) {
     el.classList.add("fancy-queue-card", `fancy-${deckKey}`);
     if (deckKey === "resistance" && (card.effect || card.ambush_attack_name != null)) {
@@ -351,6 +511,15 @@
       el.innerHTML = renderMaulingFancyHtml(card);
     } else if (deckKey === "pillage" && card.reward) {
       el.innerHTML = renderPillageFancyHtml(card);
+    } else if (
+      deckKey === "officer" &&
+      (card.officer_id != null ||
+        card.passive_effect != null ||
+        card.discard_effect != null ||
+        card.passive_description ||
+        card.action_type)
+    ) {
+      el.innerHTML = renderOfficerFancyHtml(card);
     } else {
       el.classList.remove("fancy-queue-card", `fancy-${deckKey}`);
       el.innerHTML =
@@ -380,6 +549,8 @@
       strikethrough = false,
       chosen = false,
       available = false,
+      halo = false,
+      blink = false,
       onClick = null,
     } = {}
   ) {
@@ -390,7 +561,9 @@
       (clickable ? " face-clickable" : "") +
       (strikethrough ? " face-strike" : "") +
       (available && !strikethrough ? " face-available" : "") +
-      (chosen ? " face-chosen" : "");
+      (chosen ? " face-chosen" : "") +
+      (halo ? " halo" : "") +
+      (blink ? " blink" : "");
 
     const head = document.createElement("div");
     head.className = "face-head";
@@ -398,7 +571,19 @@
 
     const title = document.createElement("div");
     title.className = "face-title";
-    title.textContent = face.title;
+    const reward = face.reward || {};
+    const rewardLabel =
+      reward.label ||
+      (Number(face.cash_bonus || 0) > 0 ? `(+${face.cash_bonus})` : "");
+    if (rewardLabel) {
+      title.innerHTML =
+        `${escapeHtml(face.title)}` +
+        `<span class="reward-chip contingent" title="Vain jos toiminto onnistuu / on merkityksellinen">${escapeHtml(
+          rewardLabel
+        )}</span>`;
+    } else {
+      title.textContent = face.title;
+    }
 
     const meta = document.createElement("div");
     meta.className = "face-meta";
@@ -437,6 +622,8 @@
       chosenFaceIndex = null,
       resolved = false,
       frustrated = false,
+      chosenHalo = false,
+      chosenBlink = false,
       onFaceClick = null,
       onClick = null,
     } = {}
@@ -448,7 +635,9 @@
       (selected ? " selected" : "") +
       (compact ? " compact" : "") +
       (draggable ? " draggable" : "") +
-      (frustrated ? " frustrated" : "");
+      (frustrated ? " frustrated" : "") +
+      (frustrated && chosenHalo ? " halo" : "") +
+      (frustrated && chosenBlink ? " blink" : "");
     if (disabled && el.tagName === "BUTTON") el.disabled = true;
 
     if (draggable) {
@@ -509,6 +698,8 @@
         strikethrough: strike,
         chosen,
         available: contrastMode && !strike,
+        halo: Boolean(chosen && chosenHalo),
+        blink: Boolean(chosen && chosenBlink),
         onClick: handler,
       });
 
@@ -571,6 +762,21 @@
 
   function isPillagePick(snap) {
     return snap.pending && snap.pending.choicetype === CT.CHOOSE_PILLAGE_CARD;
+  }
+
+  function isOfficerPick(snap) {
+    return snap.pending && snap.pending.choicetype === CT.CHOOSE_OFFICER;
+  }
+
+  function normalizeOfficers(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((o) => {
+        if (o && typeof o === "object") return o;
+        if (typeof o === "string") return { name: o };
+        return null;
+      })
+      .filter(Boolean);
   }
 
   function isPayCost(snap) {
@@ -806,15 +1012,224 @@
     return token.repeat(count);
   }
 
-  function unitTokenHtml(u) {
-    const tired = repeatToken("🟢", u.tiredness);
-    const influence = u.under_influence ? "🟡" : "";
-    const atrocities = Math.max(0, Number(u.atrocities) || 0);
-    const atrocitySpans = Array.from({ length: atrocities }, () =>
-      '<span class="atrocity" title="raakuus" aria-label="raakuus"></span>'
-    ).join("");
-    const bits = [tired, influence, atrocitySpans].filter(Boolean).join("");
-    return bits || '<span class="muted">—</span>';
+  function unitDamageCount(u) {
+    const carry = Array.isArray(u.carry) ? u.carry.length : 0;
+    return Math.max(0, 3 - carry);
+  }
+
+  function statusCountsForUnit(u) {
+    return {
+      tired: Math.max(0, Number(u.tiredness) || 0),
+      influence: Number(u.under_influence) > 0 ? 1 : 0,
+      damage: unitDamageCount(u),
+      atrocity: Math.max(0, Number(u.atrocities) || 0),
+    };
+  }
+
+  function statusCountsForResistance(res) {
+    if (!res || !res.active) {
+      return { tired: 0, influence: 0, damage: 0, atrocity: 0 };
+    }
+    const key = `res:${res.name}`;
+    const dur = Number(res.durability);
+    if (!Number.isFinite(dur)) {
+      return { tired: 0, influence: 0, damage: 0, atrocity: 0 };
+    }
+    // Track baseline max durability per resistance name for damage chips.
+    if (prevStatus[key] == null) {
+      prevStatus[`${key}:maxDur`] = { tired: 0, influence: 0, damage: dur, atrocity: 0 };
+    }
+    const maxDur = Math.max(
+      Number(prevStatus[`${key}:maxDur`]?.damage) || dur,
+      dur
+    );
+    prevStatus[`${key}:maxDur`] = { tired: 0, influence: 0, damage: maxDur, atrocity: 0 };
+    return {
+      tired: 0,
+      influence: 0,
+      damage: Math.max(0, maxDur - dur),
+      atrocity: 0,
+    };
+  }
+
+  function chipsHtml(counts, { haloKinds, blinkKinds, removedCounts } = {}) {
+    const parts = [];
+    const order = [
+      ["tired", counts.tired],
+      ["influence", counts.influence],
+      ["damage", counts.damage],
+      ["atrocity", counts.atrocity],
+    ];
+    order.forEach(([kind, n]) => {
+      for (let i = 0; i < n; i++) {
+        const classes = ["status-chip", kind];
+        if (haloKinds && haloKinds.has(kind)) {
+          classes.push("halo");
+          if (blinkKinds && blinkKinds.has(kind)) classes.push("blink");
+        }
+        parts.push(`<span class="${classes.join(" ")}"></span>`);
+      }
+    });
+    // Ghost chips with blinking red X only while this pause is awaiting continue.
+    if (removedCounts) {
+      ["tired", "influence", "damage", "atrocity"].forEach((kind) => {
+        const n = removedCounts[kind] || 0;
+        for (let i = 0; i < n; i++) {
+          parts.push(
+            `<span class="status-chip ${kind} removed blink" aria-hidden="true">` +
+              `<span class="chip-x">×</span></span>`
+          );
+        }
+      });
+    }
+    return parts.length
+      ? `<div class="status-overlay">${parts.join("")}</div>`
+      : `<div class="status-overlay"><span class="muted">—</span></div>`;
+  }
+
+  function unitTokenHtml(u, opts) {
+    return chipsHtml(statusCountsForUnit(u), opts);
+  }
+
+  function pileOrigin(kind) {
+    const pile = document.querySelector(`#markerTray .marker-pile[data-kind="${kind}"]`);
+    if (!pile) return null;
+    const r = pile.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+
+  function flyChipsTo(targetEl, kind, count) {
+    if (!targetEl || count <= 0) return;
+    const origin = pileOrigin(kind);
+    const destBox = targetEl.getBoundingClientRect();
+    if (!origin || !destBox.width) return;
+    for (let i = 0; i < count; i++) {
+      const chip = document.createElement("span");
+      chip.className = `status-chip ${kind} flying`;
+      const jitter = (Math.random() - 0.5) * 10;
+      chip.style.left = `${origin.x - 6}px`;
+      chip.style.top = `${origin.y - 6}px`;
+      document.body.appendChild(chip);
+      // Force layout then animate to target.
+      void chip.offsetWidth;
+      const dx = destBox.left + destBox.width * 0.35 + jitter - 6;
+      const dy = destBox.top + 8 + i * 3;
+      chip.style.left = `${dx}px`;
+      chip.style.top = `${dy}px`;
+      setTimeout(() => chip.remove(), 600);
+    }
+  }
+
+  function syncFxRound(snap) {
+    const round = snap.state && snap.state.round;
+    if (fxRound != null && round != null && round !== fxRound) {
+      clearRoundFx();
+      prevActionSig = {};
+    }
+    if (round != null) fxRound = round;
+  }
+
+  function animateStatusDeltas(key, nextCounts, targetEl, { pauseActive, trackHalo } = {}) {
+    // First sighting: baseline only (avoid flying/haloing every existing marker).
+    if (prevStatus[key] == null) {
+      prevStatus[key] = { ...nextCounts };
+      return {
+        haloKinds: new Set(markerHalo[key] || []),
+        blinkKinds: new Set(),
+        removedCounts: null,
+      };
+    }
+    const prev = prevStatus[key];
+    const addedKinds = new Set();
+    const removedCounts = { tired: 0, influence: 0, damage: 0, atrocity: 0 };
+    ["tired", "influence", "damage", "atrocity"].forEach((kind) => {
+      const delta = (nextCounts[kind] || 0) - (prev[kind] || 0);
+      if (delta > 0) {
+        addedKinds.add(kind);
+        flyChipsTo(targetEl, kind, delta);
+      } else if (delta < 0) {
+        removedCounts[kind] = -delta;
+      }
+    });
+    prevStatus[key] = { ...nextCounts };
+
+    if (trackHalo) {
+      if (!markerHalo[key]) markerHalo[key] = new Set();
+      addedKinds.forEach((kind) => markerHalo[key].add(kind));
+    }
+
+    if (pauseActive) {
+      if (addedKinds.size || Object.values(removedCounts).some((n) => n > 0)) {
+        markerBlink[key] = {
+          addedKinds: [...addedKinds],
+          removedCounts: { ...removedCounts },
+        };
+      }
+    }
+
+    const blink = markerBlink[key];
+    return {
+      haloKinds: new Set(markerHalo[key] || []),
+      blinkKinds: new Set((blink && blink.addedKinds) || []),
+      removedCounts: blink ? { ...blink.removedCounts } : null,
+    };
+  }
+
+  function noteResolvedAction(unitIdx, entry, pauseActive) {
+    if (!entry || !entry.resolved || entry.card == null) return;
+    const key = `${unitIdx}:${entry.card}`;
+    const sig = [
+      entry.resolved ? 1 : 0,
+      entry.frustrated ? 1 : 0,
+      entry.chosen_face_index == null ? "x" : entry.chosen_face_index,
+    ].join(":");
+    const prev = prevActionSig[key];
+    prevActionSig[key] = sig;
+    if (prev === sig) {
+      // Unchanged; keep existing halo/blink state.
+      return;
+    }
+    if (prev == null && !pauseActive) {
+      // First sighting outside a pause (e.g. page load) — no FX.
+      return;
+    }
+    if (entry.resolved && (prev == null || prev !== sig)) {
+      actionHalo[key] = {
+        faceIndex:
+          entry.chosen_face_index != null ? entry.chosen_face_index : null,
+        frustrated: Boolean(entry.frustrated),
+      };
+      if (pauseActive) actionBlink.add(key);
+    }
+  }
+
+  function actionFxFor(unitIdx, cardId) {
+    const key = `${unitIdx}:${cardId}`;
+    const halo = actionHalo[key];
+    if (!halo) return { chosenHalo: false, chosenBlink: false };
+    return {
+      chosenHalo: true,
+      chosenBlink: actionBlink.has(key),
+      haloFaceIndex: halo.faceIndex,
+      haloFrustrated: halo.frustrated,
+    };
+  }
+
+  function noteQueueReveals(snap) {
+    const rows =
+      (snap.state && snap.state.decks && snap.state.decks.rows) || [];
+    rows.forEach((row) => {
+      if (!row || !row.key) return;
+      const queue = row.queue || [];
+      const prev = prevQueueVis[row.key] || [];
+      queue.forEach((card, i) => {
+        const vis = !!(card && card.visible);
+        if (vis && prev[i] === false) {
+          pendingReveals.add(`${row.key}:${i}`);
+        }
+      });
+      prevQueueVis[row.key] = queue.map((c) => !!(c && c.visible));
+    });
   }
 
   function renderResistance(snap) {
@@ -832,10 +1247,22 @@
       return;
     }
     card.className = "resistance-card fancy-queue-card fancy-resistance";
+    card.dataset.statusTarget = "resistance";
     card.innerHTML = renderResistanceFancyHtml(res, {
       eyebrow: `${t("deck.resistance")} · este`,
     });
     el.appendChild(card);
+    const counts = statusCountsForResistance(res);
+    const pauseActive = Boolean(
+      snap.pause_after_actions && snap.awaiting_continue
+    );
+    const deltaOpts = animateStatusDeltas("resistance", counts, card, {
+      pauseActive,
+      trackHalo: Boolean(snap.pause_after_actions),
+    });
+    const overlay = document.createElement("div");
+    overlay.innerHTML = chipsHtml(counts, deltaOpts);
+    card.appendChild(overlay.firstChild);
   }
 
   function renderConvoy(snap) {
@@ -873,14 +1300,27 @@
         (u.player === seatNum ? " yours" : "") +
         ` ${playerColorClass(u.player)}`;
       const typeLabel = u.unit_type_label || u.unit_type;
+      unit.dataset.statusTarget = `unit-${i}`;
+      const counts = statusCountsForUnit(u);
+      // Animate after element is in DOM (below).
       unit.innerHTML =
         `<strong>#${i}</strong> P${u.player} ${escapeHtml(typeLabel)}` +
-        `<div class="unit-tokens">${unitTokenHtml(u)}</div>` +
+        `<div class="unit-tokens"></div>` +
         `<div class="unit-meta">carry ${escapeHtml(JSON.stringify(u.carry))}</div>`;
       wrap.appendChild(unit);
+      const pauseActive = Boolean(
+        snap.pause_after_actions && snap.awaiting_continue
+      );
+      const deltaOpts = animateStatusDeltas(`unit-${i}`, counts, unit, {
+        pauseActive,
+        trackHalo: Boolean(snap.pause_after_actions),
+      });
+      unit.querySelector(".unit-tokens").innerHTML = unitTokenHtml(u, deltaOpts);
 
       const slot = document.createElement("div");
       slot.className = "card-slot";
+      const officers = normalizeOfficers(u.officers);
+      if (officers.length) slot.classList.add("has-officer");
       const isDropTarget = assign && assignSet.has(i);
       const action = u.action || {};
 
@@ -949,6 +1389,8 @@
                   ? stackIdx === stack.length - 1
                   : entry.card === activeCardId);
               if (isActive) anyChoosing = true;
+              noteResolvedAction(i, entry, pauseActive);
+              const fx = actionFxFor(i, entry.card);
               layer.appendChild(
                 buildActionCard(cats[String(entry.card)], {
                   compact: false,
@@ -960,9 +1402,14 @@
                   chosenFaceIndex:
                     entry.resolved && entry.chosen_face_index != null
                       ? entry.chosen_face_index
-                      : null,
-                  resolved: Boolean(entry.resolved),
-                  frustrated: Boolean(entry.frustrated),
+                      : fx.haloFaceIndex != null
+                        ? fx.haloFaceIndex
+                        : null,
+                  resolved: Boolean(entry.resolved) || Boolean(fx.chosenHalo),
+                  frustrated:
+                    Boolean(entry.frustrated) || Boolean(fx.haloFrustrated),
+                  chosenHalo: Boolean(fx.chosenHalo),
+                  chosenBlink: Boolean(fx.chosenBlink),
                 })
               );
             } else {
@@ -973,9 +1420,30 @@
           slot.appendChild(stackEl);
           if (anyChoosing) slot.classList.add("choosing-action");
         }
-      } else {
+      } else if (!officers.length) {
         slot.classList.add("empty-slot");
         slot.innerHTML = `<div class="slot-placeholder muted">—</div>`;
+      } else {
+        slot.innerHTML = `<div class="slot-placeholder muted">—</div>`;
+      }
+
+      if (officers.length) {
+        const tuckRow = document.createElement("div");
+        tuckRow.className = "officer-tucks";
+        officers.forEach((off) => {
+          const tuck = document.createElement("div");
+          tuck.className = "officer-tuck";
+          tuck.title = [
+            off.name,
+            off.passive_description || off.passive_effect,
+            officerActionLabel(off) || off.discard_description,
+          ]
+            .filter(Boolean)
+            .join(" — ");
+          tuck.innerHTML = renderOfficerTuckHtml(off);
+          tuckRow.appendChild(tuck);
+        });
+        slot.appendChild(tuckRow);
       }
 
       wrap.appendChild(slot);
@@ -1019,18 +1487,134 @@
       });
   }
 
+  function prettifyLogLine(text) {
+    let displayText = text;
+    if (text.includes(" frustrated on card ")) {
+      // Example:
+      // "blue panssarit frustrated on card 10 (...): exit:zone ['A'] not in allowed 'E' for P; ..."
+      // Target: "blue panssarit frustrated on card 10: wrong zone for "sayonara suckers", ..."
+      const frustratedRegex =
+        /^(.+? frustrated on card \d+)(?:\s*\(.*?\))?:\s*(.+)$/i;
+      const match = text.match(frustratedRegex);
+      if (match) {
+        const header = match[1];
+        const rawReasons = match[2];
+        const reasons = rawReasons
+          .split(";")
+          .map((r) => r.trim())
+          .filter(Boolean);
+        const translatedReasons = [];
+        let wrongZoneActions = [];
+        let wrongTroopActions = [];
+        let tooExpensiveActions = [];
+        let otherBlockedActions = [];
+
+        const actionNames = {
+          exit: '"sayonara suckers" (Pakene)',
+          scout: "Tiedustele (Scout)",
+          promote: "Ylennä (Promote)",
+          pillage: "Ryöstä (Pillage)",
+          attack: "Hyökkää (Attack)",
+          assault: "Assault",
+          bypass: "Ohita (Bypass)",
+          defend: "Puolusta (Defend)",
+          "human shields": "Ihmiskilvet (Human Shields)",
+          patrol: "Partioi (Patrol)",
+          rest: "Lepää (Rest)",
+          retreat: "Peräänny (Retreat)",
+          search: "Etsi (Search)",
+          service: "Huolla (Service)",
+          sober_up: "Sober Up",
+          wait: "Wait",
+          suicidal_attack: "Suicidal Attack",
+        };
+
+        reasons.forEach((reason) => {
+          const partMatch = reason.match(/^([^:]+):(.*)$/);
+          if (partMatch) {
+            const actionCode = partMatch[1].trim();
+            const actionDetail = partMatch[2].trim();
+            const actionName =
+              actionNames[actionCode.toLowerCase()] || actionCode;
+            if (actionDetail.includes("zone")) {
+              wrongZoneActions.push(actionName);
+            } else if (
+              actionDetail.includes("troop") ||
+              actionDetail.includes("limits")
+            ) {
+              wrongTroopActions.push(actionName);
+            } else if (
+              actionDetail.includes("cost") ||
+              actionDetail.includes("hand")
+            ) {
+              tooExpensiveActions.push(actionName);
+            } else {
+              otherBlockedActions.push(`${actionName} (${actionDetail})`);
+            }
+          } else {
+            otherBlockedActions.push(reason);
+          }
+        });
+
+        if (wrongZoneActions.length > 0) {
+          translatedReasons.push(
+            `wrong zone for ${wrongZoneActions.join(" or ")}`
+          );
+        }
+        if (wrongTroopActions.length > 0) {
+          translatedReasons.push(
+            `wrong troop type for ${wrongTroopActions.join(" or ")}`
+          );
+        }
+        if (tooExpensiveActions.length > 0) {
+          translatedReasons.push(
+            `too expensive for ${tooExpensiveActions.join(" or ")}`
+          );
+        }
+        if (otherBlockedActions.length > 0) {
+          translatedReasons.push(otherBlockedActions.join(", "));
+        }
+
+        displayText =
+          translatedReasons.length > 0
+            ? `${header}: ${translatedReasons.join(", ")}.`
+            : `${header}: no valid actions available.`;
+      }
+    }
+    return displayText;
+  }
+
   function renderContinuePanel(snap) {
     const panel = $("continuePanel");
     if (!panel) return;
-    if (snap.awaiting_continue && !snap.terminal) {
-      panel.classList.remove("hidden");
-      const log = (snap.state && snap.state.log) || [];
-      const last = log.length ? log[log.length - 1] : "";
-      $("continueHint").textContent = last
-        ? `Loki: ${last}`
-        : "Toiminto kirjattu lokiin.";
-    } else {
-      panel.classList.add("hidden");
+    // Sidebar stays visible during the game; only the continue action block toggles.
+    panel.classList.remove("hidden");
+    const actions = $("continueActions");
+    const awaiting = Boolean(snap.awaiting_continue && !snap.terminal);
+    panel.classList.toggle("awaiting", awaiting);
+    const randomBtn = $("randomChoiceBtn");
+    if (randomBtn) {
+      const canRandom =
+        !snap.terminal &&
+        (awaiting || (Array.isArray(snap.legal_actions) && snap.legal_actions.length > 0));
+      randomBtn.disabled = !canRandom;
+      randomBtn.classList.toggle("hidden", snap.terminal);
+      randomBtn.textContent = awaiting ? "Satunnainen (jatka)" : "Satunnainen";
+    }
+    if (actions) {
+      if (awaiting) {
+        actions.classList.remove("hidden");
+        const raw =
+          snap.continue_hint ||
+          ((snap.state && snap.state.log && snap.state.log.length)
+            ? snap.state.log[snap.state.log.length - 1]
+            : "");
+        $("continueHint").textContent = raw
+          ? prettifyLogLine(String(raw).replace(/\s*Jatka\.?\s*$/i, "").trim())
+          : "Toiminto kirjattu lokiin. Klikkaa jatkaaksesi.";
+      } else {
+        actions.classList.add("hidden");
+      }
     }
   }
 
@@ -1134,6 +1718,16 @@
       hint.textContent = `Napsauta toimintoa kortilla (${(snap.pending.payload || {}).unit_type_label || "yksikkö"}).`;
       opts.appendChild(hint);
       // Card is also shown under the unit with clickable faces
+      return;
+    }
+
+    if (isOfficerPick(snap)) {
+      title.textContent = "Ylennä upseeri";
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent =
+        "Napsauta upseerikorttia upseerijonossa ylentääksesi sen tälle yksikölle.";
+      opts.appendChild(hint);
       return;
     }
 
@@ -1292,10 +1886,14 @@
     }
 
     if (snap.pending.choicetype === CT.LOG_PAUSE) {
-      title.textContent = "Peli pysäytetty";
+      const payload = snap.pending.payload || {};
+      const isReveal = payload.reason === "reveal_pause";
+      title.textContent = isReveal ? "Kortti paljastettu" : "Peli pysäytetty";
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent = "Lue loki ja napsauta Seuraava jatkaaksesi peliä.";
+      hint.textContent = isReveal
+        ? snap.pending.description || "Katso paljastettu kortti ja jatka."
+        : "Lue loki ja napsauta Seuraava jatkaaksesi peliä.";
       opts.appendChild(hint);
 
       const actions = document.createElement("div");
@@ -1444,12 +2042,18 @@
           const cardEl = document.createElement("div");
 
           if (card && card.visible) {
+            const revealKey = `${row.key}:${i}`;
+            const justRevealed = pendingReveals.has(revealKey);
             cardEl.className =
-              "queue-card face-up" + (isFront ? " is-front" : "");
+              "queue-card face-up" +
+              (isFront ? " is-front" : "") +
+              (justRevealed ? " revealing" : "");
+            if (justRevealed) pendingReveals.delete(revealKey);
             if (
               row.key === "resistance" ||
               row.key === "mauling" ||
-              row.key === "pillage"
+              row.key === "pillage" ||
+              row.key === "officer"
             ) {
               fillFancyQueueCard(cardEl, card, row.key);
             } else {
@@ -1463,6 +2067,26 @@
             cardEl.className =
               "queue-card face-down" + (isFront ? " is-front" : "");
             cardEl.innerHTML = `<div class="queue-card-mark">🂠</div>`;
+          }
+
+          // --- 0. OFFICER PROMOTE: click queue card (option = queue index) ---
+          if (isOfficerPick(snap) && row.key === "officer" && card && card.visible) {
+            const optsList = snap.pending.options || [];
+            if (optsList.includes(i)) {
+              cardEl.classList.add("officer-selectable");
+              cardEl.setAttribute("role", "button");
+              cardEl.tabIndex = 0;
+              cardEl.addEventListener("click", () => sendChoice([i]));
+              cardEl.addEventListener("keydown", (ev) => {
+                if (ev.key === "Enter" || ev.key === " ") {
+                  ev.preventDefault();
+                  sendChoice([i]);
+                }
+              });
+            } else {
+              // Wrong troop type for this promote — not a legal target.
+              cardEl.classList.add("officer-ineligible");
+            }
           }
 
           // --- 1. SELECTION FLOW (Yellow border direct click) ---
@@ -1558,90 +2182,7 @@
         line.classList.add("round-marker");
       }
 
-      // Prettify/translate the technical frustrated messages for easier player readability
-      let displayText = text;
-      if (text.includes(" frustrated on card ")) {
-        // Example:
-        // "blue panssarit frustrated on card 10 (unit#1 zone=A type=panssarit; resistance:3up/0hid mauling:2up/1hid pillage:0up/0hid): exit:zone ['A'] not in allowed 'E' for P; scout:troop P not in face limits ['I']; promote:troop P not in face limits ['L']"
-        // Target format: "blue panssarit frustrated on card 10: wrong zone for "sayonara suckers", wrong troop type for Tiedustele or Ylennä."
-        const frustratedRegex = /^(.+? frustrated on card \d+)(?:\s*\(.*?\))?:\s*(.+)$/i;
-        const match = text.match(frustratedRegex);
-        if (match) {
-          const header = match[1];
-          const rawReasons = match[2];
-          
-          // Split reasons by semicolon
-          const reasons = rawReasons.split(";").map(r => r.trim()).filter(Boolean);
-          const translatedReasons = [];
-
-          let wrongZoneActions = [];
-          let wrongTroopActions = [];
-          let tooExpensiveActions = [];
-          let otherBlockedActions = [];
-
-          reasons.forEach((reason) => {
-            const partMatch = reason.match(/^([^:]+):(.*)$/);
-            if (partMatch) {
-              const actionCode = partMatch[1].trim();
-              const actionDetail = partMatch[2].trim();
-
-              // Map action names to human-readable names (Finnish or English/quoted nicknames)
-              const actionNames = {
-                "exit": '"sayonara suckers" (Pakene)',
-                "scout": 'Tiedustele (Scout)',
-                "promote": 'Ylennä (Promote)',
-                "pillage": 'Ryöstä (Pillage)',
-                "attack": 'Hyökkää (Attack)',
-                "assault": 'Assault',
-                "bypass": 'Ohita (Bypass)',
-                "defend": 'Puolusta (Defend)',
-                "human shields": 'Ihmiskilvet (Human Shields)',
-                "patrol": 'Partioi (Patrol)',
-                "rest": 'Lepää (Rest)',
-                "retreat": 'Peräänny (Retreat)',
-                "search": 'Etsi (Search)',
-                "service": 'Huolla (Service)',
-                "sober_up": 'Sober Up',
-                "wait": 'Wait',
-                "suicidal_attack": 'Suicidal Attack'
-              };
-
-              const actionName = actionNames[actionCode.toLowerCase()] || actionCode;
-
-              if (actionDetail.includes("zone")) {
-                wrongZoneActions.push(actionName);
-              } else if (actionDetail.includes("troop") || actionDetail.includes("limits")) {
-                wrongTroopActions.push(actionName);
-              } else if (actionDetail.includes("cost") || actionDetail.includes("hand")) {
-                tooExpensiveActions.push(actionName);
-              } else {
-                otherBlockedActions.push(`${actionName} (${actionDetail})`);
-              }
-            } else {
-              otherBlockedActions.push(reason);
-            }
-          });
-
-          if (wrongZoneActions.length > 0) {
-            translatedReasons.push(`wrong zone for ${wrongZoneActions.join(" or ")}`);
-          }
-          if (wrongTroopActions.length > 0) {
-            translatedReasons.push(`wrong troop type for ${wrongTroopActions.join(" or ")}`);
-          }
-          if (tooExpensiveActions.length > 0) {
-            translatedReasons.push(`too expensive for ${tooExpensiveActions.join(" or ")}`);
-          }
-          if (otherBlockedActions.length > 0) {
-            translatedReasons.push(otherBlockedActions.join(", "));
-          }
-
-      if (translatedReasons.length > 0) {
-            displayText = `${header}: ${translatedReasons.join(", ")}.`;
-          } else {
-            displayText = `${header}: no valid actions available.`;
-          }
-        }
-      }
+      const displayText = prettifyLogLine(text);
 
       // Prettify player color keywords and Player X mentions using HTML
       let html = escapeHtml(displayText);
@@ -1670,6 +2211,7 @@
   }
 
   function render(snap) {
+    noteQueueReveals(snap);
     lastSnap = snap;
     const state = snap.state || {};
     $("roundInfo").textContent = `Kierros ${state.round ?? "?"} · vaihe ${state.stage ?? "?"}`;
@@ -1678,6 +2220,10 @@
     if ($("pauseToggle") && typeof snap.pause_after_actions === "boolean") {
       $("pauseToggle").checked = snap.pause_after_actions;
     }
+
+    syncFxRound(snap);
+    // If pause ended without going through continueBtn (e.g. settings), stop blinks.
+    if (!snap.awaiting_continue) demoteBlinkToHalo();
 
     renderConvoy(snap);
     renderHand(snap);

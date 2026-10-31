@@ -8,8 +8,30 @@
 </head>
 <body>
   <header class="top">
-    <h1>65km Convoy</h1>
-    <p class="tag">Ihmispelaaja vs botit</p>
+    <div class="top-brand">
+      <h1>65km Convoy</h1>
+      <p class="tag">Ihmispelaaja vs botit</p>
+    </div>
+    <div id="markerTray" class="marker-tray" aria-label="Statusmerkit">
+      <div class="marker-pile" data-kind="tired" title="Väsymys">
+        <span class="status-chip tired"></span>
+        <span class="status-chip tired"></span>
+        <span class="status-chip tired"></span>
+      </div>
+      <div class="marker-pile" data-kind="influence" title="Humala">
+        <span class="status-chip influence"></span>
+        <span class="status-chip influence"></span>
+      </div>
+      <div class="marker-pile" data-kind="damage" title="Vahinko">
+        <span class="status-chip damage"></span>
+        <span class="status-chip damage"></span>
+        <span class="status-chip damage"></span>
+      </div>
+      <div class="marker-pile" data-kind="atrocity" title="Hirmuteko">
+        <span class="status-chip atrocity"></span>
+        <span class="status-chip atrocity"></span>
+      </div>
+    </div>
   </header>
 
   <section class="controls" id="lobby">
@@ -28,19 +50,24 @@
 
   <main id="game" class="hidden">
     <div class="status-bar">
-      <span id="roundInfo"></span>
       <span id="message"></span>
       <button id="shareBtn" type="button" class="share-btn">Jaa peli</button>
-      <label class="pause-toggle">
+    </div>
+
+    <aside id="continuePanel" class="continue-panel" aria-live="polite">
+      <div id="roundInfo" class="side-round"></div>
+      <label class="pause-toggle side-pause">
         <input type="checkbox" id="pauseToggle" checked />
         Pysäytä lokin jälkeen
       </label>
-    </div>
-
-    <section id="continuePanel" class="continue-panel hidden">
-      <p id="continueHint">Toiminto kirjattu lokiin.</p>
-      <button id="continueBtn" type="button">Jatka</button>
-    </section>
+      <button id="randomChoiceBtn" type="button" class="secondary random-choice-btn" title="Valitse satunnainen laillinen toiminto (testaus)">
+        Satunnainen
+      </button>
+      <div id="continueActions" class="continue-actions hidden">
+        <p id="continueHint">Toiminto kirjattu lokiin.</p>
+        <button id="continueBtn" type="button">Jatka</button>
+      </div>
+    </aside>
 
     <section>
       <h2>Pelaajat</h2>
