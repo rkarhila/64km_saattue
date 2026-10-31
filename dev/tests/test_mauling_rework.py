@@ -155,7 +155,7 @@ def test_mauling_resistance_attack():
     _seat_custom_convoy(engine, [UnitType.INFANTRY])
     unit = engine.convoy.units[0]
     # Let's set unit to defend as "G".
-    unit.resolve_defend(AttackType.GROUND, "_")
+    unit.resolve_defend(AttackType.GROUND)
     assert unit.defending == "G"
 
     gen3 = resolve_mauling(

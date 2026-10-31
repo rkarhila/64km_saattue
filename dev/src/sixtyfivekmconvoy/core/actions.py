@@ -189,11 +189,16 @@ def why_action_impossible(
         # Always available (zone/cost already checked): fills the pillage queue
         # from the pillage deck. Empty deck+discard is a no-op at resolve time.
         pass
+    elif name == ActionName.PROMOTE:
+        if not matching_officer_queue_indices(engine, unit):
+            letter = UNIT_TYPE_LETTER[unit.unittype]
+            reasons.append(
+                f"no officer in queue matching troop {letter}"
+            )
     elif name in (
         ActionName.DEFEND,
         ActionName.HUMAN_SHIELDS,
         ActionName.PATROL,
-        ActionName.PROMOTE,
         ActionName.WAIT,
         ActionName.EXIT,
     ):
@@ -204,6 +209,45 @@ def why_action_impossible(
 
 def is_action_possible(engine: GameEngine, actor_idx: int, action: dict) -> bool:
     return not why_action_impossible(engine, actor_idx, action)
+
+
+def officer_troop_letters(officer: OfficerCard) -> set[str]:
+    """
+    Troop types an officer may be promoted onto.
+
+    CSV `troop_type` is a letter set: A = all (P/I/L), otherwise each char
+    is an allowed type (e.g. IP → panzer+infantry, L → logistics only).
+    """
+    raw = (officer.troop_type or "A").strip().upper()
+    if not raw or raw == "A":
+        return set(UNIT_TYPE_LETTER.values())
+    return {ch for ch in raw if ch in UNIT_TYPE_LETTER.values()}
+
+
+def officer_matches_unit(officer: OfficerCard, unit: Unit) -> bool:
+    return UNIT_TYPE_LETTER[unit.unittype] in officer_troop_letters(officer)
+
+
+def matching_officer_queue_indices(engine: GameEngine, unit: Unit) -> list[int]:
+    """Queue indices of officers eligible for this unit's troop type."""
+    oq = engine.officer_queue
+    out: list[int] = []
+    for i, (seq_id, _) in enumerate(oq.cards_and_visibilities):
+        real_id = engine.officer_id_mapping.get(seq_id, seq_id)
+        officer = OFFICER_CATALOG.get(real_id)
+        if officer is not None and officer_matches_unit(officer, unit):
+            out.append(i)
+    return out
+
+
+def _cash_for_resistance_hit(player, status: int) -> None:
+    """Grant hit cash when resistance is damaged but not destroyed (destroy cash is on the card)."""
+    if status != 1:
+        return
+    from .config import RESISTANCE_HIT_CASH
+
+    if RESISTANCE_HIT_CASH > 0:
+        player.get_cash(RESISTANCE_HIT_CASH)
 
 
 def _has_officer(unit: Unit, effect_type: str, kind: str = "discard_effect") -> OfficerCard | None:
@@ -281,16 +325,17 @@ def resolve_action(
             ):
                 # optional boost only via discard effect handled separately
                 pass
-        result = engine.resistance.take_damage(UNIT_TYPE_LETTER[unit.unittype], f"={damage}", player=player)
-        reward, msg = result
-        player.get_cash(reward)
+        status, msg = engine.resistance.take_damage(
+            UNIT_TYPE_LETTER[unit.unittype], f"={damage}", player=player
+        )
+        _cash_for_resistance_hit(player, status)
         parts.append(msg)
 
-        from .config import INCENTIVE_ATTACK_CASH
-        if INCENTIVE_ATTACK_CASH > 0:
-            player.get_cash(INCENTIVE_ATTACK_CASH)
+        from .config import ATTACK_CASH
+        if ATTACK_CASH > 0:
+            player.get_cash(ATTACK_CASH)
             engine._broadcast(
-                f"{unit_log_label(unit)} rewarded {INCENTIVE_ATTACK_CASH} cash for attacking"
+                f"{unit_log_label(unit)} rewarded {ATTACK_CASH} cash for attacking"
             )
 
     elif name == ActionName.ASSAULT:
@@ -299,10 +344,10 @@ def resolve_action(
         new_pos = convoy.move_unit(actor_idx, 1)
         actor_idx = unit.index()
         parts.append(f"assaulted {old_pos}({old_zone})→{new_pos}({unit.zone()})")
-        reward, msg = engine.resistance.take_damage(
+        status, msg = engine.resistance.take_damage(
             UNIT_TYPE_LETTER[unit.unittype], f"={modifier}", player=player
         )
-        player.get_cash(reward)
+        _cash_for_resistance_hit(player, status)
         parts.append(msg)
 
     elif name == ActionName.RETREAT:
@@ -314,10 +359,10 @@ def resolve_action(
         parts.append(
             f"retreated {old_pos}({old_zone})→{new_pos}({unit.zone()})"
         )
-        reward, msg = engine.resistance.take_damage(
+        status, msg = engine.resistance.take_damage(
             UNIT_TYPE_LETTER[unit.unittype], modifier, player=player
         )
-        player.get_cash(reward)
+        _cash_for_resistance_hit(player, status)
         parts.append(msg)
 
     elif name == ActionName.BYPASS:
@@ -345,8 +390,9 @@ def resolve_action(
 
     elif name in ATTACK_TYPE_BY_DEFENCE_ACTION:
         # Defend→G (ground), Human shields→A (air), Patrol→S (sabotage).
+        # Soak rewards are config-driven in Unit.reward_defending.
         attack_letter = ATTACK_TYPE_BY_DEFENCE_ACTION[name]
-        unit.resolve_defend(attack_letter, "_")
+        unit.resolve_defend(attack_letter)
         parts.append(f"defending ({attack_letter}/{name})")
 
     elif name == ActionName.SCOUT:
@@ -395,29 +441,46 @@ def resolve_action(
 
     elif name == ActionName.PROMOTE:
         oq = engine.officer_queue
-        if len(oq) == 0:
-            parts.append("no officers available")
+        indices = matching_officer_queue_indices(engine, unit)
+        if not indices:
+            parts.append(
+                f"no officers available for troop "
+                f"{UNIT_TYPE_LETTER[unit.unittype]}"
+            )
         else:
-            indices = list(range(len(oq)))
-            desc = "Choose an officer to promote:"
+            letter = UNIT_TYPE_LETTER[unit.unittype]
+            desc = f"Choose an officer to promote ({letter}):"
             for i in indices:
                 seq_id, _ = oq.cards_and_visibilities[i]
-                # Map sequential deck index to officer catalog
                 real_id = engine.officer_id_mapping.get(seq_id, seq_id)
                 officer = OFFICER_CATALOG[real_id]
-                desc += f"\n  {i}: {officer.name}"
+                desc += f"\n  {i}: {officer.name} [{officer.troop_type or 'A'}]"
             chosen = yield ChoiceRequest(
                 player_id=player.agent_id(),
                 choicetype=ChoiceType.CHOOSE_OFFICER,
                 options=indices,
                 num_choices=1,
                 description=desc,
+                payload={
+                    "unit_index": unit.index(),
+                    "troop_letter": letter,
+                    "officer_indices": indices,
+                },
             )
             idx = chosen[0]
+            if idx not in indices:
+                raise ValueError(
+                    f"officer index {idx} not valid for troop {letter} "
+                    f"(allowed {indices})"
+                )
             seq_id, _ = oq.remove_card(idx)
             real_id = engine.officer_id_mapping.get(seq_id, seq_id)
             officer = OFFICER_CATALOG[real_id]
-            # Attach a copy-like instance
+            if not officer_matches_unit(officer, unit):
+                raise ValueError(
+                    f"officer {officer.name} troop {officer.troop_type} "
+                    f"does not match unit {letter}"
+                )
             unit.officers.append(officer)
             engine.stats.record_officer_pick(player.number, officer.name)
             parts.append(f"promoted with {officer.name}")
@@ -439,10 +502,10 @@ def resolve_action(
 
     elif name == ActionName.SUICIDAL_ATTACK:
         damage = modifier if modifier else 5
-        reward, msg = engine.resistance.take_damage(
+        status, msg = engine.resistance.take_damage(
             UNIT_TYPE_LETTER[unit.unittype], damage, player=player
         )
-        player.get_cash(reward)
+        _cash_for_resistance_hit(player, status)
         convoy.apply_damage(1, unit=unit)
         parts.append(msg)
         parts.append("unit took 1 damage")
@@ -563,14 +626,13 @@ def _resolve_service(
     target.tired = max(0, target.tired - 1)
     
     msg = f"serviced {unit_log_label(target)}"
-    if target.player != unit.player:
-        from .config import INCENTIVE_SERVICE_CASH
-        if INCENTIVE_SERVICE_CASH > 0:
-            unit.player.get_cash(INCENTIVE_SERVICE_CASH)
-            engine._broadcast(
-                f"{unit_log_label(unit)} rewarded {INCENTIVE_SERVICE_CASH} cash for servicing another player's unit"
-            )
-            msg += f" (rewarded {INCENTIVE_SERVICE_CASH} cash)"
+    from .config import SERVICE_CASH
+    if SERVICE_CASH > 0:
+        unit.player.get_cash(SERVICE_CASH)
+        engine._broadcast(
+            f"{unit_log_label(unit)} rewarded {SERVICE_CASH} cash for service"
+        )
+        msg += f" (rewarded {SERVICE_CASH} cash)"
     return msg
 
 
@@ -582,6 +644,48 @@ def _queue_by_scout_code(engine: GameEngine, code: int):
     if code == SCOUT_QUEUE_RESISTANCE:
         return engine.resistance_queue
     raise ValueError(f"unknown scout queue code {code}")
+
+
+def _pause_after_log(
+    engine: GameEngine,
+    description: str,
+    *,
+    reason: str = "log_pause",
+) -> Generator[ChoiceRequest, list[int], None]:
+    """Optional continue prompt after a log-worthy event (reveal, action, etc.)."""
+    from .engine import ChoiceRequest
+
+    if not getattr(engine, "pause_after_actions", True):
+        return
+    yield ChoiceRequest(
+        player_id=f"player_{getattr(engine, 'human_seat', 0)}",
+        choicetype=ChoiceType.LOG_PAUSE,
+        options=[0],
+        num_choices=1,
+        description=description,
+        payload={"reason": reason},
+    )
+
+
+def _pause_after_reveal(
+    engine: GameEngine, description: str
+) -> Generator[ChoiceRequest, list[int], None]:
+    """Optional continue prompt after a single card reveal."""
+    yield from _pause_after_log(engine, description, reason="reveal_pause")
+
+
+def pause_after_action(
+    engine: GameEngine, summary: str
+) -> Generator[ChoiceRequest, list[int], None]:
+    """Pause after an action resolves (or a unit becomes frustrated)."""
+    hint = summary.strip() if summary else "Toiminto kirjattu lokiin."
+    if len(hint) > 160:
+        hint = hint[:157] + "…"
+    yield from _pause_after_log(
+        engine,
+        f"{hint} Jatka.",
+        reason="action_pause",
+    )
 
 
 def resolve_search(
@@ -671,10 +775,26 @@ def resolve_search(
         pick = options[:num_to_scout]
 
     pillage_queue = engine.pillage_queue
+    # Reveal one card at a time (pause after each so the UI can animate).
+    pick = sorted(pick)
+    scouted_card_names = []
     for idx in pick:
         pillage_queue.reveal_card(idx)
+        card_id = pillage_queue.cards_and_visibilities[idx][0]
+        card_name = pillage_queue.deck.get_name(card_id) if pillage_queue.deck else str(card_id)
+        scouted_card_names.append(card_name)
+        engine._broadcast(
+            f"{label} searched pillage card → {card_name} (revealed)",
+            kind="reveal",
+            queue="pillage",
+            index=idx,
+            card_id=card_id,
+        )
+        yield from _pause_after_reveal(
+            engine,
+            f"Paljastettu: {card_name}. Jatka.",
+        )
 
-    scouted_card_names = []
     if len(pick) > 1:
         # Reorder multiple revealed cards
         desc_reorder = f"{label} search: Choose the new order for the scouted pillage cards."
@@ -709,20 +829,13 @@ def resolve_search(
             target_idx = pick[i]
             pillage_queue.cards_and_visibilities[target_idx] = original_entries[orig_idx]
 
+        scouted_card_names = []
         for idx in pick:
             card_id = pillage_queue.cards_and_visibilities[idx][0]
             card_name = pillage_queue.deck.get_name(card_id) if pillage_queue.deck else str(card_id)
             scouted_card_names.append(card_name)
-            engine._broadcast(
-                f"{label} searched pillage card → {card_name} (revealed & reordered)"
-            )
-    else:
-        idx = pick[0]
-        card_id = pillage_queue.cards_and_visibilities[idx][0]
-        card_name = pillage_queue.deck.get_name(card_id) if pillage_queue.deck else str(card_id)
-        scouted_card_names.append(card_name)
         engine._broadcast(
-            f"{label} searched pillage card → {card_name} (revealed)"
+            f"{label} reordered searched pillage cards: {', '.join(scouted_card_names)}"
         )
 
     return [f"searched and revealed {', '.join(scouted_card_names)} in pillage queue"]
@@ -801,32 +914,39 @@ def resolve_scout(
 
     # Scout incentive:
     if SCOUT_QUEUE_RESISTANCE in chosen_by_queue:
-        from .config import INCENTIVE_SCOUT_CASH
-        if INCENTIVE_SCOUT_CASH > 0:
-            unit.player.get_cash(INCENTIVE_SCOUT_CASH)
+        from .config import SCOUT_CASH
+        if SCOUT_CASH > 0:
+            unit.player.get_cash(SCOUT_CASH)
             engine._broadcast(
-                f"{label} rewarded {INCENTIVE_SCOUT_CASH} cash for scouting resistance card(s)"
+                f"{label} rewarded {SCOUT_CASH} cash for scouting resistance card(s)"
             )
 
-    # Process each queue
+    # Process each queue: reveal one card at a time with optional pause.
     for code, indices in chosen_by_queue.items():
         queue = _queue_by_scout_code(engine, code)
         qname = SCOUT_QUEUE_NAMES[code]
-        
-        # Sort indices to maintain stable queue slots
         indices = sorted(indices)
-        
-        # Turn the cards face up
+
         for idx in indices:
             queue.reveal_card(idx)
+            card_id = queue.cards_and_visibilities[idx][0]
+            card_name = queue.deck.get_name(card_id) if queue.deck else str(card_id)
+            revealed.append(f"{qname}:{card_name}")
+            engine._broadcast(
+                f"{label} scouted {qname} card → {card_name} (revealed)",
+                kind="reveal",
+                queue=qname,
+                index=idx,
+                card_id=card_id,
+            )
+            yield from _pause_after_reveal(
+                engine,
+                f"Paljastettu ({qname}): {card_name}. Jatka.",
+            )
 
-        # If they chose several cards from the same queue, they can put them back in a different order
+        # If several cards from the same queue were scouted, allow reordering.
         if len(indices) > 1:
-            # Option to choose new order: options are the indices themselves
-            # The player chooses a permutation of these indices
             desc_reorder = f"{label} scout: Choose the new order for the scouted {qname} cards."
-            
-            # Payload helps the UI display what cards these original indices map to
             reorder_payload_cards = []
             for idx in indices:
                 card_id = queue.cards_and_visibilities[idx][0]
@@ -836,7 +956,7 @@ def resolve_scout(
                     "name": card_name,
                     "detail": queue.deck.describe(card_id) if queue.deck else None
                 })
-            
+
             reordered_pick = yield ChoiceRequest(
                 player_id=unit.player.agent_id(),
                 choicetype=ChoiceType.REORDER_SCOUTED_CARDS,
@@ -849,33 +969,25 @@ def resolve_scout(
                     "cards": reorder_payload_cards
                 }
             )
-            
-            # Validate pick
+
             if not reordered_pick or set(reordered_pick) != set(indices):
-                reordered_pick = indices  # fallback to original order
-                
-            # Perform the reordering
-            original_entries = {idx: list(queue.cards_and_visibilities[idx]) for idx in indices}
+                reordered_pick = indices
+
+            original_entries = {
+                idx: list(queue.cards_and_visibilities[idx]) for idx in indices
+            }
             for i, orig_idx in enumerate(reordered_pick):
                 target_idx = indices[i]
                 queue.cards_and_visibilities[target_idx] = original_entries[orig_idx]
-                
-            # Log the reordered cards
+
+            names = []
             for idx in indices:
                 card_id = queue.cards_and_visibilities[idx][0]
-                card_name = queue.deck.get_name(card_id) if queue.deck else str(card_id)
-                revealed.append(f"{qname}:{card_name}")
-                engine._broadcast(
-                    f"{label} scouted {qname} card → {card_name} (revealed & reordered)"
+                names.append(
+                    queue.deck.get_name(card_id) if queue.deck else str(card_id)
                 )
-        else:
-            # Just 1 card scouted in this queue
-            idx = indices[0]
-            card_id = queue.cards_and_visibilities[idx][0]
-            card_name = queue.deck.get_name(card_id) if queue.deck else str(card_id)
-            revealed.append(f"{qname}:{card_name}")
             engine._broadcast(
-                f"{label} scouted {qname} card → {card_name} (revealed)"
+                f"{label} reordered scouted {qname} cards: {', '.join(names)}"
             )
 
     return revealed

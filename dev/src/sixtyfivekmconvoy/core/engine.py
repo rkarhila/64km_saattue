@@ -21,9 +21,9 @@ from .cards import (
     CardQueue,
     select_resistance_deck,
 )
+from .config import CARDS_TO_DEAL, CARDS_TO_DEAL_FIRST_ROUND
 from .constants import (
     ActionName,
-    CARDS_TO_DEAL,
     CARD_TO_POINTS_RATIO,
     ChoiceType,
     MIN_PLAYER_CARD_LIMIT,
@@ -431,10 +431,15 @@ class GameEngine:
 
             # Deal
             self.rounds.next_stage()
-            for _ in range(CARDS_TO_DEAL):
+            deal_n = (
+                CARDS_TO_DEAL_FIRST_ROUND
+                if self.rounds.count == 0
+                else CARDS_TO_DEAL
+            )
+            for _ in range(deal_n):
                 for player in self.players:
                     player.draw_card(1)
-            self._broadcast("Kortit jaettu.")
+            self._broadcast(f"Kortit jaettu ({deal_n}).")
 
             # Assign actions
             self.rounds.next_stage()
@@ -602,6 +607,7 @@ class GameEngine:
                             blocked=blocked_faces,
                             queues=action_mod.hidden_queue_summary(self),
                         )
+                        yield from action_mod.pause_after_action(self, msg)
                     else:
                         face_i, desc = possible[choice_i]
                         kind = (
@@ -620,6 +626,7 @@ class GameEngine:
                             self, unit_idx, desc, actioncard
                         )
                         self._broadcast(summary)
+                        yield from action_mod.pause_after_action(self, summary)
 
                 action_index += 1
 
@@ -629,12 +636,12 @@ class GameEngine:
             if not self.resistance.active:
                 self.convoy.move_resting_and_damaged_units()
                 if self.convoy.units:
-                    from .config import INCENTIVE_FIRST_UNIT_ADVANCE_CASH
-                    if INCENTIVE_FIRST_UNIT_ADVANCE_CASH > 0:
+                    from .config import FIRST_UNIT_ADVANCE_CASH
+                    if FIRST_UNIT_ADVANCE_CASH > 0:
                         first_unit = self.convoy.units[0]
-                        first_unit.player.get_cash(INCENTIVE_FIRST_UNIT_ADVANCE_CASH)
+                        first_unit.player.get_cash(FIRST_UNIT_ADVANCE_CASH)
                         self._broadcast(
-                            f"{first_unit.player.agent_id()} rewarded {INCENTIVE_FIRST_UNIT_ADVANCE_CASH} cash for having the first unit when the convoy advanced"
+                            f"{first_unit.player.agent_id()} rewarded {FIRST_UNIT_ADVANCE_CASH} cash for having the first unit when the convoy advanced"
                         )
                 if self.resistance_queue:
                     res_id, _ = self.resistance_queue.remove_card(0)

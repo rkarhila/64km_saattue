@@ -51,6 +51,7 @@ def test_resolve_search_draws_and_scouts_interactive():
 
     engine = GameEngine()
     engine.reset(num_players=2, seed=4)
+    engine.pause_after_actions = False
     _seat(engine)
     panzer = next(u for u in engine.convoy.units if u.unittype == UnitType.PANZER)
     face = _search_face_card_9()

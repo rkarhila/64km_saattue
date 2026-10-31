@@ -25,14 +25,80 @@ def face_title(name: str, modifier: int | None) -> str:
     return f"{name} ({modifier})"
 
 
+def action_reward_bits(action_name: str | None) -> dict[str, Any]:
+    """
+    Possible cash / atrocity from a successful meaningful resolution.
+
+    Shown in parentheses on the face (e.g. '(+$2)' or '(+$2 +⚪)') because the
+    gain only applies when the action actually pays off (hit, soak, service, …).
+    """
+    empty = {"cash": 0, "atrocities": 0, "contingent": True, "label": ""}
+    if not action_name:
+        return empty
+    from . import config
+    from .constants import ActionName
+
+    key = ActionName.normalize(action_name) or str(action_name).lower().strip()
+    cash = 0
+    atrocities = 0
+    if key == ActionName.SERVICE:
+        cash = int(getattr(config, "SERVICE_CASH", 0) or 0)
+    elif key == ActionName.ATTACK:
+        cash = int(getattr(config, "ATTACK_CASH", 0) or 0)
+    elif key == ActionName.SCOUT:
+        cash = int(getattr(config, "SCOUT_CASH", 0) or 0)
+    elif key in (ActionName.DEFEND, ActionName.HUMAN_SHIELDS, ActionName.PATROL):
+        soak = {
+            ActionName.HUMAN_SHIELDS: (
+                int(getattr(config, "SOAK_AIR_CASH", 0) or 0),
+                int(getattr(config, "SOAK_AIR_ATROCITIES", 0) or 0),
+            ),
+            ActionName.DEFEND: (
+                int(getattr(config, "SOAK_GROUND_CASH", 0) or 0),
+                int(getattr(config, "SOAK_GROUND_ATROCITIES", 0) or 0),
+            ),
+            ActionName.PATROL: (
+                int(getattr(config, "SOAK_SABOTAGE_CASH", 0) or 0),
+                int(getattr(config, "SOAK_SABOTAGE_ATROCITIES", 0) or 0),
+            ),
+        }[key]
+        cash, atrocities = soak
+    return {
+        "cash": cash,
+        "atrocities": atrocities,
+        "contingent": True,
+        "label": format_reward_label(cash, atrocities),
+    }
+
+
+def action_cash_bonus(action_name: str | None) -> int:
+    """Cash part of action_reward_bits (compat helper)."""
+    return int(action_reward_bits(action_name).get("cash") or 0)
+
+
+def format_reward_label(cash: int = 0, atrocities: int = 0) -> str:
+    """Parenthetical contingent reward, e.g. '(+$2)', '(+$2 +⚪)', '(+⚪)'."""
+    bits: list[str] = []
+    if cash > 0:
+        bits.append(f"+{cash}")
+    if atrocities > 0:
+        if atrocities == 1:
+            bits.append(f"+{SYMBOL_ATROCITY}")
+        else:
+            bits.append(f"+{atrocities}{SYMBOL_ATROCITY}")
+    if not bits:
+        return ""
+    return "(" + " ".join(bits) + ")"
+
+
 def _n_cards(n: int) -> str:
-    """Render n cards as '0🂠', '1🂠', '2🂠' (placeholder until custom numbered icons)."""
+    """Flat card cost: '0🂠', '1🂠', '2🂠', …"""
     return f"{max(0, int(n))}{SYMBOL_PLAYING_CARD}"
 
 
-def _cards_per_token(n_cards: int, token: str) -> str:
-    """e.g. '1🂠 / 🟢' or '2🂠 / 🟡'."""
-    return f"{_n_cards(n_cards)} / {token}"
+def _card_glyphs(n: int) -> str:
+    """n card backs with no leading digit: '🂠', '🂠🂠', …"""
+    return SYMBOL_PLAYING_CARD * max(0, int(n))
 
 
 def format_cost(
@@ -41,10 +107,12 @@ def format_cost(
     action_name: str | None = None,
 ) -> str:
     """
-    Cost as shown on cards, driven by the CSV cost string:
-      1/T+1/U+1/A  →  1🂠 / 🟢 + 1🂠 / 🟡 + 1🂠 / ⚪
-      1/T+2/U+1/A  →  1🂠 / 🟢 + 2🂠 / 🟡 + 1🂠 / ⚪
-      1/T+1/U      →  1🂠 / 🟢 + 1🂠 / 🟡
+    Cost as shown on cards, driven by the CSV cost string.
+
+    Token rates are grouped by cards-per-token:
+      1/T+1/U+1/A  →  🂠 🟢🟡⚪
+      1/T+2/U+1/A  →  🂠 🟢⚪ + 🂠🂠 🟡
+      1/T+1/U      →  🂠 🟢🟡
       0, 1, 4      →  N🂠
     """
     del action_name  # display follows the cost string
@@ -53,27 +121,43 @@ def format_cost(
         n = 0 if cost in ("0", 0, None, "") else int(cost)
         return _n_cards(n)
     t_r, u_r, a_r = rates
-    parts: list[str] = []
-    if t_r > 0:
-        parts.append(_cards_per_token(t_r, SYMBOL_TIREDNESS))
-    if u_r > 0:
-        parts.append(_cards_per_token(u_r, SYMBOL_INFLUENCE))
-    if a_r > 0:
-        parts.append(_cards_per_token(a_r, SYMBOL_ATROCITY))
-    return " + ".join(parts) if parts else _n_cards(0)
+    by_rate: dict[int, list[str]] = {}
+    for rate, token in (
+        (t_r, SYMBOL_TIREDNESS),
+        (u_r, SYMBOL_INFLUENCE),
+        (a_r, SYMBOL_ATROCITY),
+    ):
+        if rate > 0:
+            by_rate.setdefault(rate, []).append(token)
+    if not by_rate:
+        return _n_cards(0)
+    # Stable order: ascending card count, tokens keep T → U → A insertion order.
+    parts = [
+        f"{_card_glyphs(rate)} {''.join(tokens)}"
+        for rate, tokens in sorted(by_rate.items())
+    ]
+    return " + ".join(parts)
 
 
 def format_effects(tire: int = 0, intoxicate: int = 0) -> str:
     """
     Side-effect markers (influence does not cascade — always +1 token):
-      tires    →  → +1🟢
-      intox.   →  → 1🟡
+      tires 1  →  → +🟢
+      tires n  →  → +n🟢
+      intox 1  →  → 🟡
+      intox n  →  → n🟡
     """
     bits: list[str] = []
     if tire:
-        bits.append(f"→ +1{SYMBOL_TIREDNESS}")
+        if int(tire) == 1:
+            bits.append(f"→ +{SYMBOL_TIREDNESS}")
+        else:
+            bits.append(f"→ +{int(tire)}{SYMBOL_TIREDNESS}")
     if intoxicate:
-        bits.append(f"→ 1{SYMBOL_INFLUENCE}")
+        if int(intoxicate) == 1:
+            bits.append(f"→ {SYMBOL_INFLUENCE}")
+        else:
+            bits.append(f"→ {int(intoxicate)}{SYMBOL_INFLUENCE}")
     return "  ".join(bits)
 
 
@@ -165,6 +249,7 @@ def format_face(action: Any, *, meta_width: int = DEFAULT_META_WIDTH) -> dict[st
     rates = cost_rates_for_display(cost)
     cost_s = format_cost(cost)
     effects_s = format_effects(tire, intoxicate)
+    reward = action_reward_bits(action_name or name)
     troop_key = {"P": "panzer", "I": "infantry", "L": "logistics", "A": "any"}.get(
         str(troop).upper()[:1] if troop else "A",
         "any",
@@ -177,6 +262,8 @@ def format_face(action: Any, *, meta_width: int = DEFAULT_META_WIDTH) -> dict[st
         "title": face_title(name, modifier),
         "cost": cost_s,
         "effects": effects_s,
+        "cash_bonus": int(reward.get("cash") or 0),
+        "reward": reward,
         "meta": align_meta(cost_s, effects_s, width=meta_width),
         "cost_includes_atrocities": a_r > 0,
         "cost_rates": {

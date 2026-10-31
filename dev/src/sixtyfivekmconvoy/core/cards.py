@@ -209,6 +209,23 @@ class CardQueue:
                         entry["effect"] = desc["effect"]
                     if "reward" in desc:
                         entry["reward"] = desc["reward"]
+                    # Officer (and similar) structured describe() fields for fancy UI.
+                    for key in (
+                        "officer_id",
+                        "passive_effect",
+                        "discard_effect",
+                        "passive_description",
+                        "discard_description",
+                        "troop_type",
+                        "zone",
+                        "action_type",
+                        "action_modifier",
+                        "cost",
+                        "tire",
+                        "intoxicate",
+                    ):
+                        if key in desc and desc[key] is not None and desc[key] != "":
+                            entry[key] = desc[key]
             else:
                 entry["name"] = str(card_id)
             out.append(entry)
@@ -597,6 +614,11 @@ def load_resistance_deck() -> dict[int, ResistanceCard]:
                     "target": row.get("ambush_target", "").strip(),
                     "loot": int(row["loot"].strip()) if row.get("loot") else 0,
                     "durability": int(row["durability"].strip()) if row.get("durability") else 0,
+                    "cash_for_destroying": (
+                        int(row["cash_for_destroying"].strip())
+                        if (row.get("cash_for_destroying") or "").strip()
+                        else 0
+                    ),
                     "damage": {},
                 },
                 min_players=min_players,

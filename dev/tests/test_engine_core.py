@@ -25,15 +25,93 @@ def test_damage_removes_unit():
 
 
 def test_defend_soak_increments():
+    from sixtyfivekmconvoy.core.config import (
+        SOAK_AIR_ATROCITIES,
+        SOAK_AIR_CASH,
+        SOAK_GROUND_ATROCITIES,
+        SOAK_GROUND_CASH,
+        SOAK_SABOTAGE_ATROCITIES,
+        SOAK_SABOTAGE_CASH,
+    )
     from sixtyfivekmconvoy.core.constants import AttackType
 
     players = [Player(i) for i in range(2)]
     convoy = Convoy(players)
-    unit = convoy.units[1]
-    unit.resolve_defend(AttackType.GROUND, "c")
-    before = unit.player.this_round_cash
-    msg = convoy.apply_damage(1, unit=unit, attack_type=AttackType.GROUND)
-    assert "Defense" in msg or unit.player.this_round_cash >= before
+
+    ground = convoy.units[1]
+    ground.resolve_defend(AttackType.GROUND)
+    cash_before = ground.player.total_cash
+    atro_before = ground.atrocities
+    msg = convoy.apply_damage(1, unit=ground, attack_type=AttackType.GROUND)
+    assert "Defense" in msg
+    assert ground.player.total_cash == cash_before + SOAK_GROUND_CASH
+    assert ground.atrocities == atro_before + SOAK_GROUND_ATROCITIES
+
+    air = convoy.units[2]
+    air.resolve_defend(AttackType.AIR)
+    cash_before = air.player.total_cash
+    atro_before = air.atrocities
+    msg = convoy.apply_damage(1, unit=air, attack_type=AttackType.AIR)
+    assert "Defense" in msg
+    assert air.player.total_cash == cash_before + SOAK_AIR_CASH
+    assert air.atrocities == atro_before + SOAK_AIR_ATROCITIES
+
+    sabotage = convoy.units[0]
+    sabotage.resolve_defend(AttackType.SABOTAGE)
+    cash_before = sabotage.player.total_cash
+    atro_before = sabotage.atrocities
+    msg = convoy.apply_damage(1, unit=sabotage, attack_type=AttackType.SABOTAGE)
+    assert "Defense" in msg
+    assert sabotage.player.total_cash == cash_before + SOAK_SABOTAGE_CASH
+    assert sabotage.atrocities == atro_before + SOAK_SABOTAGE_ATROCITIES
+
+
+def test_promote_requires_matching_officer_troop_type():
+    from sixtyfivekmconvoy.core import actions as action_mod
+    from sixtyfivekmconvoy.core.cards import OFFICER_CATALOG
+    from sixtyfivekmconvoy.core.constants import ActionName
+    from sixtyfivekmconvoy.core.engine import GameEngine
+    from sixtyfivekmconvoy.core.models import UnitType
+
+    # Letter sets from CSV troop_type
+    assert action_mod.officer_troop_letters(OFFICER_CATALOG[0]) == {"P", "I", "L"}  # A
+    assert action_mod.officer_troop_letters(OFFICER_CATALOG[1]) == {"I", "P"}  # IP
+    assert action_mod.officer_troop_letters(OFFICER_CATALOG[4]) == {"L"}  # L
+    assert action_mod.officer_troop_letters(OFFICER_CATALOG[6]) == {"I"}  # I
+
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=7)
+    # Bypass setup placement: seat a convoy with known troop types.
+    engine.convoy = Convoy(engine.players)
+    for u in engine.convoy.units:
+        u.engine = engine
+
+    engine.officer_queue.cards_and_visibilities.clear()
+    seq_for_l = next(
+        seq for seq, oid in engine.officer_id_mapping.items() if oid == 4
+    )
+    engine.officer_queue.put_card(seq_for_l, visible=True)
+
+    logistics = next(u for u in engine.convoy.units if u.unittype == UnitType.LOGISTICS)
+    panzer = next(u for u in engine.convoy.units if u.unittype == UnitType.PANZER)
+
+    promote = {
+        "name": "Promote",
+        "action_name": ActionName.PROMOTE,
+        "action_modifier": 0,
+        "zone": "ABCE",
+        "troop_type": "A",
+        "cost": "0",
+        "tire": 0,
+        "intoxicate": 0,
+        "limits": {"P": "ABCE", "I": "ABCE", "L": "ABCE"},
+    }
+    assert action_mod.matching_officer_queue_indices(engine, logistics) == [0]
+    assert action_mod.matching_officer_queue_indices(engine, panzer) == []
+    assert action_mod.is_action_possible(engine, logistics.index(), promote)
+    assert not action_mod.is_action_possible(engine, panzer.index(), promote)
+    why = action_mod.why_action_impossible(engine, panzer.index(), promote)
+    assert any("no officer" in r for r in why)
 
 
 def test_defence_actions_set_matching_attack_letters():
@@ -71,26 +149,51 @@ def test_format_cost_follows_csv_formula():
     from sixtyfivekmconvoy.core.card_display import (
         SYMBOL_ATROCITY,
         SYMBOL_INFLUENCE,
+        SYMBOL_TIREDNESS,
         format_cost,
+        format_effects,
         format_face,
+        format_reward_label,
     )
     from sixtyfivekmconvoy.core.cards import ACTION_CATALOG
+    from sixtyfivekmconvoy.core.constants import ActionName
 
-    assert SYMBOL_ATROCITY in format_cost("1/T+1/U+1/A")
+    assert format_cost("1/T+1/U+1/A") == (
+        f"🂠 {SYMBOL_TIREDNESS}{SYMBOL_INFLUENCE}{SYMBOL_ATROCITY}"
+    )
+    assert format_cost("1/T+1/U") == f"🂠 {SYMBOL_TIREDNESS}{SYMBOL_INFLUENCE}"
     assert SYMBOL_ATROCITY not in format_cost("1/T+1/U")
     scout = format_cost("1/T+2/U+1/A")
-    assert SYMBOL_ATROCITY in scout
-    assert f"2🂠 / {SYMBOL_INFLUENCE}" in scout
+    assert scout == f"🂠 {SYMBOL_TIREDNESS}{SYMBOL_ATROCITY} + 🂠🂠 {SYMBOL_INFLUENCE}"
 
-    # Loaded scout faces use the CSV formula
+    assert format_effects(1, 0) == f"→ +{SYMBOL_TIREDNESS}"
+    assert format_effects(2, 1) == f"→ +2{SYMBOL_TIREDNESS}  → {SYMBOL_INFLUENCE}"
+    assert format_reward_label(2, 1) == f"(+2 +{SYMBOL_ATROCITY})"
+
     scout_faces = [
         a for card in ACTION_CATALOG.values() for a in card.actions if a.action_name == "scout"
     ]
     assert scout_faces
     assert all(a.cost == "1/T+2/U+1/A" for a in scout_faces)
     face = format_face(scout_faces[0])
-    assert f"2🂠 / {SYMBOL_INFLUENCE}" in face["cost"]
-    assert SYMBOL_ATROCITY in face["cost"]
+    assert face["cost"] == scout
+    assert face["reward"]["label"].startswith("(+")
+
+    shields = format_face(
+        {
+            "name": "Ihmiskilpiä",
+            "action_name": ActionName.HUMAN_SHIELDS,
+            "action_modifier": 0,
+            "cost": "1/T+1/U+1/A",
+            "tire": 1,
+            "intoxicate": 0,
+            "troop_type": "A",
+            "zone": "ABCE",
+        }
+    )
+    assert shields["reward"]["cash"] > 0
+    assert shields["reward"]["atrocities"] == 1
+    assert shields["reward"]["label"].startswith("(")
 
     attack_faces = [
         a for card in ACTION_CATALOG.values() for a in card.actions if a.action_name == "attack"

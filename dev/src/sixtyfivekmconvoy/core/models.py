@@ -85,7 +85,6 @@ class Unit:
         self.engine: GameEngine | None = None
         self.defending: str | None = None
         self.had_defended = False
-        self.defending_reward: str | None = None
         self.current_action_type: str | None = None
         self.officers: list[OfficerCard] = []
 
@@ -95,7 +94,6 @@ class Unit:
         self.action_resolution = []
         self.current_action_type = None
         self.defending = None
-        self.defending_reward = None
 
     def is_defending(self) -> bool:
         return self.current_action_type == "defending"
@@ -201,10 +199,13 @@ class Unit:
         self.tired = 0
         self.current_action_type = "resting"
 
-    def resolve_defend(self, defense_type: str, defense_reward: str) -> bool:
+    def resolve_defend(self, defense_type: str, defense_reward: str | None = None) -> bool:
         """
         Set this unit's defence stance. `defense_type` is an AttackType letter
         (A/G/S) that will soak matching mauling attack_type hits.
+
+        Soak rewards come from config (see reward_defending); defense_reward is
+        ignored and kept only for call-site compatibility.
         """
         from .constants import AttackType
 
@@ -215,25 +216,31 @@ class Unit:
             )
         self.defending = defense_type
         self.had_defended = False
-        self.defending_reward = defense_reward
         self.current_action_type = "defending"
         return True
 
     def reward_defending(self) -> None:
-        assert self.defending_reward is not None
-        r = self.defending_reward
-        if r.lower() == "a":
-            self.atrocities += 1
-            self.player.this_round_cash += 1
-        elif r.lower() == "c":
-            self.player.this_round_cash += 1
-        elif r == "_":
-            pass
-        else:
-            raise NotImplementedError(f"defense reward type {r} not implemented")
+        """Grant config soak rewards when this unit soaks a matching attack."""
+        from . import config
+        from .constants import AttackType
+
+        if self.defending is None:
+            return
+        rewards = {
+            AttackType.AIR: (config.SOAK_AIR_CASH, config.SOAK_AIR_ATROCITIES),
+            AttackType.GROUND: (config.SOAK_GROUND_CASH, config.SOAK_GROUND_ATROCITIES),
+            AttackType.SABOTAGE: (
+                config.SOAK_SABOTAGE_CASH,
+                config.SOAK_SABOTAGE_ATROCITIES,
+            ),
+        }
+        cash, atrocities = rewards.get(self.defending, (0, 0))
+        if cash > 0:
+            self.player.get_cash(cash)
+        if atrocities > 0:
+            self.gain_atrocities(atrocities)
 
     def to_json(self, playerview: Player | None = None) -> dict:
-        officer_names = [o.name for o in self.officers]
         return {
             "player": self.player.number,
             "unit_type": self.type_to_str[self.unittype],
@@ -243,7 +250,7 @@ class Unit:
             "atrocities": self.atrocities,
             "carry": list(self.carry),
             "action": self._action_json(playerview),
-            "officers": officer_names,
+            "officers": [o.describe() for o in self.officers],
             "zone": self.zone() if self.convoy else None,
         }
 
@@ -509,6 +516,7 @@ class Resistance:
         self.target = ""
         self.loot = 0
         self.durability = 0
+        self.cash_for_destroying = 0
         self.damage_from_convoy: dict[str, int] = {}
         self.status = "inactive"
 
@@ -534,6 +542,7 @@ class Resistance:
             self.target = self.ambush_target
             self.loot = effect.get("loot") or 0
             self.durability = effect.get("durability") or 0
+            self.cash_for_destroying = int(effect.get("cash_for_destroying") or 0)
             self.damage_from_convoy = effect.get("damage") or {}
             self.active = True
             self.status = "active"
@@ -564,14 +573,14 @@ class Resistance:
             self.status = "destroyed"
             self.active = False
             self.distribute_loot()
-            if player is not None:
-                from .config import INCENTIVE_DESTROY_RESISTANCE_CASH
-                if INCENTIVE_DESTROY_RESISTANCE_CASH > 0:
-                    player.get_cash(INCENTIVE_DESTROY_RESISTANCE_CASH)
-                    if self.engine is not None:
-                        self.engine._broadcast(
-                            f"{player.agent_id()} rewarded {INCENTIVE_DESTROY_RESISTANCE_CASH} cash for destroying the resistance"
-                        )
+            cash = int(self.cash_for_destroying or 0)
+            if player is not None and cash > 0:
+                player.get_cash(cash)
+                if self.engine is not None:
+                    self.engine._broadcast(
+                        f"{player.agent_id()} rewarded {cash} cash for destroying "
+                        f"resistance ({self.name})"
+                    )
             return 2, f"Resistance took {damage} damage and is destroyed"
         return 1, f"Resistance took {damage} damage, durability {self.durability}"
 
@@ -664,5 +673,6 @@ class Resistance:
             "resistance_target": self.resistance_target,
             "target": self.target,
             "loot": self.loot,
+            "cash_for_destroying": self.cash_for_destroying,
             "damage": dict(self.damage_from_convoy),
         }

@@ -84,6 +84,7 @@ def test_scout_blocked_outside_zone_a():
 def test_resolve_scout_reveals_resistance_hidden_card():
     engine = GameEngine()
     engine.reset(num_players=2, seed=9)
+    engine.pause_after_actions = False
     inf = _seat_front_infantry(engine)
     
     # Check that we have hidden cards in resistance queue
@@ -119,6 +120,7 @@ def test_resolve_scout_reveals_resistance_hidden_card():
 def test_resolve_scout_reorders_when_multiple_from_same_queue():
     engine = GameEngine()
     engine.reset(num_players=2, seed=12)
+    engine.pause_after_actions = False
     inf = _seat_front_infantry(engine)
     
     # Ensure there are at least two hidden cards in resistance queue
