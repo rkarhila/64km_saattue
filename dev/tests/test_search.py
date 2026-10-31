@@ -33,7 +33,7 @@ def test_search_not_unimplemented():
     assert ActionName.SEARCH not in ActionName.UNIMPLEMENTED
 
 
-def test_card_9_search_always_legal_for_panzer():
+def test_card_9_search_legal_when_pillage_queue_empty():
     engine = GameEngine()
     engine.reset(num_players=2, seed=2)
     _seat(engine)
@@ -42,6 +42,31 @@ def test_card_9_search_always_legal_for_panzer():
     assert len(engine.pillage_queue) == 0
     assert action_mod.why_action_impossible(engine, panzer.index(), face) == []
     assert action_mod.is_action_possible(engine, panzer.index(), face)
+
+
+def test_search_illegal_when_pillage_queue_fully_revealed():
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=3)
+    _seat(engine)
+    panzer = next(u for u in engine.convoy.units if u.unittype == UnitType.PANZER)
+    face = _search_face_card_9()
+    cid = engine.pillage_deck.get_card()
+    engine.pillage_queue.put_card(cid, visible=True)
+    reasons = action_mod.why_action_impossible(engine, panzer.index(), face)
+    assert reasons
+    assert "fully revealed" in reasons[0]
+    assert not action_mod.is_action_possible(engine, panzer.index(), face)
+
+
+def test_search_legal_when_pillage_has_face_down():
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=5)
+    _seat(engine)
+    panzer = next(u for u in engine.convoy.units if u.unittype == UnitType.PANZER)
+    face = _search_face_card_9()
+    cid = engine.pillage_deck.get_card()
+    engine.pillage_queue.put_card(cid, visible=False)
+    assert action_mod.why_action_impossible(engine, panzer.index(), face) == []
 
 
 def test_resolve_search_draws_from_pillage_deck_when_queue_empty():
@@ -120,3 +145,27 @@ def test_resolve_search_reveals_existing_face_down_pillage():
     assert len(engine.pillage_deck.deck) == before_deck  # no extra draws
     assert engine.pillage_queue.cards_and_visibilities[0][1] is True
     assert engine.pillage_queue.cards_and_visibilities[1][1] is True
+
+
+def test_resolve_search_does_not_pad_from_deck_when_queue_known():
+    """Fully face-up pillage queue must not trigger deck draws."""
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=7)
+    engine.pause_after_actions = False
+    _seat(engine)
+    panzer = next(u for u in engine.convoy.units if u.unittype == UnitType.PANZER)
+
+    c1 = engine.pillage_deck.get_card()
+    engine.pillage_queue.put_card(c1, visible=True)
+    before_deck = len(engine.pillage_deck.deck)
+    before_q = len(engine.pillage_queue)
+
+    gen = action_mod.resolve_search(engine, panzer, count=2)
+    try:
+        next(gen)
+        raise AssertionError("expected no choices when queue is fully revealed")
+    except StopIteration as stop:
+        assert stop.value == []
+
+    assert len(engine.pillage_deck.deck) == before_deck
+    assert len(engine.pillage_queue) == before_q

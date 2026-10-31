@@ -32,6 +32,17 @@ class ConvoyEnv(AECEnv):
     Each step the current agent selects an index into `legal_actions()`
     (stored in infos['legal_actions']). Actions outside the mask are ignored
     and replaced with legal action 0.
+
+    Reward modes
+    ------------
+    ``win`` (default)
+        Primary target: finish 1st (game ranking). Proxies each step:
+        +``pp_reward`` per promotion point gained, +``cash_reward`` per cash
+        gained. At terminal: +``win_reward`` if 1st else ``lose_reward``.
+    ``rank``
+        Sparse terminal only: 1st = +1 … last = −1 (linear).
+    ``points``
+        Sparse terminal only: raw promotion_points total.
     """
 
     metadata = {"render_modes": ["human"], "name": "sixtyfivekmconvoy_v0", "is_parallelizable": False}
@@ -40,14 +51,23 @@ class ConvoyEnv(AECEnv):
         self,
         num_players: int = 3,
         seed: int | None = None,
-        reward_mode: str = "rank",
+        reward_mode: str = "win",
         max_cycles: int = 10_000,
         render_mode: str | None = None,
+        *,
+        pp_reward: float = 0.25,
+        cash_reward: float = 0.05,
+        win_reward: float = 1.0,
+        lose_reward: float = 0.0,
     ):
         super().__init__()
         self.num_players = num_players
         self._seed = seed
         self.reward_mode = reward_mode
+        self.pp_reward = float(pp_reward)
+        self.cash_reward = float(cash_reward)
+        self.win_reward = float(win_reward)
+        self.lose_reward = float(lose_reward)
         self.max_cycles = max_cycles
         self.render_mode = render_mode
         self.engine = GameEngine()
@@ -58,6 +78,8 @@ class ConvoyEnv(AECEnv):
         self._obs_size = observation_size(num_players)
         self._cycle = 0
         self._agent_selector: agent_selector.agent_selector | None = None
+        self._prev_pp: dict[str, int] = {}
+        self._prev_cash: dict[str, int] = {}
 
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent: str):
@@ -79,6 +101,10 @@ class ConvoyEnv(AECEnv):
         self.truncations = {a: False for a in self.agents}
         self.infos = {a: {} for a in self.agents}
         self._cycle = 0
+        self._prev_pp = {a: 0 for a in self.agents}
+        self._prev_cash = {a: 0 for a in self.agents}
+        # Sync baselines to whatever the engine starts with (normally 0).
+        self._snapshot_score_baselines()
 
         self._sync_agent_order()
         self._update_views()
@@ -111,15 +137,19 @@ class ConvoyEnv(AECEnv):
         for a in self.agents:
             self.rewards[a] = 0.0
 
-        if result.terminal:
+        if self.reward_mode == "win":
+            self._assign_win_mode_rewards(terminal=bool(result.terminal))
+        elif result.terminal:
             ranking = result.ranking or []
             order = [f"player_{r['number']}" for r in ranking]
             for a in self.agents:
-                self.terminations[a] = True
                 self.rewards[a] = self._terminal_reward(a, order)
                 self._cumulative_rewards[a] += self.rewards[a]
+
+        if result.terminal:
+            for a in self.agents:
+                self.terminations[a] = True
             self._update_views()
-            # Keep last agent_selection for PettingZoo bookkeeping
             return
 
         if self._cycle >= self.max_cycles:
@@ -145,18 +175,52 @@ class ConvoyEnv(AECEnv):
 
     # ------------------------------------------------------------------
 
+    def _player_for_agent(self, agent: str):
+        idx = int(agent.split("_")[1])
+        return self.engine.players[idx]
+
+    def _snapshot_score_baselines(self) -> None:
+        for a in self.agents:
+            pl = self._player_for_agent(a)
+            self._prev_pp[a] = int(pl.promotion_points)
+            self._prev_cash[a] = int(pl.total_cash)
+
+    def _assign_win_mode_rewards(self, *, terminal: bool) -> None:
+        """Proxy shaping (PP / cash deltas) + optional terminal win bonus."""
+        for a in self.agents:
+            pl = self._player_for_agent(a)
+            d_pp = int(pl.promotion_points) - self._prev_pp.get(a, 0)
+            d_cash = int(pl.total_cash) - self._prev_cash.get(a, 0)
+            r = self.pp_reward * d_pp + self.cash_reward * d_cash
+            self._prev_pp[a] = int(pl.promotion_points)
+            self._prev_cash[a] = int(pl.total_cash)
+            self.rewards[a] = r
+
+        if terminal:
+            ranking = self.engine.winner_ranking() or []
+            order = [f"player_{r['number']}" for r in ranking]
+            for a in self.agents:
+                won = bool(order) and order[0] == a
+                self.rewards[a] = self.rewards[a] + (
+                    self.win_reward if won else self.lose_reward
+                )
+
+        for a in self.agents:
+            self._cumulative_rewards[a] += self.rewards[a]
+
     def _terminal_reward(self, agent: str, order: list[str]) -> float:
         if agent not in order:
             return -1.0
         place = order.index(agent)
         n = max(1, len(order) - 1)
         if self.reward_mode == "points":
-            # Use promotion points from ranking payload
             ranking = self.engine.winner_ranking() or []
             for r in ranking:
                 if f"player_{r['number']}" == agent:
                     return float(r.get("promotion_points", 0))
             return 0.0
+        if self.reward_mode == "win":
+            return self.win_reward if place == 0 else self.lose_reward
         # rank: first +1, last -1, linear in between
         return 1.0 - 2.0 * place / n
 

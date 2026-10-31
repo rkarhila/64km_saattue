@@ -48,8 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--reward-mode",
         type=str,
-        default="rank",
-        choices=("rank", "points"),
+        default="win",
+        choices=("win", "rank", "points"),
+        help="win=1st place + PP/cash proxies; rank=terminal place; points=terminal PP",
     )
     p.add_argument(
         "-o",

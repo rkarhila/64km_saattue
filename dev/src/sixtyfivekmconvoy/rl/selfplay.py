@@ -33,7 +33,7 @@ class SelfPlayConfig:
     hidden: int = 256
     n_layers: int = 2
     device: str = "cpu"
-    reward_mode: str = "rank"
+    reward_mode: str = "win"
     league_name: str = "main"
     ppo: PPOConfig = field(default_factory=PPOConfig)
 

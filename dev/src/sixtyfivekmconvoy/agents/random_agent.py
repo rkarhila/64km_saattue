@@ -15,7 +15,7 @@ class RandomAgent:
             return 0
         return self.rng.randrange(len(legal_actions))
 
-    def choose(self, legal_actions: list[list[int]]) -> list[int]:
+    def choose(self, legal_actions: list[list[int]], **_kwargs: Any) -> list[int]:
         if not legal_actions:
             return []
         return list(self.rng.choice(legal_actions))

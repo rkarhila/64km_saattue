@@ -53,7 +53,7 @@ Runs PPO self-play and writes checkpoints into `--league`.
 | `--rollout-steps` | PPO rollout length before each update |
 | `--checkpoint-every` / `--eval-every` | Cadence in env steps |
 | `--device` | `cpu` or `cuda` |
-| `--reward-mode` | `rank` (+1…−1 by finish) or `points` |
+| `--reward-mode` | `win` (default), `rank`, or `points` — see below |
 
 **Examples**
 
@@ -146,6 +146,47 @@ convoy-league --league runs/league export aggressive -o bots/playtest.pt
 
 Copies the checkpoint file for use outside the league directory.
 
+## Victory conditions (engine)
+
+The match ends when any of these fire:
+
+1. **Promotion race** — first *sole* player to reach `PROMOTION_POINTS_TO_WIN`
+   (default **6**, in `configs/default.py`). Checked after bookkeeping PP awards.
+   If **two or more** hit the threshold on the **same** round → **sudden death**:
+   play on until one player has **strictly more PP** than every other; that player
+   wins immediately.
+2. **Cash race** — first player whose `total_cash` reaches `CASH_TO_WIN`
+   (default **50**) wins **immediately**, even mid-round (as soon as the cash
+   gain is applied).
+3. **Convoy collapses** — living units ≤ number of players after bookkeeping.
+4. **Max rounds** — `max_rounds` reached (engine default 200).
+
+For (3) and (4), ranking is PP desc, then total cash desc. For (1) and (2) the
+triggering player is forced to 1st place.
+
+How PP are earned: each round’s bookkeeping, every player who tied for the
+**highest `this_round_cash`** (and that max is > 0) gains **+1 PP**.
+
+Cash accumulates from actions (attack rewards, pillage, service, card cash-in,
+etc.) into `total_cash`.
+
+RL `win` mode still treats “finish 1st” as the primary target, with PP/cash
+deltas as proxies (same signals that drive races 1–2).
+
+## RL reward target
+
+Default `--reward-mode win`:
+
+| Signal | When | Weight (defaults) |
+|--------|------|-------------------|
+| **Win** | Terminal, agent is 1st in ranking | `+1.0` (`win_reward`) |
+| Non-win | Terminal, not 1st | `0.0` (`lose_reward`) |
+| **PP proxy** | Each step, per +1 promotion point | `+0.25` (`pp_reward`) |
+| **Cash proxy** | Each step, per +1 total cash | `+0.05` (`cash_reward`) |
+
+Legacy modes: `rank` = sparse terminal +1…−1 by place; `points` = sparse
+terminal raw PP total (no win bonus / no step proxies).
+
 ## League layout
 
 ```
@@ -170,6 +211,19 @@ bot = RLAgent(league.load_model("playtest"), deterministic=True)
 
 PettingZoo env details (obs / action mask) are in the main [README](../README.md).
 
+## Play vs a trained bot (web)
+
+```bash
+# From dev/, with a league at runs/league (or CONVOY_LEAGUE=/path/to/league)
+PYTHONPATH=src python -m sixtyfivekmconvoy.api.app
+# open http://127.0.0.1:8000/
+```
+
+In the lobby: set **Vastustajat → League-RL -botti**, pick a checkpoint (e.g.
+`main-step54979`), then **Uusi peli**. All non-human seats use that policy.
+
+`GET /league/bots` lists active checkpoints for the dropdown.
+
 ## Related CLIs
 
 | Command | Role |
@@ -177,4 +231,5 @@ PettingZoo env details (obs / action mask) are in the main [README](../README.md
 | `convoy-selfplay` | Random-agent episodes (no learning) |
 | `convoy-train` | PPO self-play into a league |
 | `convoy-league` | Branch / promote / eval / export bots |
-| `convoy-web` / `convoy-terminal` | Human play (bots still random unless wired to a checkpoint) |
+| `convoy-web` | Human play; lobby can load league RL bots vs random |
+| `convoy-terminal` | Human play (still random bots unless extended) |

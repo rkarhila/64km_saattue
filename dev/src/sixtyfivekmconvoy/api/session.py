@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from sixtyfivekmconvoy.agents.random_agent import RandomAgent
+from sixtyfivekmconvoy.api.bots import make_seat_bots
 from sixtyfivekmconvoy.core.card_display import describe_action_card
 from sixtyfivekmconvoy.core.constants import ChoiceType
 from sixtyfivekmconvoy.core.engine import GameEngine
@@ -19,7 +19,8 @@ class GameSession:
     game_id: str
     engine: GameEngine
     human_seats: set[str]
-    bots: dict[str, RandomAgent] = field(default_factory=dict)
+    bots: dict[str, Any] = field(default_factory=dict)
+    bot_meta: dict[str, Any] = field(default_factory=dict)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     # When True, stop after a step that appends log lines (unless human must act).
     pause_after_actions: bool = True
@@ -123,6 +124,7 @@ class GameSession:
             "setup_pattern": list(self.engine.setup_pattern),
             "shareable_state": self.get_shareable_state_string(),
             "config_name": getattr(game_config, "CONFIG_NAME", "default"),
+            "bots": dict(self.bot_meta or {}),
             "cash_rewards": {
                 "service": int(getattr(game_config, "SERVICE_CASH", 0) or 0),
                 "attack": int(getattr(game_config, "ATTACK_CASH", 0) or 0),
@@ -146,6 +148,9 @@ class GameSession:
             "h": human_seat,
             "pa": self.pause_after_actions,
             "c": self.human_choices,
+            "bk": (self.bot_meta or {}).get("bot_kind") or "random",
+            "bid": (self.bot_meta or {}).get("bot_id"),
+            "bl": (self.bot_meta or {}).get("league"),
         }
         json_bytes = json.dumps(data, separators=(",", ":")).encode("utf-8")
         compressed = zlib.compress(json_bytes)
@@ -331,7 +336,15 @@ class GameSession:
                 break
             bot = self.bots[pending.player_id]
             before = len(self.engine.messages)
-            self.engine.step(bot.choose(self.engine.legal_actions()))
+            legal = self.engine.legal_actions()
+            seat = int(pending.player_id.split("_")[1])
+            choice = bot.choose(
+                legal,
+                observation=self.engine.observe(pending.player_id),
+                agent_index=seat,
+                num_players=len(self.engine.players),
+            )
+            self.engine.step(choice)
             if self._should_pause(before):
                 self.awaiting_continue = True
                 break
@@ -351,6 +364,10 @@ class SessionManager:
         seed: int | None = None,
         max_rounds: int = 200,
         pause_after_actions: bool = True,
+        *,
+        bot_kind: str = "random",
+        bot_id: str | None = None,
+        league_path: str | None = None,
     ) -> GameSession:
         engine = GameEngine()
         engine.human_seat = human_seat
@@ -358,16 +375,20 @@ class SessionManager:
         engine.reset(num_players=num_players, seed=seed, max_rounds=max_rounds)
         game_id = uuid.uuid4().hex[:10]
         human_id = f"player_{human_seat}"
-        bots = {
-            pid: RandomAgent(seed=(seed or 0) + 50 + i)
-            for i, pid in enumerate(engine.agent_ids())
-            if pid != human_id
-        }
+        bots, bot_meta = make_seat_bots(
+            engine.agent_ids(),
+            human_id=human_id,
+            seed=seed,
+            bot_kind=bot_kind,
+            bot_id=bot_id,
+            league_path=league_path,
+        )
         session = GameSession(
             game_id=game_id,
             engine=engine,
             human_seats={human_id},
             bots=bots,
+            bot_meta=bot_meta,
             pause_after_actions=pause_after_actions,
         )
         session._run_bots()
@@ -391,6 +412,9 @@ class SessionManager:
         human_seat = data.get("h", 0)
         pause_after_actions = data.get("pa", True)
         choices = data.get("c", [])
+        bot_kind = data.get("bk") or "random"
+        bot_id = data.get("bid")
+        league_path = data.get("bl")
 
         engine = GameEngine()
         engine.human_seat = human_seat
@@ -398,16 +422,20 @@ class SessionManager:
         engine.reset(num_players=num_players, seed=seed)
         game_id = uuid.uuid4().hex[:10]
         human_id = f"player_{human_seat}"
-        bots = {
-            pid: RandomAgent(seed=(engine.seed or 0) + 50 + i)
-            for i, pid in enumerate(engine.agent_ids())
-            if pid != human_id
-        }
+        bots, bot_meta = make_seat_bots(
+            engine.agent_ids(),
+            human_id=human_id,
+            seed=engine.seed,
+            bot_kind=bot_kind,
+            bot_id=bot_id,
+            league_path=league_path,
+        )
         session = GameSession(
             game_id=game_id,
             engine=engine,
             human_seats={human_id},
             bots=bots,
+            bot_meta=bot_meta,
             pause_after_actions=pause_after_actions,
         )
 

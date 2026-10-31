@@ -93,6 +93,27 @@ def hidden_queue_summary(engine: GameEngine) -> str:
     return " ".join(parts)
 
 
+def pillage_has_face_down(engine: GameEngine) -> bool:
+    return any(not vis for _, vis in engine.pillage_queue.cards_and_visibilities)
+
+
+def search_is_useful(engine: GameEngine) -> bool:
+    """
+    Search is only useful when:
+    - the pillage queue has face-down cards to reveal, or
+    - the pillage queue is empty (draw N from the deck, keep one face-up).
+
+    If the queue already has only face-up cards, search must not pad it
+    from the deck — that made Search spam every turn.
+    """
+    if pillage_has_face_down(engine):
+        return True
+    if len(engine.pillage_queue) > 0:
+        return False
+    deck = engine.pillage_deck
+    return bool(deck.deck or deck.discard)
+
+
 def why_action_impossible(
     engine: GameEngine, actor_idx: int, action: dict
 ) -> list[str]:
@@ -190,11 +211,21 @@ def why_action_impossible(
     elif name in (
         ActionName.SCOUT,
         ActionName.SIGINT,
-        ActionName.SEARCH,
     ):
         # Always available (zone/cost already checked): reveal face-down queue
         # cards when any exist; otherwise draw from the matching deck(s).
         pass
+    elif name in (
+        ActionName.SEARCH,
+        ActionName.SEARCH_PILLAGE_COMBO,
+    ):
+        # Face-down pillage → reveal; empty queue → draw N / keep 1 face-up.
+        # Not legal when the queue already has only known (face-up) cards.
+        if not search_is_useful(engine):
+            if len(engine.pillage_queue) > 0:
+                reasons.append("pillage queue already fully revealed")
+            else:
+                reasons.append("pillage deck empty")
     elif name == ActionName.PROMOTE:
         if not matching_officer_queue_indices(engine, unit):
             letter = UNIT_TYPE_LETTER[unit.unittype]
@@ -212,9 +243,6 @@ def why_action_impossible(
             reasons.append(
                 "order needs a hand card left to assign after paying cost"
             )
-    elif name == ActionName.SEARCH_PILLAGE_COMBO:
-        # Always available when zone/cost allow: search can fill the pillage queue.
-        pass
     elif name in (
         ActionName.DEFEND,
         ActionName.HUMAN_SHIELDS,
@@ -623,17 +651,19 @@ def resolve_action(
         parts.append(f"bypassed to {new_pos}")
 
     elif name == ActionName.EXIT:
-        player.this_round_cash += sum(unit.carry)
-        player.total_cash += sum(unit.carry)
+        loot_cash = sum(unit.carry)
+        if loot_cash:
+            player.get_cash(loot_cash)
         convoy.units.pop(unit.index())
-        parts.append(f"exited with loot worth {sum(unit.carry)}")
+        parts.append(f"exited with loot worth {loot_cash}")
 
     elif name in (ActionName.PILLAGE, ActionName.PILLAGE_WITH_EXTRA_ATROCITY):
         extra = 0 if name == ActionName.PILLAGE_WITH_EXTRA_ATROCITY else modifier
         rewards = yield from _resolve_pillage(engine, unit, extra)
         for r in rewards:
-            player.this_round_cash += r["reward"]["cash"]
-            player.total_cash += r["reward"]["cash"]
+            cash = int(r["reward"]["cash"] or 0)
+            if cash:
+                player.get_cash(cash)
             unit.gain_loot(r["reward"]["loot"])
             atro = r["reward"]["atrocities"]
             if name == ActionName.PILLAGE_WITH_EXTRA_ATROCITY:
@@ -676,7 +706,7 @@ def resolve_action(
             )
 
     elif name == ActionName.SEARCH:
-        # Same as scout, limited to the pillage queue/deck.
+        # Face-down pillage → reveal; empty queue → draw N / keep 1 face-up.
         count = modifier if modifier and modifier > 0 else 2
         scouted = yield from resolve_search(engine, unit, count)
         if scouted:
@@ -719,8 +749,9 @@ def resolve_action(
         if len(engine.pillage_queue) >= 1:
             rewards = yield from _resolve_pillage(engine, unit, 0)
             for r in rewards:
-                player.this_round_cash += r["reward"]["cash"]
-                player.total_cash += r["reward"]["cash"]
+                cash = int(r["reward"]["cash"] or 0)
+                if cash:
+                    player.get_cash(cash)
                 unit.gain_loot(r["reward"]["loot"])
                 unit.gain_atrocities(r["reward"]["atrocities"])
                 parts.append(f"pillaged {r['name']}")
@@ -808,8 +839,9 @@ def resolve_action(
     elif name == ActionName.EXIT_FROM_C_WITH_COST:
         cost_cash = modifier or 5
         player.total_cash = max(0, player.total_cash - cost_cash)
-        player.this_round_cash += sum(unit.carry)
-        player.total_cash += sum(unit.carry)
+        loot_cash = sum(unit.carry)
+        if loot_cash:
+            player.get_cash(loot_cash)
         convoy.units.pop(unit.index())
         parts.append(f"paid {cost_cash} and exited from C")
 
@@ -1170,16 +1202,42 @@ def _resolve_scout_from_deck(
 def resolve_search(
     engine: GameEngine, unit: Unit, count: int
 ) -> Generator[ChoiceRequest, list[int], list[str]]:
-    """Search = scout limited to the pillage queue/deck."""
-    return (
-        yield from resolve_scout(
-            engine,
-            unit,
-            count,
-            allowed_queue_codes={SCOUT_QUEUE_PILLAGE},
-            verb="search",
+    """
+    Search (pillage only):
+
+    - Face-down cards in the pillage queue → reveal up to ``count`` of them
+      (same reveal/reorder flow as scout).
+    - Empty pillage queue → draw ``count`` from the pillage deck, place one
+      face-up in the queue, discard the rest.
+    - Queue already fully face-up → no-op (and normally illegal via
+      ``search_is_useful``).
+    """
+    if pillage_has_face_down(engine):
+        return (
+            yield from resolve_scout(
+                engine,
+                unit,
+                count,
+                allowed_queue_codes={SCOUT_QUEUE_PILLAGE},
+                verb="search",
+            )
         )
+    if len(engine.pillage_queue) == 0:
+        return (
+            yield from _resolve_scout_from_deck(
+                engine,
+                unit,
+                count,
+                allowed_queue_codes={SCOUT_QUEUE_PILLAGE},
+                verb="search",
+            )
+        )
+    label = unit_log_label(unit)
+    engine._broadcast(
+        f"{label} search: pillage queue already fully revealed "
+        f"({hidden_queue_summary(engine)})"
     )
+    return []
 
 
 def resolve_scout(

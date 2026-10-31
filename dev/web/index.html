@@ -41,11 +41,23 @@
     <label>Seed
       <input type="number" id="seed" value="1" />
     </label>
+    <label>Vastustajat
+      <select id="botKind">
+        <option value="random">Satunnaiset botit</option>
+        <option value="rl">League-RL -botti</option>
+      </select>
+    </label>
+    <label id="botIdLabel">Botti (league)
+      <select id="botId" disabled>
+        <option value="">Ladataan…</option>
+      </select>
+    </label>
     <label class="pause-toggle">
       <input type="checkbox" id="lobbyPauseToggle" checked />
       Pysäytä lokin jälkeen
     </label>
     <button id="startBtn" type="button">Uusi peli</button>
+    <p id="botHint" class="hint muted"></p>
   </section>
 
   <main id="game" class="hidden">
@@ -109,6 +121,6 @@
     </section>
   </main>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=officer-label-fix"></script>
 </body>
 </html>

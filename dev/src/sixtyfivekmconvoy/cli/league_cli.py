@@ -122,7 +122,7 @@ def main(argv: list[str] | None = None) -> None:
             deterministic=True,
             device=args.device,
         )
-        env = ConvoyEnv(num_players=args.players, reward_mode="rank", max_cycles=50_000)
+        env = ConvoyEnv(num_players=args.players, reward_mode="win", max_cycles=50_000)
         wins = 0
         returns = []
         for ep in range(args.episodes):

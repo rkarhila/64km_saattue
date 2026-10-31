@@ -48,7 +48,7 @@ env.step(0)  # index into legal_actions
 ```
 
 Action = index into `infos[agent]["legal_actions"]` (also mirrored in `action_mask`).  
-Terminal rewards use ranking (`+1` … `-1`) by default (`reward_mode="rank"` or `"points"`).
+Default RL reward (`reward_mode="win"`): +1 for finishing 1st, plus step proxies for promotion points and cash (see [docs/rl-training.md](docs/rl-training.md)).
 
 ## Web UI (human vs bots)
 
@@ -63,7 +63,8 @@ API:
 - `POST /games/{id}/choice?seat=0` with `{"choice": [...]}`
 - `WS /games/{id}/ws?seat=0` (same payload)
 
-Sessions keep multiple seats in mind; v1 fills non-human seats with `RandomAgent`.
+Lobby: choose **Satunnaiset botit** or a **League-RL** checkpoint (from
+`runs/league` or `CONVOY_LEAGUE`). Non-human seats share that policy.
 
 ## Terminal human vs bots
 

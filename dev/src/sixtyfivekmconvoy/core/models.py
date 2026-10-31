@@ -27,13 +27,19 @@ class Player:
         self.promotion_points = 0
         self.action_cards: list[int] = []
         self.action_deck: CardDeck | None = None
+        self.engine: GameEngine | None = None
 
     def agent_id(self) -> str:
         return f"player_{self.number}"
 
     def get_cash(self, cash: int) -> None:
+        if cash == 0:
+            return
+        before = self.total_cash
         self.this_round_cash += cash
         self.total_cash += cash
+        if self.engine is not None and cash > 0:
+            self.engine._on_cash_gained(self, before)
 
     def can_discard(self, count: int) -> bool:
         return len(self.action_cards) >= count

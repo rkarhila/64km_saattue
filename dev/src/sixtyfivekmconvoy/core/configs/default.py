@@ -28,6 +28,13 @@ FIRST_UNIT_ADVANCE_CASH = 1
 # Cash granted when a resistance hit does not destroy (status==1 from take_damage).
 RESISTANCE_HIT_CASH = 1
 
+# Instant / race victory thresholds (≤0 disables that condition).
+# First sole player to PROMOTION_POINTS_TO_WIN wins at bookkeeping.
+# If several hit the threshold on the same round → sudden death until one leads in PP.
+PROMOTION_POINTS_TO_WIN = 6
+# First player whose total_cash reaches this wins immediately (mid-round OK).
+CASH_TO_WIN = 50
+
 # Backward-compatible aliases (older imports / tests).
 INCENTIVE_SERVICE_CASH = SERVICE_CASH
 INCENTIVE_ATTACK_CASH = ATTACK_CASH

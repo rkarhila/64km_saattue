@@ -58,6 +58,72 @@
   /** Just-revealed queue keys for flip animation: "pillage:0" */
   let pendingReveals = new Set();
 
+  function syncBotLobbyUi() {
+    const kind = $("botKind") ? $("botKind").value : "random";
+    const sel = $("botId");
+    if (sel) {
+      const hasBots = [...sel.options].some((o) => o.value);
+      sel.disabled = kind !== "rl" || !hasBots;
+    }
+  }
+
+  async function loadLeagueBots() {
+    const hint = $("botHint");
+    const sel = $("botId");
+    if (!sel) return;
+    try {
+      const res = await fetch("/league/bots");
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      sel.innerHTML = "";
+      const bots = data.bots || [];
+      if (data.error) {
+        if (hint) hint.textContent = data.error;
+      }
+      if (!bots.length) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "(ei checkpointteja)";
+        sel.appendChild(opt);
+        if (hint && !data.error) {
+          const searched = (data.searched || []).slice(0, 3).join(" · ");
+          hint.textContent = data.exists
+            ? `League ${data.league}: ei aktiivisia botteja.`
+            : `Leaguea ei löydy (${data.league}). Etsittiin: ${searched}. Aja convoy-train tai CONVOY_LEAGUE.`;
+        }
+        syncBotLobbyUi();
+        return;
+      }
+      bots.forEach((b) => {
+        const opt = document.createElement("option");
+        opt.value = b.id;
+        opt.textContent = b.label || b.name;
+        sel.appendChild(opt);
+      });
+      if ($("botKind") && $("botKind").value === "random") {
+        $("botKind").value = "rl";
+      }
+      if (hint) {
+        hint.textContent = `League: ${data.league} — ${bots.length} bottia.`;
+      }
+      syncBotLobbyUi();
+    } catch (err) {
+      sel.innerHTML = "";
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "(lataus epäonnistui)";
+      sel.appendChild(opt);
+      if (hint) hint.textContent = "League-botteja ei voitu ladata: " + err;
+      syncBotLobbyUi();
+    }
+  }
+
+  if ($("botKind")) {
+    $("botKind").addEventListener("change", syncBotLobbyUi);
+    syncBotLobbyUi();
+    loadLeagueBots();
+  }
+
   // On page load, check for imported state in URL
   const urlParams = new URLSearchParams(window.location.search);
   const importState = urlParams.get("state");
@@ -95,6 +161,7 @@
   }
 
   $("startBtn").addEventListener("click", async () => {
+    const botKind = $("botKind") ? $("botKind").value : "random";
     const body = {
       num_players: Number($("numPlayers").value),
       human_seat: 0,
@@ -102,7 +169,16 @@
       pause_after_actions: $("lobbyPauseToggle")
         ? $("lobbyPauseToggle").checked
         : true,
+      bot_kind: botKind,
     };
+    if (botKind === "rl") {
+      const botId = $("botId") ? $("botId").value : "";
+      if (!botId) {
+        alert("Valitse league-botti tai vaihda satunnaisiin.");
+        return;
+      }
+      body.bot_id = botId;
+    }
     const res = await fetch("/games", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1436,7 +1512,7 @@
           tuck.title = [
             off.name,
             off.passive_description || off.passive_effect,
-            officerActionLabel(off) || off.discard_description,
+            officerActionDescription(off) || off.discard_description,
           ]
             .filter(Boolean)
             .join(" — ");
@@ -2244,7 +2320,15 @@
     noteQueueReveals(snap);
     lastSnap = snap;
     const state = snap.state || {};
-    $("roundInfo").textContent = `Kierros ${state.round ?? "?"} · vaihe ${state.stage ?? "?"}`;
+    const botMeta = snap.bots || {};
+    let botLine = "";
+    if (botMeta.bot_kind === "rl" && botMeta.bot_name) {
+      botLine = ` · vs ${botMeta.bot_name}`;
+    } else if (botMeta.bot_kind === "random") {
+      botLine = " · vs random";
+    }
+    $("roundInfo").textContent =
+      `Kierros ${state.round ?? "?"} · vaihe ${state.stage ?? "?"}${botLine}`;
     $("message").textContent = state.message || "";
 
     if ($("pauseToggle") && typeof snap.pause_after_actions === "boolean") {

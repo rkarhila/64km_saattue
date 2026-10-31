@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from sixtyfivekmconvoy.api.bots import list_league_bots
 from sixtyfivekmconvoy.api.session import SessionManager
 
 manager = SessionManager()
@@ -24,6 +25,13 @@ class CreateGameRequest(BaseModel):
     seed: int | None = 1
     max_rounds: int = 200
     pause_after_actions: bool = True
+    bot_kind: str = Field(default="random", description="random | rl")
+    bot_id: str | None = Field(
+        default=None, description="League checkpoint id or name when bot_kind=rl"
+    )
+    league_path: str | None = Field(
+        default=None, description="Override league directory (server default otherwise)"
+    )
 
 
 class CreateGameResponse(BaseModel):
@@ -44,17 +52,34 @@ class ImportGameRequest(BaseModel):
     state: str
 
 
+@app.get("/league/bots")
+def get_league_bots(league: str | None = None):
+    """Lobby dropdown: active league checkpoints (reads league.json, no torch)."""
+    return list_league_bots(Path(league) if league else None)
+
+
 @app.post("/games", response_model=CreateGameResponse)
 def create_game(body: CreateGameRequest):
     if body.human_seat >= body.num_players:
         raise HTTPException(400, "human_seat out of range")
-    session = manager.create(
-        num_players=body.num_players,
-        human_seat=body.human_seat,
-        seed=body.seed,
-        max_rounds=body.max_rounds,
-        pause_after_actions=body.pause_after_actions,
-    )
+    kind = (body.bot_kind or "random").strip().lower()
+    if kind not in ("random", "rl"):
+        raise HTTPException(400, "bot_kind must be 'random' or 'rl'")
+    if kind == "rl" and not body.bot_id:
+        raise HTTPException(400, "bot_id required when bot_kind=rl")
+    try:
+        session = manager.create(
+            num_players=body.num_players,
+            human_seat=body.human_seat,
+            seed=body.seed,
+            max_rounds=body.max_rounds,
+            pause_after_actions=body.pause_after_actions,
+            bot_kind=kind,
+            bot_id=body.bot_id,
+            league_path=body.league_path,
+        )
+    except (FileNotFoundError, KeyError, RuntimeError) as exc:
+        raise HTTPException(400, str(exc)) from exc
     human = f"player_{body.human_seat}"
     return CreateGameResponse(
         game_id=session.game_id,

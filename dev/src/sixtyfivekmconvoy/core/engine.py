@@ -172,6 +172,9 @@ class GameEngine:
         self.rng = random.Random(seed)
         self.terminal = False
         self.ranking = None
+        self._end_message: str | None = None
+        # True after ≥2 players hit PROMOTION_POINTS_TO_WIN on the same round.
+        self.sudden_death_pp = False
         self.messages = []
         self.event_log: list[dict[str, Any]] = []
         self.round_action_summaries = []
@@ -179,6 +182,8 @@ class GameEngine:
         self.stats = EpisodeStats(seed=seed, num_players=num_players)
 
         self.players = [Player(i) for i in range(num_players)]
+        for pl in self.players:
+            pl.engine = self
         self._init_decks()
         self.convoy = Convoy(self.players, engine=self)
         self.setup_pattern: tuple[int, ...] = pick_setup_pattern(num_players, self.rng)
@@ -629,6 +634,9 @@ class GameEngine:
                             self, unit_idx, desc, actioncard
                         )
                         self._broadcast(summary)
+                        early = self._finished_result()
+                        if early is not None:
+                            return early
                         yield from action_mod.pause_after_action(self, summary)
 
                 action_index += 1
@@ -646,6 +654,9 @@ class GameEngine:
                         self._broadcast(
                             f"{first_unit.player.agent_id()} rewarded {FIRST_UNIT_ADVANCE_CASH} cash for having the first unit when the convoy advanced"
                         )
+                        early = self._finished_result()
+                        if early is not None:
+                            return early
                 if self.resistance_queue:
                     res_id, _ = self.resistance_queue.remove_card(0)
                     self.resistance_deck.discard_card(res_id)
@@ -683,6 +694,9 @@ class GameEngine:
             mauling = self.mauling_deck.describe(maul_id)
             msg = yield from resolve_mauling(self, mauling)
             self._broadcast(f"Mauling {mauling['name']}: {msg}")
+            early = self._finished_result()
+            if early is not None:
+                return early
             self.mauling_deck.discard_card(maul_id)
             self.mauling_queue.put_card(self.mauling_deck.get_card())
 
@@ -724,6 +738,9 @@ class GameEngine:
                             pl.discard(list(discard))
                         pl.get_cash(1)
                         self._broadcast(f"{PLAYER_COLORS[pl.number % len(PLAYER_COLORS)]} player cashed in cards")
+                        early = self._finished_result()
+                        if early is not None:
+                            return early
 
                 card_limit = MIN_PLAYER_CARD_LIMIT
                 for u in self.convoy.units:
@@ -748,27 +765,25 @@ class GameEngine:
                         pl.promotion_points += 1
                         self._broadcast(f"{PLAYER_COLORS[pl.number % len(PLAYER_COLORS)]} player gets promotion point")
 
+            early = self._check_promotion_victory()
+            if early is not None:
+                return early
+
             if not self.resistance.active and self.round_resistance_damage > 0:
                 # count kills when resistance was destroyed this round
                 if self.resistance.status == "destroyed":
                     self.stats.record_resistance_kill()
 
             if len(self.convoy.units) <= len(self.players):
-                ranking = self._compute_ranking()
-                self.stats.finalize(ranking, self.rounds.count)
-                self._broadcast("Game finished.")
-                self.terminal = True
-                return StepResult(terminal=True, ranking=ranking, message="Game finished.")
+                return self._end_game(
+                    None,
+                    "Game finished (convoy collapsed).",
+                )
 
             if self.rounds.count + 1 >= self.max_rounds:
-                ranking = self._compute_ranking()
-                self.stats.finalize(ranking, self.rounds.count)
-                self._broadcast("Max rounds reached.")
-                self.terminal = True
-                return StepResult(
-                    terminal=True,
-                    ranking=ranking,
-                    message="Max rounds reached.",
+                return self._end_game(
+                    None,
+                    "Max rounds reached.",
                 )
 
             for unit in self.convoy.units:
@@ -794,9 +809,106 @@ class GameEngine:
                 )
             self.rounds.next_round()
 
-        ranking = self._compute_ranking()
-        return StepResult(terminal=True, ranking=ranking)
+        return self._end_game(None, "Game finished.")
 
     def _compute_ranking(self) -> list[dict]:
         rows = [p.to_json() for p in self.players]
         return sorted(rows, key=lambda k: (-k["promotion_points"], -k["total_cash"]))
+
+    def _ranking_with_winner(self, winner: Player) -> list[dict]:
+        """Force ``winner`` to 1st; others by normal PP then cash."""
+        rest = [p.to_json() for p in self.players if p is not winner]
+        rest.sort(key=lambda k: (-k["promotion_points"], -k["total_cash"]))
+        return [winner.to_json()] + rest
+
+    def _end_game(
+        self, winner: Player | None, message: str
+    ) -> StepResult:
+        """Mark terminal. If ``winner`` is set, they are ranked first."""
+        if winner is not None:
+            ranking = self._ranking_with_winner(winner)
+        else:
+            ranking = self._compute_ranking()
+        self.terminal = True
+        self.ranking = ranking
+        self._end_message = message
+        rounds = self.rounds.count if self.rounds else 0
+        self.stats.finalize(ranking, rounds)
+        self._broadcast(message)
+        return StepResult(terminal=True, ranking=ranking, message=message)
+
+    def _finished_result(self) -> StepResult | None:
+        if not self.terminal:
+            return None
+        return StepResult(
+            terminal=True,
+            ranking=self.ranking,
+            message=self._end_message or "Game finished.",
+        )
+
+    def _on_cash_gained(self, player: Player, before: int) -> None:
+        """Instant win when total_cash first crosses CASH_TO_WIN (mid-round OK)."""
+        if self.terminal:
+            return
+        from .config import CASH_TO_WIN
+
+        if CASH_TO_WIN <= 0:
+            return
+        if before < CASH_TO_WIN <= player.total_cash:
+            color = PLAYER_COLORS[player.number % len(PLAYER_COLORS)]
+            self._end_game(
+                player,
+                f"{color} wins with {player.total_cash} cash "
+                f"(target {CASH_TO_WIN}).",
+            )
+
+    def _check_promotion_victory(self) -> StepResult | None:
+        """
+        First sole player to PROMOTION_POINTS_TO_WIN wins.
+
+        If several reach the threshold on the same award, enter sudden death
+        until one player has strictly more PP than every other.
+        """
+        if self.terminal:
+            return self._finished_result()
+        from .config import PROMOTION_POINTS_TO_WIN
+
+        if PROMOTION_POINTS_TO_WIN <= 0:
+            return None
+
+        at_target = [
+            p
+            for p in self.players
+            if p.promotion_points >= PROMOTION_POINTS_TO_WIN
+        ]
+
+        if not self.sudden_death_pp:
+            if len(at_target) == 1:
+                color = PLAYER_COLORS[at_target[0].number % len(PLAYER_COLORS)]
+                return self._end_game(
+                    at_target[0],
+                    f"{color} wins with {at_target[0].promotion_points} PP "
+                    f"(target {PROMOTION_POINTS_TO_WIN}).",
+                )
+            if len(at_target) >= 2:
+                self.sudden_death_pp = True
+                names = ", ".join(
+                    PLAYER_COLORS[p.number % len(PLAYER_COLORS)] for p in at_target
+                )
+                self._broadcast(
+                    f"Sudden death: {names} reached {PROMOTION_POINTS_TO_WIN} PP "
+                    f"together — first sole PP lead wins."
+                )
+                return None
+            return None
+
+        # Sudden death: sole leader (any PP) wins.
+        max_pp = max(p.promotion_points for p in self.players)
+        leaders = [p for p in self.players if p.promotion_points == max_pp]
+        if len(leaders) == 1:
+            color = PLAYER_COLORS[leaders[0].number % len(PLAYER_COLORS)]
+            return self._end_game(
+                leaders[0],
+                f"{color} wins sudden death with {max_pp} PP.",
+            )
+        return None
