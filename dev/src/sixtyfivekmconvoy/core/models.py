@@ -81,6 +81,8 @@ class Unit:
         self.actiontaken: list[int | None] = []
         # Parallel to actiontaken: how the choice resolved (for UI reveal / highlight).
         self.action_resolution: list[dict | None] = []
+        # Action-card stack indices revealed to all (e.g. Order peek on a neighbour).
+        self.revealed_card_indices: set[int] = set()
         self.convoy: Convoy | None = None
         self.engine: GameEngine | None = None
         self.defending: str | None = None
@@ -92,6 +94,7 @@ class Unit:
         self.actioncard = []
         self.actiontaken = []
         self.action_resolution = []
+        self.revealed_card_indices = set()
         self.current_action_type = None
         self.defending = None
 
@@ -270,7 +273,11 @@ class Unit:
                     "face_index": None,
                 }
             resolved = resolution is not None
-            face_up = is_owner or resolved
+            face_up = (
+                is_owner
+                or resolved
+                or i in getattr(self, "revealed_card_indices", set())
+            )
             entry: dict = {
                 "index": i,
                 "has_card": True,

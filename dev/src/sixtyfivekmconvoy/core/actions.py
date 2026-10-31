@@ -63,13 +63,19 @@ SCOUT_QUEUE_NAMES = {
 }
 
 
-def scoutable_queues(engine: GameEngine) -> list[tuple[int, str]]:
+def scoutable_queues(
+    engine: GameEngine,
+    *,
+    allowed_codes: set[int] | frozenset[int] | None = None,
+) -> list[tuple[int, str]]:
     """Return (code, name) for queues that still have face-down cards."""
     mapping = [
         (SCOUT_QUEUE_PILLAGE, "pillage", engine.pillage_queue),
         (SCOUT_QUEUE_MAULING, "mauling", engine.mauling_queue),
         (SCOUT_QUEUE_RESISTANCE, "resistance", engine.resistance_queue),
     ]
+    if allowed_codes is not None:
+        mapping = [row for row in mapping if row[0] in allowed_codes]
     return [(code, name) for code, name, queue in mapping if queue.contains_hidden_cards()]
 
 
@@ -120,8 +126,10 @@ def why_action_impossible(
                 f"zone {zones} not in allowed '{allowed}' for {letter}"
             )
 
+    cost_player = action.get("_cost_player")  # optional override (Order nested play)
+    payer = cost_player if cost_player is not None else unit.player
     required = get_cost(unit, action.get("cost", "0"))
-    hand = len(unit.player.action_cards)
+    hand = len(payer.action_cards)
     if hand < required:
         reasons.append(f"cost {required} but hand has {hand}")
 
@@ -185,6 +193,14 @@ def why_action_impossible(
             reasons.append(
                 f"nothing to scout ({hidden_queue_summary(engine)})"
             )
+    elif name == ActionName.SIGINT:
+        scoutable = scoutable_queues(
+            engine, allowed_codes={SCOUT_QUEUE_MAULING}
+        )
+        if not scoutable:
+            reasons.append(
+                f"nothing to sigint in mauling queue ({hidden_queue_summary(engine)})"
+            )
     elif name == ActionName.SEARCH:
         # Always available (zone/cost already checked): fills the pillage queue
         # from the pillage deck. Empty deck+discard is a no-op at resolve time.
@@ -195,6 +211,20 @@ def why_action_impossible(
             reasons.append(
                 f"no officer in queue matching troop {letter}"
             )
+    elif name == ActionName.ORDER:
+        if not order_wait_targets(engine, unit):
+            reasons.append(
+                "order needs a neighbouring wait "
+                "(previous already waited, or following card has Wait)"
+            )
+        # After paying Order's cost there must still be a card to assign.
+        if len(unit.player.action_cards) <= required:
+            reasons.append(
+                "order needs a hand card left to assign after paying cost"
+            )
+    elif name == ActionName.SEARCH_PILLAGE_COMBO:
+        # Always available when zone/cost allow: search can fill the pillage queue.
+        pass
     elif name in (
         ActionName.DEFEND,
         ActionName.HUMAN_SHIELDS,
@@ -250,6 +280,227 @@ def _cash_for_resistance_hit(player, status: int) -> None:
         player.get_cash(RESISTANCE_HIT_CASH)
 
 
+def _current_action_index(engine: GameEngine) -> int:
+    return int(getattr(engine, "current_action_index", 0) or 0)
+
+
+def _card_faces(unit: Unit, card_id: int) -> list[dict]:
+    if unit.player.action_deck is None:
+        return []
+    desc = unit.player.action_deck.describe(card_id)
+    return list(desc) if isinstance(desc, list) else []
+
+
+def _card_has_wait_face(unit: Unit, card_id: int) -> bool:
+    return any(
+        ActionName.normalize(f.get("action_name")) == ActionName.WAIT
+        for f in _card_faces(unit, card_id)
+    )
+
+
+def _unit_resolved_wait(unit: Unit, action_index: int) -> bool:
+    """True if this unit already resolved Wait at ``action_index``."""
+    if action_index >= len(unit.actioncard):
+        return False
+    if action_index >= len(unit.action_resolution):
+        return False
+    res = unit.action_resolution[action_index]
+    if not res or res.get("kind") == "frustrated":
+        return False
+    if ActionName.normalize(str(res.get("action_name") or "")) == ActionName.WAIT:
+        return True
+    face_i = res.get("face_index")
+    if face_i is None:
+        return ActionName.normalize(str(res.get("name") or "")) == ActionName.WAIT
+    faces = _card_faces(unit, unit.actioncard[action_index])
+    if 0 <= int(face_i) < len(faces):
+        return (
+            ActionName.normalize(faces[int(face_i)].get("action_name"))
+            == ActionName.WAIT
+        )
+    return False
+
+
+def order_wait_targets(engine: GameEngine, ordering_unit: Unit) -> list[Unit]:
+    """
+    Neighbouring units that Order may target at the current action index.
+
+    - Previous: already resolved Wait (revealed earlier in convoy order).
+    - Following: assigned card has a Wait face (may be revealed during Order).
+    """
+    action_index = _current_action_index(engine)
+    preceding, following = ordering_unit.get_neighbours()
+    targets: list[Unit] = []
+    if preceding is not None and _unit_resolved_wait(preceding, action_index):
+        targets.append(preceding)
+    if (
+        following is not None
+        and action_index < len(following.actioncard)
+        and _card_has_wait_face(following, following.actioncard[action_index])
+    ):
+        targets.append(following)
+    return targets
+
+
+def _reveal_unit_action_card(engine: GameEngine, unit: Unit, action_index: int) -> None:
+    """Face-up a unit's stack card for everyone (Order peek on following neighbour)."""
+    if action_index < 0 or action_index >= len(unit.actioncard):
+        return
+    unit.revealed_card_indices.add(action_index)
+    card_id = unit.actioncard[action_index]
+    faces = _card_faces(unit, card_id)
+    names = "/".join(
+        str(f.get("name") or f.get("action_name") or "?") for f in faces
+    ) or str(card_id)
+    engine._broadcast(
+        f"{unit_log_label(unit)} card revealed for Order → {names}"
+    )
+
+
+def resolve_order(
+    engine: GameEngine, ordering_unit: Unit
+) -> Generator[ChoiceRequest, list[int], str]:
+    """
+    Order: assign one hand card to a neighbouring Wait unit, resolve that action
+    immediately as the waiter (orderer pays costs), then return the card to hand.
+    """
+    from .engine import ChoiceRequest
+    from .card_display import format_face
+
+    orderer = ordering_unit.player
+    targets = order_wait_targets(engine, ordering_unit)
+    if not targets:
+        return "order failed: no neighbouring wait"
+    if not orderer.action_cards:
+        return "order failed: no hand card to assign"
+
+    action_index = _current_action_index(engine)
+    preceding, following = ordering_unit.get_neighbours()
+
+    if len(targets) == 1:
+        waiter = targets[0]
+    else:
+        # 0 = preceding, 1 = following (both are wait-eligible).
+        opts = []
+        desc_bits = []
+        if preceding in targets:
+            opts.append(0)
+            desc_bits.append(f"0={unit_log_label(preceding)} (previous, waited)")
+        if following in targets:
+            opts.append(1)
+            desc_bits.append(f"1={unit_log_label(following)} (following, Wait card)")
+        chosen = yield ChoiceRequest(
+            player_id=orderer.agent_id(),
+            choicetype=ChoiceType.CHOOSE_SERVICE,
+            options=opts,
+            num_choices=1,
+            description="Order which neighbour: " + "; ".join(desc_bits),
+            payload={
+                "reason": "order_target",
+                "unit_index": ordering_unit.index(),
+            },
+        )
+        waiter = preceding if chosen[0] == 0 else following
+        assert waiter is not None
+
+    # Reveal following neighbour's card when ordering them.
+    if following is not None and waiter is following:
+        _reveal_unit_action_card(engine, waiter, action_index)
+
+    # Pick a hand card to assign (temporary — returned after resolve).
+    desc = f"Order {unit_log_label(waiter)}: choose a hand card to assign:"
+    hand_opts = list(orderer.action_cards)
+    for c in hand_opts:
+        faces = _card_faces(ordering_unit, c)
+        names = "/".join(
+            str(f.get("name") or f.get("action_name") or "?") for f in faces
+        )
+        desc += f"\n  {c}: {names}"
+    picked = yield ChoiceRequest(
+        player_id=orderer.agent_id(),
+        choicetype=ChoiceType.CHOOSE_CARD,
+        options=hand_opts,
+        num_choices=1,
+        description=desc,
+        payload={
+            "reason": "order_assign_card",
+            "waiter_index": waiter.index(),
+        },
+    )
+    card_id = picked[0]
+    if card_id not in orderer.action_cards:
+        return f"order failed: card {card_id} not in hand"
+    orderer.place_action_card(card_id)
+
+    faces = _card_faces(waiter, card_id)
+    possible: list[tuple[int, dict]] = []
+    for e, face in enumerate(faces):
+        # Cost paid by orderer; temporarily expose that to legality.
+        check = dict(face)
+        check["_cost_player"] = orderer
+        # Card is out of hand already — cost cards must come from remaining hand.
+        why = why_action_impossible(engine, waiter.index(), check)
+        if not why:
+            possible.append((e, face))
+
+    if not possible:
+        # Return card; Order itself still resolves (tires etc.) but no nested action.
+        orderer.action_cards.append(card_id)
+        orderer.action_cards.sort()
+        return (
+            f"ordered {unit_log_label(waiter)} with card {card_id} "
+            f"but no legal face (card returned)"
+        )
+
+    if len(possible) == 1:
+        face_i, face = possible[0]
+    else:
+        action_choices = []
+        labels = list(range(len(possible)))
+        for opt_i, (face_i, face) in enumerate(possible):
+            action_choices.append(
+                {
+                    "option": opt_i,
+                    "face_index": face_i,
+                    "kind": "card",
+                    "face": format_face(face),
+                }
+            )
+        d = (
+            f"Order {unit_log_label(waiter)}: choose face of card {card_id}: "
+            + " ".join(f'{i}:"{possible[i][1].get("name")}"' for i in labels)
+        )
+        pick = yield ChoiceRequest(
+            player_id=orderer.agent_id(),
+            choicetype=ChoiceType.CHOOSE_ACTION,
+            options=labels,
+            num_choices=1,
+            description=d,
+            payload={
+                "reason": "order_choose_face",
+                "unit_index": waiter.index(),
+                "card_id": card_id,
+                "actions": action_choices,
+            },
+        )
+        face_i, face = possible[pick[0]]
+
+    nested = yield from resolve_action(
+        engine,
+        waiter.index(),
+        face,
+        card_id,
+        cost_player=orderer,
+    )
+
+    # Return the assigned card to the ordering player.
+    if card_id not in orderer.action_cards:
+        orderer.action_cards.append(card_id)
+        orderer.action_cards.sort()
+
+    return f"ordered {unit_log_label(waiter)} → {nested} (card {card_id} returned)"
+
+
 def _has_officer(unit: Unit, effect_type: str, kind: str = "discard_effect") -> OfficerCard | None:
     for officer in unit.officers:
         if kind == "passive_effect" and officer.passive_effect == effect_type:
@@ -268,14 +519,24 @@ def _discard_officer(unit: Unit, officer: OfficerCard) -> None:
 
 
 def resolve_action(
-    engine: GameEngine, actor_idx: int, action: dict, cardnumber: int
+    engine: GameEngine,
+    actor_idx: int,
+    action: dict,
+    cardnumber: int,
+    *,
+    cost_player=None,
 ) -> Generator[ChoiceRequest, list[int], str]:
-    """Generator that yields ChoiceRequests and returns a summary string."""
+    """Generator that yields ChoiceRequests and returns a summary string.
+
+    ``cost_player``: when set (Order nested play), discard costs come from that
+    player instead of the acting unit's owner. Rewards still go to the actor.
+    """
     from .engine import ChoiceRequest  # local to avoid cycle at import
 
     convoy = engine.convoy
     unit = convoy.units[actor_idx]
     player = unit.player
+    payer = cost_player if cost_player is not None else player
     name = ActionName.normalize(action.get("action_name", "")) or ""
     modifier = action.get("action_modifier", 0)
     label = unit_log_label(unit)
@@ -283,26 +544,28 @@ def resolve_action(
         f"{label} resolved {action.get('name', name)}:"
     ]
 
-    # Pay cost
+    # Pay cost (possibly from ordering player)
     cost = get_cost(unit, action.get("cost", "0"))
     if cost > 0:
-        if cost >= len(player.action_cards):
-            player.discard(list(player.action_cards))
+        if cost >= len(payer.action_cards):
+            payer.discard(list(payer.action_cards))
         else:
             desc = f"Choose {cost} action cards to discard for {action.get('name', name)}"
-            for c in player.action_cards:
-                card_desc = player.action_deck.describe(c) if player.action_deck else c
+            for c in payer.action_cards:
+                card_desc = payer.action_deck.describe(c) if payer.action_deck else c
                 if isinstance(card_desc, list):
-                    label = "/".join(f["name"] for f in card_desc if isinstance(f, dict))
+                    clabel = "/".join(
+                        f["name"] for f in card_desc if isinstance(f, dict)
+                    )
                 elif isinstance(card_desc, dict):
-                    label = card_desc.get("name", str(c))
+                    clabel = card_desc.get("name", str(c))
                 else:
-                    label = str(card_desc)
-                desc += f"\n  {c}: {label}"
+                    clabel = str(card_desc)
+                desc += f"\n  {c}: {clabel}"
             chosen = yield ChoiceRequest(
-                player_id=player.agent_id(),
+                player_id=payer.agent_id(),
                 choicetype=ChoiceType.CHOOSE_CARDS_TO_DISCARD,
-                options=list(player.action_cards),
+                options=list(payer.action_cards),
                 num_choices=cost,
                 description=desc,
                 payload={
@@ -311,7 +574,7 @@ def resolve_action(
                     "cost": cost,
                 },
             )
-            player.discard(list(chosen))
+            payer.discard(list(chosen))
 
     if name == ActionName.ATTACK:
         damage = modifier
@@ -405,6 +668,23 @@ def resolve_action(
                 f"scout found nothing ({hidden_queue_summary(engine)})"
             )
 
+    elif name == ActionName.SIGINT:
+        # Like scout, but only face-down mauling cards.
+        count = modifier if modifier and modifier > 0 else 2
+        scouted = yield from resolve_scout(
+            engine,
+            unit,
+            count,
+            allowed_queue_codes={SCOUT_QUEUE_MAULING},
+            verb="sigint",
+        )
+        if scouted:
+            parts.append(f"sigint {len(scouted)}: " + ", ".join(scouted))
+        else:
+            parts.append(
+                f"sigint found nothing ({hidden_queue_summary(engine)})"
+            )
+
     elif name == ActionName.SEARCH:
         # "Etsi ryöstettävää": draw and scout cards in the pillage queue.
         count = modifier if modifier and modifier > 0 else 2
@@ -431,6 +711,25 @@ def resolve_action(
             unit.action_resolution.append(None)
             player.place_action_card(card)
             parts.append(f"waited, queued card {card}")
+
+    elif name == ActionName.ORDER:
+        msg = yield from resolve_order(engine, unit)
+        parts.append(msg)
+
+    elif name == ActionName.SEARCH_PILLAGE_COMBO:
+        count = modifier if modifier and modifier > 0 else 2
+        summary_parts = yield from resolve_search(engine, unit, count)
+        parts.extend(summary_parts)
+        if len(engine.pillage_queue) >= 1:
+            rewards = yield from _resolve_pillage(engine, unit, 0)
+            for r in rewards:
+                player.this_round_cash += r["reward"]["cash"]
+                player.total_cash += r["reward"]["cash"]
+                unit.gain_loot(r["reward"]["loot"])
+                unit.gain_atrocities(r["reward"]["atrocities"])
+                parts.append(f"pillaged {r['name']}")
+        else:
+            parts.append("nothing to pillage after search")
 
     elif name == ActionName.SOBER_UP:
         officer = _has_officer(unit, "sober_up")
@@ -842,13 +1141,20 @@ def resolve_search(
 
 
 def resolve_scout(
-    engine: GameEngine, unit: Unit, count: int
+    engine: GameEngine,
+    unit: Unit,
+    count: int,
+    *,
+    allowed_queue_codes: set[int] | frozenset[int] | None = None,
+    verb: str = "scout",
 ) -> Generator[ChoiceRequest, list[int], list[str]]:
     """
     Reveal up to `count` face-down queue cards.
-    The player can choose to look at face-down cards from any queues.
-    If several cards from the same queue are chosen, the player can put them back in a different order.
-    The scouted cards are turned to be face up.
+
+    By default any of pillage/mauling/resistance may be chosen. Pass
+    ``allowed_queue_codes`` (e.g. ``{SCOUT_QUEUE_MAULING}`` for sigint) to
+    restrict which queues are eligible. If several cards from the same queue
+    are chosen, the player can put them back in a different order.
     """
     from .engine import ChoiceRequest
 
@@ -860,8 +1166,12 @@ def resolve_scout(
         (SCOUT_QUEUE_MAULING, "mauling", engine.mauling_queue),
         (SCOUT_QUEUE_RESISTANCE, "resistance", engine.resistance_queue),
     ]
+    if allowed_queue_codes is not None:
+        queue_mapping = [
+            row for row in queue_mapping if row[0] in allowed_queue_codes
+        ]
 
-    # Find all face-down cards across all three queues
+    # Find all face-down cards across allowed queues
     face_down_cards = []
     for code, qname, queue in queue_mapping:
         for idx, (card_id, vis) in enumerate(queue.cards_and_visibilities):
@@ -871,15 +1181,23 @@ def resolve_scout(
     num_to_scout = min(count, len(face_down_cards))
     if num_to_scout <= 0:
         engine._broadcast(
-            f"{label} scout: nothing left to reveal "
+            f"{label} {verb}: nothing left to reveal "
             f"({hidden_queue_summary(engine)})"
         )
         return revealed
 
+    queue_hint = (
+        "any queues"
+        if allowed_queue_codes is None
+        else ", ".join(SCOUT_QUEUE_NAMES[c] for c in sorted(allowed_queue_codes))
+    )
     # Choice phase 1: Select which face-down card(s) to scout
     options = [code * 100 + idx for code, qname, idx, cid in face_down_cards]
-    desc = f"{label} scout: Choose {num_to_scout} face-down cards to reveal from any queues."
-    
+    desc = (
+        f"{label} {verb}: Choose {num_to_scout} face-down card(s) "
+        f"to reveal ({queue_hint})."
+    )
+
     queues_payload = []
     for code, qname, idx, cid in face_down_cards:
         queues_payload.append({
@@ -895,9 +1213,18 @@ def resolve_scout(
         num_choices=num_to_scout,
         description=desc,
         payload={
-            "reason": "scout_selection",
+            "reason": f"{verb}_selection",
+            "verb": verb,
             "cards": queues_payload,
-            "count": num_to_scout
+            "count": num_to_scout,
+            "allowed_queues": [
+                SCOUT_QUEUE_NAMES[c]
+                for c in (
+                    sorted(allowed_queue_codes)
+                    if allowed_queue_codes is not None
+                    else sorted(SCOUT_QUEUE_NAMES)
+                )
+            ],
         }
     )
 
@@ -912,8 +1239,8 @@ def resolve_scout(
         idx = opt % 100
         chosen_by_queue.setdefault(code, []).append(idx)
 
-    # Scout incentive:
-    if SCOUT_QUEUE_RESISTANCE in chosen_by_queue:
+    # Scout incentive (resistance only; sigint/mauling does not grant it):
+    if verb == "scout" and SCOUT_QUEUE_RESISTANCE in chosen_by_queue:
         from .config import SCOUT_CASH
         if SCOUT_CASH > 0:
             unit.player.get_cash(SCOUT_CASH)
@@ -933,7 +1260,7 @@ def resolve_scout(
             card_name = queue.deck.get_name(card_id) if queue.deck else str(card_id)
             revealed.append(f"{qname}:{card_name}")
             engine._broadcast(
-                f"{label} scouted {qname} card → {card_name} (revealed)",
+                f"{label} {verb} {qname} card → {card_name} (revealed)",
                 kind="reveal",
                 queue=qname,
                 index=idx,
@@ -946,7 +1273,10 @@ def resolve_scout(
 
         # If several cards from the same queue were scouted, allow reordering.
         if len(indices) > 1:
-            desc_reorder = f"{label} scout: Choose the new order for the scouted {qname} cards."
+            desc_reorder = (
+                f"{label} {verb}: Choose the new order for the scouted "
+                f"{qname} cards."
+            )
             reorder_payload_cards = []
             for idx in indices:
                 card_id = queue.cards_and_visibilities[idx][0]
@@ -987,7 +1317,7 @@ def resolve_scout(
                     queue.deck.get_name(card_id) if queue.deck else str(card_id)
                 )
             engine._broadcast(
-                f"{label} reordered scouted {qname} cards: {', '.join(names)}"
+                f"{label} reordered {verb} {qname} cards: {', '.join(names)}"
             )
 
     return revealed

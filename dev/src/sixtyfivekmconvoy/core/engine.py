@@ -125,6 +125,7 @@ class GameEngine:
     def __init__(self) -> None:
         self.human_seat = 0
         self.pause_after_actions = True
+        self.current_action_index = 0
         self.players: list[Player] = []
         self.convoy: Convoy | None = None  # type: ignore[assignment]
         self.resistance = Resistance(None)
@@ -474,6 +475,7 @@ class GameEngine:
             self.rounds.next_stage()
             action_index = 0
             while True:
+                self.current_action_index = action_index
                 units_with_action = [
                     unit
                     for unit in self.convoy.units
@@ -620,6 +622,7 @@ class GameEngine:
                             "face_index": face_i if kind == "card" else None,
                             "option": choice_i,
                             "name": desc.get("name"),
+                            "action_name": desc.get("action_name"),
                         }
                         unit_idx = unit.index()
                         summary = yield from action_mod.resolve_action(

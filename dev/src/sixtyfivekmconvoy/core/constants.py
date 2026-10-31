@@ -46,13 +46,7 @@ class ActionName:
     EXIT_FROM_C_WITH_COST = "exit_from_c_with_cost"
 
     # Not fully implemented — excluded from legal play until rules exist.
-    UNIMPLEMENTED = frozenset(
-        {
-            ORDER,
-            SIGINT,
-            SEARCH_PILLAGE_COMBO,
-        }
-    )
+    UNIMPLEMENTED = frozenset()
 
     @classmethod
     def normalize(cls, action_name: str | None) -> str | None:

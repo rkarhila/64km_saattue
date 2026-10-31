@@ -1512,6 +1512,7 @@
         const actionNames = {
           exit: '"sayonara suckers" (Pakene)',
           scout: "Tiedustele (Scout)",
+          sigint: "Signaalitiedustelu (Sigint)",
           promote: "Ylennä (Promote)",
           pillage: "Ryöstä (Pillage)",
           attack: "Hyökkää (Attack)",
