@@ -1,10 +1,10 @@
 officer_id,name,passive_effect,discard_effect,passive_description,discard_description,troop_type,zone,action_type,action_modifier,cost,tire,intoxicate
-0,"Huikka Möttönen",no_boozing_while_pillaging,,"Unit ignores intoxication from pillaging cards.",,A,,,,,,
-1,"Teurastaja Möttönen",extra_damage_in_zone_A,,"Unit does 1 extra damage when attacking in zone A",,IP,,,,,,
-2,"Rosvopäällikkö Möttönen",extra_pillage_search_card,,"Look up extra card when searching for pillageables.",,IP,,,,,,
-3,"Ohjesääntö Möttönen",atrocity_conversion,,"Unit ignores atrocities from pillaging",,A,,,,,,
-4,"Sorvaaja Möttönen",extra_carry_capacity,,"Unit has one extra carry capacity slot.",,L,,,,,,
-6,"Karhuntalja Möttönen",,suicidal_attack,,"Discard to attack, causes 5 damage, unit takes 1 damage",I,A,suicidal_attack,0,0,1,0
-7,"Rantarosvo Möttönen",,search_pillage_combo,,"Discard to do a combined search and pillage action",A,ABCE,search_pillage_combo,0,0,1,0
-8,"Keulija Möttönen",,pillage_with_extra_atrocity,,"Discard to perform a disciplined pillage action.",A,ABCE,pillage_with_extra_atrocity,0,0,1,0
-9,"Hatka Möttönen",,exit_from_c_with_cost,,"Discard to perform exit from zone C.",A,CE,exit_from_c_with_cost,0,4,0,0
+0,“Huikka” Möttönen,no_boozing_while_pillaging,,Unit ignores intoxication from pillaging cards.,,A,,,,,,
+1,“Teurastaja” Määttänen,extra_damage_in_zone_A,,Unit does 1 extra damage when attacking in zone A,,IP,,,,,,
+2,“Rosvopäällikkö” Koponen,extra_pillage_search_card,,Look up extra card when searching for pillageables.,,IP,,,,,,
+3,“Ohjesääntö” Kekkonen,atrocity_conversion,,Unit ignores atrocities from pillaging,,A,,,,,,
+4,“Sorvaaja” Väänänen,extra_carry_capacity,,Unit has one extra carry capacity slot.,,L,,,,,,
+6,“Karhuntalja” Lipponen,,suicidal_attack,,"Discard to attack from zone A, causes 5 damage, unit takes 1 damage",I,A,suicidal_attack,0,0,1,0
+7,“Rantarosvo” Röppänen,,search_pillage_combo,,Discard to do a combined search and pillage action,A,ABCE,search_pillage_combo,0,0,1,0
+8,“Keulija” Mutikainen,,pillage_with_extra_atrocity,,Discard to perform a disciplined pillage action.,A,ABCE,pillage_with_extra_atrocity,0,0,1,0
+9,“Hatka” Romppainen,,exit_from_c_with_cost,,Discard to perform exit from zone C.,A,CE,exit_from_c_with_cost,0,2,0,0
