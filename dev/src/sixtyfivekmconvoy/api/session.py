@@ -44,11 +44,19 @@ class GameSession:
     def snapshot(self, player_id: str) -> dict[str, Any]:
         view = self.engine.observe(player_id)
         pending = self.engine.pending_choice()
+        # LOG_PAUSE is shown via the floating continue panel, not the choice UI.
+        log_pause_for_human = (
+            pending is not None
+            and pending.choicetype == ChoiceType.LOG_PAUSE
+            and pending.player_id == player_id
+        )
+        awaiting = self.awaiting_continue or log_pause_for_human
         # While paused for continue, suppress choice UI even if a bot is "pending"
         show_choice = (
             pending is not None
             and pending.player_id == player_id
-            and not self.awaiting_continue
+            and not awaiting
+            and pending.choicetype != ChoiceType.LOG_PAUSE
         )
         legal = self.engine.legal_actions() if show_choice else []
         pending_json = pending.to_json() if show_choice else None
@@ -82,6 +90,15 @@ class GameSession:
                 if entry.get("face_up") and entry.get("card") is not None:
                     placed[str(entry["card"])] = describe_action_card(entry["card"])
 
+        continue_hint = None
+        if awaiting:
+            if log_pause_for_human and pending is not None:
+                continue_hint = pending.description or None
+            if not continue_hint and self.engine.messages:
+                continue_hint = self.engine.messages[-1]
+
+        from sixtyfivekmconvoy.core import config as game_config
+
         return {
             "game_id": self.game_id,
             "state": view,
@@ -99,11 +116,21 @@ class GameSession:
             "terminal": self.engine.terminal,
             "ranking": self.engine.winner_ranking(),
             "stats": self.engine.stats.to_json() if self.engine.terminal else None,
-            "awaiting_continue": self.awaiting_continue,
+            "awaiting_continue": awaiting,
+            "continue_hint": continue_hint,
             "pause_after_actions": self.pause_after_actions,
             "setup_complete": self.engine.setup_complete,
             "setup_pattern": list(self.engine.setup_pattern),
             "shareable_state": self.get_shareable_state_string(),
+            "config_name": getattr(game_config, "CONFIG_NAME", "default"),
+            "cash_rewards": {
+                "service": int(getattr(game_config, "SERVICE_CASH", 0) or 0),
+                "attack": int(getattr(game_config, "ATTACK_CASH", 0) or 0),
+                "scout": int(getattr(game_config, "SCOUT_CASH", 0) or 0),
+                "resistance_hit": int(
+                    getattr(game_config, "RESISTANCE_HIT_CASH", 0) or 0
+                ),
+            },
         }
 
     def get_shareable_state_string(self) -> str:
@@ -202,6 +229,13 @@ class GameSession:
             and not self.engine.terminal
         )
 
+    def _pending_is_log_pause(self) -> bool:
+        pending = self.engine.pending_choice()
+        return (
+            pending is not None
+            and pending.choicetype == ChoiceType.LOG_PAUSE
+        )
+
     def _should_pause(self, log_len_before: int) -> bool:
         if not self.pause_after_actions:
             return False
@@ -209,15 +243,20 @@ class GameSession:
             return False
         if len(self.engine.messages) <= log_len_before:
             return False
-        # Don't block the human behind a Continue when they have a choice waiting.
-        if self._human_must_act():
+        # Engine already yielded LOG_PAUSE for this event; UI maps that to continue.
+        if self._pending_is_log_pause():
             return False
+        # Pause so the new log line is shown before the next human choice / bots.
         return True
 
     def apply_human_choice(self, player_id: str, choice: list[int]) -> dict[str, Any]:
-        if self.awaiting_continue:
-            raise ValueError("Press continue before making another choice")
         pending = self.engine.pending_choice()
+        if self.awaiting_continue or (
+            pending is not None
+            and pending.choicetype == ChoiceType.LOG_PAUSE
+            and pending.player_id == player_id
+        ):
+            raise ValueError("Press continue before making another choice")
         if pending is None or pending.player_id != player_id:
             raise ValueError("Not your turn")
         legal = self.engine.legal_actions()
@@ -263,7 +302,21 @@ class GameSession:
         self.awaiting_continue = False
         if self.engine.terminal:
             return self.snapshot(player_id)
-        if self._human_must_act():
+
+        pending = self.engine.pending_choice()
+        if (
+            pending is not None
+            and pending.choicetype == ChoiceType.LOG_PAUSE
+            and pending.player_id == player_id
+        ):
+            before = len(self.engine.messages)
+            legal = self.engine.legal_actions()
+            self.engine.step(legal[0] if legal else [0])
+            if self._should_pause(before):
+                self.awaiting_continue = True
+                return self.snapshot(player_id)
+
+        if self._human_must_act() and not self._pending_is_log_pause():
             return self.snapshot(player_id)
         self._run_bots()
         return self.snapshot(player_id)
@@ -281,6 +334,9 @@ class GameSession:
             self.engine.step(bot.choose(self.engine.legal_actions()))
             if self._should_pause(before):
                 self.awaiting_continue = True
+                break
+            # Engine may have yielded LOG_PAUSE for the human after this step.
+            if self._pending_is_log_pause():
                 break
 
 
