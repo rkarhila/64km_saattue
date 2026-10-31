@@ -71,7 +71,7 @@ class AttackType:
     G (ground)     | defend                  | Defend
     S (sabotage)   | patrol                  | Patrol
 
-    Soak: unit.defending == attack_type. Legacy letters P/R/T are not used.
+    Soak: unit.defending == attack_type. Rewards from config (SOAK_*_CASH / SOAK_*_ATROCITIES).
     """
 
     AIR = "A"
@@ -88,7 +88,6 @@ ATTACK_TYPE_BY_DEFENCE_ACTION = {
     ActionName.PATROL: AttackType.SABOTAGE,
 }
 
-CARDS_TO_DEAL = 7
 MIN_PLAYER_CARD_LIMIT = 2
 CARD_TO_POINTS_RATIO = 4
 PLAYER_COLORS = ["red", "green", "blue", "orange", "purple"]
