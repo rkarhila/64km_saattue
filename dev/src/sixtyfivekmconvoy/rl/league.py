@@ -281,13 +281,16 @@ class League:
         k: int,
         exclude: Iterable[str] | None = None,
         prefer_tags: Iterable[str] | None = None,
+        prefer_ids: Iterable[str] | None = None,
+        prefer_id_weight: float = 0.7,
         include_latest_weight: float = 0.4,
     ) -> list[str]:
         """
         Sample ``k`` opponent checkpoint ids from active league members.
 
         Mixes uniform historical opponents with a bias toward the newest entry
-        (``include_latest_weight``).
+        (``include_latest_weight``). When ``prefer_ids`` is set (e.g. a sibling
+        fork), those ids are chosen with probability ``prefer_id_weight``.
         """
         exclude_set = set(exclude or [])
         pool = [e for e in self.list(active_only=True) if e.id not in exclude_set]
@@ -298,14 +301,49 @@ class League:
         if not pool:
             return []
 
+        prefer_set = [pid for pid in (prefer_ids or []) if pid in self.entries]
+        prefer_set = [pid for pid in prefer_set if pid not in exclude_set]
+        # Keep only preferred ids that are still active in the pool.
+        pool_ids = {e.id for e in pool}
+        prefer_set = [pid for pid in prefer_set if pid in pool_ids]
+
         latest = max(pool, key=lambda e: e.created_at)
         out: list[str] = []
         for _ in range(k):
-            if rng.random() < include_latest_weight:
+            if prefer_set and rng.random() < prefer_id_weight:
+                out.append(str(rng.choice(prefer_set)))
+            elif rng.random() < include_latest_weight:
                 out.append(latest.id)
             else:
                 out.append(str(rng.choice(pool).id))
         return out
+
+    def latest_by_name_prefix(self, prefix: str) -> LeagueEntry | None:
+        """Newest entry whose name equals or starts with ``prefix``."""
+        matches = [
+            e
+            for e in self.entries.values()
+            if e.name == prefix or e.name.startswith(prefix)
+        ]
+        if not matches:
+            return None
+        return max(matches, key=lambda e: (e.created_at, e.step))
+
+    def resolve_flexible(self, name_or_id: str) -> LeagueEntry:
+        """Resolve id, exact name, or newest name/id prefix match."""
+        if name_or_id in self.entries:
+            return self.entries[name_or_id]
+        by_name = self.find_by_name(name_or_id)
+        if by_name is not None:
+            return by_name
+        prefixed = self.latest_by_name_prefix(name_or_id)
+        if prefixed is not None:
+            return prefixed
+        # id prefix
+        id_hits = [e for e in self.entries.values() if e.id.startswith(name_or_id)]
+        if id_hits:
+            return max(id_hits, key=lambda e: e.created_at)
+        raise KeyError(f"no league entry named or id={name_or_id!r}")
 
     def export_bot(self, name_or_id: str, dest: str | Path) -> Path:
         """Copy a checkpoint to ``dest`` for standalone playtest use."""

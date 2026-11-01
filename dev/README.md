@@ -21,13 +21,17 @@ python -m sixtyfivekmconvoy.cli.selfplay --players 3 --seed 0 --verbose
 
 ## RL training (self-play + bot league)
 
-Install the optional torch extra, then train a PPO policy into a **league** of
-versioned / branchable bots. Full command walkthrough: **[docs/rl-training.md](docs/rl-training.md)**.
+Install the optional torch extra, then train an **LSTM + autoregressive** PPO
+policy into a **league** of versioned / branchable bots. Full walkthrough:
+**[docs/rl-training.md](docs/rl-training.md)**.
 
 ```bash
 pip install -e ".[rl]"
+# Prefer CPU torch if you do not need CUDA:
+# pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-convoy-train --league runs/league --name main --players 3 --timesteps 50000
+convoy-train --league runs/league --name main --players 3 --timesteps 50000 \
+  --lstm-hidden 512 --bptt-len 16
 convoy-league --league runs/league list
 convoy-league --league runs/league branch <id> --name aggressive
 convoy-train --league runs/league --from <id> --branch-as aggressive --timesteps 20000
@@ -84,7 +88,7 @@ pytest
 |------|------|
 | `src/sixtyfivekmconvoy/core/` | Pure engine (no I/O) |
 | `src/sixtyfivekmconvoy/env/` | PettingZoo `AECEnv` |
-| `src/sixtyfivekmconvoy/rl/` | PPO self-play, league checkpoints, branching |
+| `src/sixtyfivekmconvoy/rl/` | Recurrent PPO self-play, league checkpoints, branching |
 | `src/sixtyfivekmconvoy/agents/` | Random / human / RL bridges |
 | `src/sixtyfivekmconvoy/api/` | FastAPI sessions |
 | `src/sixtyfivekmconvoy/cli/` | Self-play, train, league, terminal |

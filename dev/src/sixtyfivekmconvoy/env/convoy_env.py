@@ -13,6 +13,7 @@ from pettingzoo.utils import agent_selector, wrappers
 from sixtyfivekmconvoy.core.engine import GameEngine
 from sixtyfivekmconvoy.env.spaces import (
     MAX_LEGAL,
+    encode_choice_options,
     flatten_observation,
     observation_size,
 )
@@ -114,11 +115,11 @@ class ConvoyEnv(AECEnv):
         idx = int(agent.split("_")[1])
         return flatten_observation(raw, idx, self.num_players)
 
-    def step(self, action: int | None):
+    def step(self, action: int | list[int] | None):
         if self.terminations.get(self.agent_selection, False) or self.truncations.get(
             self.agent_selection, False
         ):
-            self._was_dead_step(action)
+            self._was_dead_step(action if isinstance(action, int) or action is None else 0)
             return
 
         legal = self.engine.legal_actions()
@@ -128,9 +129,19 @@ class ConvoyEnv(AECEnv):
             self._update_views()
             return
 
-        if action is None or action < 0 or action >= len(legal):
-            action = 0
-        choice = legal[int(action)]
+        if isinstance(action, list):
+            choice = list(action)
+            # Prefer exact / unordered match against legal vectors when possible.
+            if choice not in legal:
+                target = sorted(choice)
+                matched = next(
+                    (v for v in legal if sorted(v) == target), None
+                )
+                choice = list(matched) if matched is not None else legal[0]
+        else:
+            if action is None or action < 0 or action >= len(legal):
+                action = 0
+            choice = legal[int(action)]
         result = self.engine.step(choice)
         self._cycle += 1
 
@@ -241,13 +252,28 @@ class ConvoyEnv(AECEnv):
             raw = self.engine.observe(a)
             legal: list[list[int]] = []
             mask = np.zeros(MAX_LEGAL, dtype=np.int8)
+            choice_spec: dict[str, Any] | None = None
             if self.engine.current_agent() == a:
                 legal = self.engine.legal_actions()
                 for i in range(min(len(legal), MAX_LEGAL)):
                     mask[i] = 1
+                choice = raw.get("choice")
+                if choice:
+                    opt_feats, opt_mask, n_pick, ordered, ctype = encode_choice_options(
+                        choice
+                    )
+                    choice_spec = {
+                        "options": list(choice.get("options") or []),
+                        "num_choices": n_pick,
+                        "ordered": ordered,
+                        "choicetype": ctype,
+                        "option_feats": opt_feats,
+                        "option_mask": opt_mask,
+                    }
             self.infos[a] = {
                 "raw": raw,
                 "legal_actions": legal,
                 "action_mask": mask,
+                "choice_spec": choice_spec,
                 "stats": self.engine.stats.to_json() if self.engine.terminal else None,
             }

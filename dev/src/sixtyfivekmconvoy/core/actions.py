@@ -660,16 +660,17 @@ def resolve_action(
     elif name in (ActionName.PILLAGE, ActionName.PILLAGE_WITH_EXTRA_ATROCITY):
         extra = 0 if name == ActionName.PILLAGE_WITH_EXTRA_ATROCITY else modifier
         rewards = yield from _resolve_pillage(engine, unit, extra)
+        disciplined = name == ActionName.PILLAGE_WITH_EXTRA_ATROCITY
         for r in rewards:
-            cash = int(r["reward"]["cash"] or 0)
-            if cash:
-                player.get_cash(cash)
-            unit.gain_loot(r["reward"]["loot"])
-            atro = r["reward"]["atrocities"]
-            if name == ActionName.PILLAGE_WITH_EXTRA_ATROCITY:
-                atro = max(0, atro - 1)
-            unit.gain_atrocities(atro)
-            parts.append(f"pillaged {r['name']}")
+            _apply_pillage_reward(player, unit, r, disciplined=disciplined)
+            parts.append(
+                format_pillage_effect(
+                    unit,
+                    r,
+                    disciplined=disciplined,
+                    influence=bool(action.get("intoxicate")),
+                )
+            )
 
     elif name in ATTACK_TYPE_BY_DEFENCE_ACTION:
         # Defend→G (ground), Human shields→A (air), Patrol→S (sabotage).
@@ -749,12 +750,15 @@ def resolve_action(
         if len(engine.pillage_queue) >= 1:
             rewards = yield from _resolve_pillage(engine, unit, 0)
             for r in rewards:
-                cash = int(r["reward"]["cash"] or 0)
-                if cash:
-                    player.get_cash(cash)
-                unit.gain_loot(r["reward"]["loot"])
-                unit.gain_atrocities(r["reward"]["atrocities"])
-                parts.append(f"pillaged {r['name']}")
+                _apply_pillage_reward(player, unit, r, disciplined=False)
+                parts.append(
+                    format_pillage_effect(
+                        unit,
+                        r,
+                        disciplined=False,
+                        influence=bool(action.get("intoxicate")),
+                    )
+                )
         else:
             parts.append("nothing to pillage after search")
 
@@ -861,6 +865,67 @@ def resolve_action(
     summary = ", ".join(parts)
     engine.round_action_summaries.append(summary)
     return summary
+
+
+def _loot_list(loot: Any) -> list[int]:
+    if loot is None or loot == "":
+        return []
+    if isinstance(loot, int):
+        return [loot] if loot else []
+    if isinstance(loot, str):
+        return [int(x) for x in loot.split(",") if x.strip()]
+    return [int(x) for x in loot if int(x)]
+
+
+def _apply_pillage_reward(
+    player: Any, unit: Unit, card: dict, *, disciplined: bool
+) -> None:
+    reward = card.get("reward") or {}
+    cash = int(reward.get("cash") or 0)
+    if cash:
+        player.get_cash(cash)
+    cards = int(reward.get("cards") or 0)
+    if cards:
+        player.draw_card(cards)
+    unit.gain_loot(reward.get("loot") or [])
+    atro = int(reward.get("atrocities") or 0)
+    if disciplined:
+        atro = max(0, atro - 1)
+    unit.gain_atrocities(atro)
+
+
+def format_pillage_effect(
+    unit: Unit,
+    card: dict,
+    *,
+    disciplined: bool = False,
+    influence: bool = False,
+) -> str:
+    """Human log line: loot, atrocities, influence, cards drawn, money."""
+    reward = card.get("reward") or {}
+    label = unit_log_label(unit)
+    name = card.get("name") or "?"
+    loot = _loot_list(reward.get("loot"))
+    atro = int(reward.get("atrocities") or 0)
+    if disciplined:
+        atro = max(0, atro - 1)
+    cash = int(reward.get("cash") or 0)
+    cards = int(reward.get("cards") or 0)
+    bits: list[str] = []
+    if loot:
+        shown = "+".join(str(v) for v in loot)
+        bits.append(f"gains {len(loot)} loot ({shown})")
+    if atro:
+        bits.append(f"commits {atro} atrocities")
+    if influence:
+        bits.append("is now under the influence")
+    if cards:
+        bits.append(f"player draws {cards} cards")
+    if cash:
+        bits.append(f"gains {cash} money")
+    if not bits:
+        bits.append("no reward")
+    return f"{label} pillaged {name}: " + "; ".join(bits)
 
 
 def _resolve_pillage(
@@ -1006,8 +1071,8 @@ def pause_after_action(
 ) -> Generator[ChoiceRequest, list[int], None]:
     """Pause after an action resolves (or a unit becomes frustrated)."""
     hint = summary.strip() if summary else "Toiminto kirjattu lokiin."
-    if len(hint) > 160:
-        hint = hint[:157] + "…"
+    if len(hint) > 480:
+        hint = hint[:477] + "…"
     yield from _pause_after_log(
         engine,
         f"{hint} Jatka.",

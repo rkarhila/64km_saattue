@@ -18,7 +18,9 @@ from sixtyfivekmconvoy.rl.selfplay import SelfPlayConfig, SelfPlayTrainer
 
 def test_league_add_branch_lineage(tmp_path):
     league = League(tmp_path / "league")
-    model = MaskedActorCritic(obs_dim=observation_size(3), hidden=32, n_layers=1)
+    model = MaskedActorCritic(
+        obs_dim=observation_size(3), hidden=32, n_layers=1, lstm_hidden=32
+    )
     root = league.add(model, name="root", tags=["init"])
     child = league.branch(root.id, name="fork-a", tags=["style-a"])
     assert child.parent_id == root.id
@@ -26,6 +28,7 @@ def test_league_add_branch_lineage(tmp_path):
 
     loaded = league.load_model(child.id)
     assert isinstance(loaded, MaskedActorCritic)
+    assert loaded.recurrent
     chain = league.lineage(child.id)
     assert [e.name for e in chain] == ["root", "fork-a"]
 
@@ -46,13 +49,16 @@ def test_league_add_branch_lineage(tmp_path):
     mask[0] = 1
     action = bot.act(obs, [[0]], action_mask=mask)
     assert action == 0
+    bot.reset_memory()
 
 
 def test_league_sample_opponents(tmp_path):
     import numpy as np
 
     league = League(tmp_path / "league")
-    model = MaskedActorCritic(obs_dim=observation_size(3), hidden=32, n_layers=1)
+    model = MaskedActorCritic(
+        obs_dim=observation_size(3), hidden=32, n_layers=1, lstm_hidden=32
+    )
     a = league.add(model, name="a")
     b = league.branch(a.id, name="b")
     league.add(model, name="c", parent_id=b.id)
@@ -74,8 +80,10 @@ def test_selfplay_short_train(tmp_path):
         eval_episodes=2,
         hidden=32,
         n_layers=1,
+        lstm_hidden=32,
+        lstm_layers=2,
         device="cpu",
-        ppo=PPOConfig(epochs=1, minibatch_size=64, lr=1e-3),
+        ppo=PPOConfig(epochs=1, minibatch_size=64, lr=1e-3, bptt_len=8),
     )
     logs: list[str] = []
     trainer = SelfPlayTrainer(

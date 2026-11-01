@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
@@ -24,16 +23,26 @@ class SelfPlayConfig:
     num_players: int = 3
     seed: int = 0
     total_timesteps: int = 100_000
+    max_seconds: float | None = None  # wall-clock stop after current rollout
     rollout_steps: int = 2048
     checkpoint_every_steps: int = 10_000
     eval_every_steps: int = 10_000
     eval_episodes: int = 8
     opponent_latest_weight: float = 0.35
     include_self_mirror: float = 0.25  # chance all seats use live learner
+    # Prefer these checkpoint ids as opponents (e.g. sibling fork).
+    prefer_opponent_ids: list[str] = field(default_factory=list)
+    prefer_opponent_weight: float = 0.7
     hidden: int = 256
     n_layers: int = 2
+    lstm_hidden: int = 512
+    lstm_layers: int = 2
     device: str = "cpu"
     reward_mode: str = "win"
+    pp_reward: float = 0.25
+    cash_reward: float = 0.05
+    win_reward: float = 1.0
+    lose_reward: float = 0.0
     league_name: str = "main"
     ppo: PPOConfig = field(default_factory=PPOConfig)
 
@@ -70,6 +79,8 @@ class SelfPlayTrainer:
                 obs_dim=obs_dim,
                 hidden=self.config.hidden,
                 n_layers=self.config.n_layers,
+                lstm_hidden=self.config.lstm_hidden,
+                lstm_layers=self.config.lstm_layers,
                 num_players=self.config.num_players,
             )
         self.policy = policy.to(self.device)
@@ -82,6 +93,8 @@ class SelfPlayTrainer:
             capacity=self.config.rollout_steps,
             gamma=self.config.ppo.gamma,
             gae_lambda=self.config.ppo.gae_lambda,
+            lstm_hidden=self.policy.lstm_hidden,
+            lstm_layers=self.policy.lstm_layers,
         )
         self.learner_name = learner_name
         self.parent_id = parent_id
@@ -89,25 +102,23 @@ class SelfPlayTrainer:
         self.episodes = 0
         self._frozen_cache: dict[str, RLAgent] = {}
 
-        # Ensure the league has at least one seed checkpoint.
         if not self.league.list():
             entry = self.league.add(
                 self.policy,
                 name=f"{learner_name}-init",
                 parent_id=parent_id,
-                tags=["init", self.config.league_name],
+                tags=["init", self.config.league_name, "rnn"],
                 config={
                     "num_players": self.config.num_players,
                     "hidden": self.config.hidden,
+                    "lstm_hidden": self.config.lstm_hidden,
+                    "lstm_layers": self.config.lstm_layers,
                     "reward_mode": self.config.reward_mode,
+                    "arch": "lstm_ar",
                 },
             )
             self.parent_id = entry.id
             self.log(f"league seed checkpoint {entry.id} ({entry.name})")
-
-    # ------------------------------------------------------------------
-    # Opponent sampling
-    # ------------------------------------------------------------------
 
     def _load_frozen(self, entry_id: str) -> RLAgent:
         if entry_id not in self._frozen_cache:
@@ -117,12 +128,22 @@ class SelfPlayTrainer:
             )
         return self._frozen_cache[entry_id]
 
+    def _make_env(self, *, seed: int | None = None) -> ConvoyEnv:
+        cfg = self.config
+        return ConvoyEnv(
+            num_players=cfg.num_players,
+            seed=seed,
+            reward_mode=cfg.reward_mode,
+            max_cycles=50_000,
+            pp_reward=cfg.pp_reward,
+            cash_reward=cfg.cash_reward,
+            win_reward=cfg.win_reward,
+            lose_reward=cfg.lose_reward,
+        )
+
     def _assign_opponents(self, learner_seat: int) -> dict[int, RLAgent | None]:
-        """
-        Map seat → agent. ``None`` means the live learning policy.
-        """
         n = self.config.num_players
-        seats = {i: None for i in range(n)}  # default: live learner
+        seats: dict[int, RLAgent | None] = {i: None for i in range(n)}
         seats[learner_seat] = None
 
         if self.rng.random() < self.config.include_self_mirror:
@@ -134,6 +155,8 @@ class SelfPlayTrainer:
             k=need,
             exclude=(),
             include_latest_weight=self.config.opponent_latest_weight,
+            prefer_ids=self.config.prefer_opponent_ids or None,
+            prefer_id_weight=self.config.prefer_opponent_weight,
         )
         others = [i for i in range(n) if i != learner_seat]
         for seat, oid in zip(others, ids):
@@ -141,23 +164,53 @@ class SelfPlayTrainer:
                 seats[seat] = self._load_frozen(oid)
         return seats
 
-    # ------------------------------------------------------------------
-    # Rollouts
-    # ------------------------------------------------------------------
+    def _hx_numpy(
+        self, hx: tuple[torch.Tensor, torch.Tensor] | None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        size = self.policy.lstm_state_size
+        if hx is None:
+            z = np.zeros(size, dtype=np.float32)
+            return z, z.copy()
+        h, c = hx
+        return (
+            h.detach().cpu().numpy().reshape(-1)[:size],
+            c.detach().cpu().numpy().reshape(-1)[:size],
+        )
 
     def _act_live(
-        self, obs: np.ndarray, mask: np.ndarray
-    ) -> tuple[int, float, float]:
-        return self.policy.act(obs, mask, deterministic=False)
+        self,
+        obs: np.ndarray,
+        mask: np.ndarray,
+        *,
+        hx: tuple[torch.Tensor, torch.Tensor] | None,
+        choice_spec: dict[str, Any] | None,
+    ) -> tuple[int | list[int], float, float, tuple[torch.Tensor, torch.Tensor], list[int], int]:
+        options = None
+        ordered = None
+        num_choices = None
+        if choice_spec:
+            options = list(choice_spec.get("options") or [])
+            ordered = bool(choice_spec.get("ordered"))
+            num_choices = int(choice_spec.get("num_choices") or 0)
+        flat_idx, logp, value, hx2, picks, choice_vec = self.policy.act(
+            obs,
+            mask,
+            deterministic=False,
+            hx=hx,
+            options=options,
+            ordered=ordered,
+            num_choices=num_choices,
+        )
+        action: int | list[int]
+        if choice_vec:
+            action = choice_vec
+        else:
+            action = flat_idx if flat_idx >= 0 else 0
+        return action, logp, value, hx2, picks, num_choices or len(picks)
 
     def collect_rollout(self) -> dict[str, float]:
         cfg = self.config
-        env = ConvoyEnv(
-            num_players=cfg.num_players,
-            seed=None,
-            reward_mode=cfg.reward_mode,
-            max_cycles=50_000,
-        )
+        env = self._make_env()
         self.buffer.clear()
         ep_returns: list[float] = []
         ep_lens: list[int] = []
@@ -167,7 +220,13 @@ class SelfPlayTrainer:
             env.reset(seed=seed)
             learner_seat = int(self.rng.integers(0, cfg.num_players))
             seat_agents = self._assign_opponents(learner_seat)
+            for bot in seat_agents.values():
+                if bot is not None:
+                    bot.reset_memory()
             learner_id = f"player_{learner_seat}"
+            live_hx: dict[int, tuple[torch.Tensor, torch.Tensor] | None] = {
+                i: None for i in range(cfg.num_players)
+            }
 
             ep_reward = 0.0
             ep_len = 0
@@ -184,37 +243,59 @@ class SelfPlayTrainer:
                         mask[i] = 1.0
                 obs = env.observe(agent)
                 seat = int(agent.split("_")[1])
+                choice_spec = info.get("choice_spec")
 
                 if agent == learner_id and legal:
-                    # Finalize previous learner step with reward observed now.
                     if last_learner_transition is not None:
                         self.buffer.add(
                             last_learner_transition["obs"],
                             last_learner_transition["mask"],
-                            last_learner_transition["action"],
+                            last_learner_transition["action_idx"],
                             float(env.rewards.get(learner_id, 0.0)),
                             False,
                             last_learner_transition["logprob"],
                             last_learner_transition["value"],
+                            picks=last_learner_transition["picks"],
+                            num_picks=last_learner_transition["num_picks"],
+                            h0=last_learner_transition["h0"],
+                            c0=last_learner_transition["c0"],
                         )
                         if len(self.buffer) >= cfg.rollout_steps:
                             last_learner_transition = None
                             break
-                    action, logp, value = self._act_live(obs, mask)
+                    h0, c0 = self._hx_numpy(live_hx[seat])
+                    action, logp, value, hx2, picks, n_picks = self._act_live(
+                        obs, mask, hx=live_hx[seat], choice_spec=choice_spec
+                    )
+                    live_hx[seat] = hx2
+                    action_idx = action if isinstance(action, int) else -1
                     last_learner_transition = {
                         "obs": obs.copy(),
                         "mask": np.asarray(mask, dtype=np.float32).copy(),
-                        "action": int(action),
+                        "action": action,
+                        "action_idx": int(action_idx) if action_idx >= 0 else 0,
                         "logprob": float(logp),
                         "value": float(value),
+                        "picks": list(picks),
+                        "num_picks": int(n_picks),
+                        "h0": h0,
+                        "c0": c0,
                     }
                 else:
                     bot = seat_agents.get(seat)
                     if bot is None:
-                        # Mirror: live policy, no buffer write.
-                        action, _, _ = self._act_live(obs, mask)
+                        action, _, _, hx2, _, _ = self._act_live(
+                            obs, mask, hx=live_hx[seat], choice_spec=choice_spec
+                        )
+                        live_hx[seat] = hx2
                     else:
-                        action = bot.act(obs, legal, action_mask=mask)
+                        raw = info.get("raw") or {}
+                        action = bot.act(
+                            obs,
+                            legal,
+                            action_mask=mask,
+                            raw_choice=raw.get("choice"),
+                        )
 
                 env.step(action if legal else 0)
                 ep_len += 1
@@ -227,28 +308,28 @@ class SelfPlayTrainer:
                 if ep_len > 50_000:
                     break
 
-            # Episode end — credit terminal reward to last learner transition.
             term_r = float(env.rewards.get(learner_id, 0.0))
-            # Prefer cumulative if available after terminal broadcast.
             if env.terminations.get(learner_id, False):
-                # Re-read terminal rewards from env (set for all agents).
                 term_r = float(env.rewards.get(learner_id, term_r))
             ep_reward = float(env._cumulative_rewards.get(learner_id, term_r))
             if last_learner_transition is not None and len(self.buffer) < cfg.rollout_steps:
                 self.buffer.add(
                     last_learner_transition["obs"],
                     last_learner_transition["mask"],
-                    last_learner_transition["action"],
+                    last_learner_transition["action_idx"],
                     term_r,
                     True,
                     last_learner_transition["logprob"],
                     last_learner_transition["value"],
+                    picks=last_learner_transition["picks"],
+                    num_picks=last_learner_transition["num_picks"],
+                    h0=last_learner_transition["h0"],
+                    c0=last_learner_transition["c0"],
                 )
             self.episodes += 1
             ep_returns.append(ep_reward)
             ep_lens.append(ep_len)
 
-        # Bootstrap value for truncated rollout (not necessarily terminal).
         last_done = True
         last_value = 0.0
         self.buffer.compute_returns_and_advantages(last_value, last_done)
@@ -259,17 +340,9 @@ class SelfPlayTrainer:
             "buffer_size": float(len(self.buffer)),
         }
 
-    # ------------------------------------------------------------------
-    # Eval / checkpoint
-    # ------------------------------------------------------------------
-
     def evaluate(self, n_episodes: int | None = None) -> dict[str, float]:
         n_episodes = n_episodes or self.config.eval_episodes
-        env = ConvoyEnv(
-            num_players=self.config.num_players,
-            reward_mode=self.config.reward_mode,
-            max_cycles=50_000,
-        )
+        env = self._make_env()
         live = RLAgent(self.policy, deterministic=True, device=self.device)
         wins = 0
         returns: list[float] = []
@@ -279,6 +352,10 @@ class SelfPlayTrainer:
             learner_seat = ep % self.config.num_players
             learner_id = f"player_{learner_seat}"
             seat_agents = self._assign_opponents(learner_seat)
+            live.reset_memory()
+            for bot in seat_agents.values():
+                if bot is not None:
+                    bot.reset_memory()
             steps = 0
             while env.agents and not all(env.terminations.values()):
                 agent = env.agent_selection
@@ -287,14 +364,27 @@ class SelfPlayTrainer:
                 mask = info.get("action_mask")
                 obs = env.observe(agent)
                 seat = int(agent.split("_")[1])
+                raw = info.get("raw") or {}
                 if agent == learner_id:
-                    action = live.act(obs, legal, action_mask=mask)
+                    action = live.act(
+                        obs, legal, action_mask=mask, raw_choice=raw.get("choice")
+                    )
                 else:
                     bot = seat_agents.get(seat)
                     if bot is None:
-                        action = live.act(obs, legal, action_mask=mask)
+                        action = live.act(
+                            obs,
+                            legal,
+                            action_mask=mask,
+                            raw_choice=raw.get("choice"),
+                        )
                     else:
-                        action = bot.act(obs, legal, action_mask=mask)
+                        action = bot.act(
+                            obs,
+                            legal,
+                            action_mask=mask,
+                            raw_choice=raw.get("choice"),
+                        )
                 env.step(action if legal else 0)
                 steps += 1
                 if steps > 50_000:
@@ -319,11 +409,16 @@ class SelfPlayTrainer:
             step=self.global_step,
             episodes=self.episodes,
             metrics=metrics or {},
-            tags=[self.config.league_name] + ([tag] if tag else []),
-            config={"hidden": self.config.hidden, "num_players": self.config.num_players},
+            tags=[self.config.league_name, "rnn"] + ([tag] if tag else []),
+            config={
+                "hidden": self.config.hidden,
+                "lstm_hidden": self.config.lstm_hidden,
+                "lstm_layers": self.config.lstm_layers,
+                "num_players": self.config.num_players,
+                "arch": "lstm_ar",
+            },
         )
         self.parent_id = entry.id
-        # Drop frozen cache so new weights can be sampled next.
         self._frozen_cache.clear()
         self.log(
             f"checkpoint {entry.id} {entry.name} "
@@ -331,33 +426,50 @@ class SelfPlayTrainer:
         )
         return entry.id
 
-    # ------------------------------------------------------------------
-    # Main loop
-    # ------------------------------------------------------------------
-
     def train(self) -> dict[str, Any]:
         cfg = self.config
         t0 = time.time()
-        last_ckpt = 0
-        last_eval = 0
+        start_step = self.global_step
+        last_ckpt = self.global_step
+        last_eval = self.global_step
         history: list[dict[str, float]] = []
+        deadline = (
+            t0 + float(cfg.max_seconds) if cfg.max_seconds is not None else None
+        )
 
         self.log(
-            f"self-play start players={cfg.num_players} "
-            f"timesteps={cfg.total_timesteps} device={cfg.device}"
+            f"self-play RNN start players={cfg.num_players} "
+            f"timesteps={cfg.total_timesteps} "
+            f"max_seconds={cfg.max_seconds} device={cfg.device} "
+            f"lstm={cfg.lstm_hidden}x{cfg.lstm_layers} bptt={cfg.ppo.bptt_len} "
+            f"pp={cfg.pp_reward} cash={cfg.cash_reward} ent={cfg.ppo.ent_coef}"
         )
         while self.global_step < cfg.total_timesteps:
+            if deadline is not None and time.time() >= deadline:
+                self.log(
+                    f"wall-clock deadline reached "
+                    f"({cfg.max_seconds:.0f}s) at step={self.global_step}"
+                )
+                break
             roll = self.collect_rollout()
             update = self.trainer.update(self.buffer)
+            elapsed = max(1e-6, time.time() - t0)
+            steps_delta = max(0, self.global_step - start_step)
+            sps = steps_delta / elapsed
             row = {
                 "step": float(self.global_step),
                 "episodes": float(self.episodes),
+                "elapsed_sec": float(elapsed),
+                "steps_per_sec": float(sps),
                 **roll,
                 **update,
             }
+            hit_step_cap = self.global_step >= cfg.total_timesteps
+            hit_deadline = deadline is not None and time.time() >= deadline
             if (
                 self.global_step - last_eval >= cfg.eval_every_steps
-                or self.global_step >= cfg.total_timesteps
+                or hit_step_cap
+                or hit_deadline
             ):
                 ev = self.evaluate()
                 row.update(ev)
@@ -375,23 +487,31 @@ class SelfPlayTrainer:
                         "entropy",
                         "eval_return_mean",
                         "eval_win_rate",
+                        "steps_per_sec",
                     )
                 )
             )
             if self.global_step - last_ckpt >= cfg.checkpoint_every_steps:
                 self.checkpoint(metrics={k: float(row[k]) for k in row if k != "step"})
                 last_ckpt = self.global_step
+            if hit_deadline:
+                break
 
         final_id = self.checkpoint(
             tag="final",
             metrics=history[-1] if history else {},
         )
         elapsed = time.time() - t0
-        self.log(f"done in {elapsed:.1f}s final={final_id}")
+        sps = (self.global_step - start_step) / max(1e-6, elapsed)
+        self.log(
+            f"done in {elapsed:.1f}s final={final_id} "
+            f"steps={self.global_step} sps={sps:.1f}"
+        )
         return {
             "final_id": final_id,
             "steps": self.global_step,
             "episodes": self.episodes,
             "elapsed_sec": elapsed,
+            "steps_per_sec": sps,
             "history": history,
         }

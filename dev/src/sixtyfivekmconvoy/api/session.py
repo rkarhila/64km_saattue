@@ -338,11 +338,13 @@ class GameSession:
             before = len(self.engine.messages)
             legal = self.engine.legal_actions()
             seat = int(pending.player_id.split("_")[1])
+            obs = self.engine.observe(pending.player_id)
             choice = bot.choose(
                 legal,
-                observation=self.engine.observe(pending.player_id),
+                observation=obs,
                 agent_index=seat,
                 num_players=len(self.engine.players),
+                raw_choice=obs.get("choice"),
             )
             self.engine.step(choice)
             if self._should_pause(before):
@@ -383,6 +385,10 @@ class SessionManager:
             bot_id=bot_id,
             league_path=league_path,
         )
+        for bot in bots.values():
+            reset = getattr(bot, "reset_memory", None)
+            if callable(reset):
+                reset()
         session = GameSession(
             game_id=game_id,
             engine=engine,
@@ -430,6 +436,10 @@ class SessionManager:
             bot_id=bot_id,
             league_path=league_path,
         )
+        for bot in bots.values():
+            reset = getattr(bot, "reset_memory", None)
+            if callable(reset):
+                reset()
         session = GameSession(
             game_id=game_id,
             engine=engine,

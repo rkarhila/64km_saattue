@@ -693,7 +693,8 @@ class GameEngine:
             maul_id, _ = self.mauling_queue.remove_card(0)
             mauling = self.mauling_deck.describe(maul_id)
             msg = yield from resolve_mauling(self, mauling)
-            self._broadcast(f"Mauling {mauling['name']}: {msg}")
+            maul_line = f"Mauling {mauling['name']}: {msg}"
+            self._broadcast(maul_line)
             early = self._finished_result()
             if early is not None:
                 return early
@@ -706,7 +707,8 @@ class GameEngine:
                     choicetype=ChoiceType.LOG_PAUSE,
                     options=[0],
                     num_choices=1,
-                    description="Jatka peliä (Continue)"
+                    description=maul_line,
+                    payload={"reason": "mauling_pause"},
                 )
 
             # Bookkeeping

@@ -13,11 +13,52 @@ pip install -e ".[rl]"
 
 Torch is an optional extra (`rl`). CPU works for a first pass.
 
+Prefer a **CPU torch wheel** if you are not training on GPU
+(`pip install torch --index-url https://download.pytorch.org/whl/cpu`) —
+the default PyPI torch often pulls large NVIDIA CUDA packages.
+
+## Architecture (RNN branch)
+
+Policies on `RNN_RL_bots` are **LSTM actor-critics** with an **autoregressive**
+multi-slot action decoder (combinations / permutations over legal options),
+trained with truncated BPTT. Observations include queues (face-up only), own
+hand, and pending choice options. Web RL seats keep per-game LSTM state
+(`reset_memory` at game start).
+
+Legacy flat-MLP league checkpoints from `simple_RL_bots` may load with partial
+weight transfer; retrain for best results.
+
+## Timed fork schedule (specialized bots)
+
+For wall-clock training on a throttled CPU, use the schedule script. It
+**resumes** a league, trains shared for N hours, forks **alpha** (PP-heavy) and
+**beta** (cash-heavy), then alternates blocks for M hours or until head-to-head
+win rate stays near 50%.
+
+Script path: [`scripts/train_fork_schedule.py`](../scripts/train_fork_schedule.py)
+
+```bash
+cd dev
+PYTHONPATH=src python scripts/train_fork_schedule.py \
+  --league runs/league_rnn50k \
+  --from main-init \
+  --shared-hours 1 \
+  --alt-hours 6 \
+  --block-minutes 20 \
+  --device cpu
+```
+
+Useful flags: `--checkpoint-every`, `--h2h-episodes`, `--converge-lo/hi/streak`,
+`--lstm-hidden`, `--lstm-layers`. Logs: `fork_schedule.log.jsonl` and
+`fork_schedule_summary.json` under the league directory. Each train step line
+includes `steps_per_sec` so you can see CPU-throttle impact.
+
 ## Quick start
 
 ```bash
-# 1) Train a main lineage
-convoy-train --league runs/league --name main --players 3 --timesteps 50000
+# 1) Train a main lineage (LSTM + AR decoder)
+convoy-train --league runs/league --name main --players 3 --timesteps 50000 \
+  --lstm-hidden 512 --bptt-len 16
 
 # 2) List checkpoints (copy an id for branching)
 convoy-league --league runs/league list
@@ -53,6 +94,10 @@ Runs PPO self-play and writes checkpoints into `--league`.
 | `--rollout-steps` | PPO rollout length before each update |
 | `--checkpoint-every` / `--eval-every` | Cadence in env steps |
 | `--device` | `cpu` or `cuda` |
+| `--hidden` / `--n-layers` | Encoder MLP size |
+| `--lstm-hidden` | LSTM hidden size (default 512) |
+| `--lstm-layers` | LSTM depth (default 2) |
+| `--bptt-len` | Truncated BPTT window for PPO updates (default 16) |
 | `--reward-mode` | `win` (default), `rank`, or `points` — see below |
 
 **Examples**

@@ -8,14 +8,20 @@ from typing import Any
 import numpy as np
 import torch
 
-from sixtyfivekmconvoy.env.spaces import MAX_LEGAL, flatten_observation
+from sixtyfivekmconvoy.env.spaces import (
+    MAX_LEGAL,
+    encode_choice_options,
+    flatten_observation,
+    picks_to_vector,
+)
 from sixtyfivekmconvoy.rl.policy import MaskedActorCritic
 
 
 class RLAgent:
     """
     Bot that picks a legal-action *index* (PettingZoo) or the underlying
-    choice vector (engine ``choose``).
+    choice vector (engine ``choose``). Maintains LSTM state across calls;
+    call ``reset_memory()`` at episode boundaries.
     """
 
     def __init__(
@@ -31,6 +37,10 @@ class RLAgent:
         self.deterministic = deterministic
         self.device = torch.device(device)
         self.rng = np.random.default_rng(seed)
+        self._hx: tuple[torch.Tensor, torch.Tensor] | None = None
+
+    def reset_memory(self) -> None:
+        self._hx = None
 
     @classmethod
     def from_checkpoint(
@@ -58,6 +68,7 @@ class RLAgent:
         agent_index: int | None = None,
         num_players: int | None = None,
         action_mask: np.ndarray | None = None,
+        raw_choice: dict[str, Any] | None = None,
     ) -> int:
         """Return index into ``legal_actions`` / action_mask."""
         obs_vec = self._obs_vector(
@@ -70,13 +81,40 @@ class RLAgent:
                 mask[i] = 1.0
         if not legal_actions or mask.sum() <= 0:
             return 0
-        action, _, _ = self.policy.act(
-            obs_vec, mask, deterministic=self.deterministic
+
+        options = None
+        ordered = None
+        num_choices = None
+        if raw_choice is not None:
+            options = list(raw_choice.get("options") or [])
+            _, _, num_choices, ordered, _ = encode_choice_options(raw_choice)
+        elif isinstance(observation, dict) and observation.get("choice"):
+            raw_choice = observation["choice"]
+            options = list(raw_choice.get("options") or [])
+            _, _, num_choices, ordered, _ = encode_choice_options(raw_choice)
+
+        flat_idx, _, _, self._hx, _picks, choice_vec = self.policy.act(
+            obs_vec,
+            mask,
+            deterministic=self.deterministic,
+            hx=self._hx,
+            options=options,
+            ordered=ordered,
+            num_choices=num_choices,
         )
-        if action < 0 or action >= len(legal_actions):
-            # Safety: fall back to first legal.
+        if choice_vec and legal_actions:
+            for i, vec in enumerate(legal_actions):
+                if list(vec) == list(choice_vec):
+                    return i
+            # Unordered set match
+            if ordered is False:
+                target = sorted(choice_vec)
+                for i, vec in enumerate(legal_actions):
+                    if sorted(vec) == target:
+                        return i
+        if flat_idx < 0 or flat_idx >= len(legal_actions):
             return 0
-        return int(action)
+        return int(flat_idx)
 
     def choose(
         self,
@@ -86,22 +124,61 @@ class RLAgent:
         agent_index: int = 0,
         num_players: int = 3,
         action_mask: np.ndarray | None = None,
+        raw_choice: dict[str, Any] | None = None,
     ) -> list[int]:
         """Engine-style: return the chosen legal action vector."""
         if not legal_actions:
             return []
         if observation is None:
-            # No obs — uniform among legal (should be rare for RL bots).
             idx = int(self.rng.integers(0, len(legal_actions)))
             return list(legal_actions[idx])
-        idx = self.act(
-            observation,
-            legal_actions,
-            agent_index=agent_index,
-            num_players=num_players,
-            action_mask=action_mask,
+
+        options = None
+        ordered = None
+        num_choices = None
+        choice = raw_choice
+        if choice is None and isinstance(observation, dict):
+            choice = observation.get("choice")
+        if choice is not None:
+            options = list(choice.get("options") or [])
+            _, _, num_choices, ordered, _ = encode_choice_options(choice)
+
+        obs_vec = self._obs_vector(
+            observation, agent_index=agent_index, num_players=num_players
         )
-        return list(legal_actions[idx])
+        mask = action_mask
+        if mask is None:
+            mask = np.zeros(MAX_LEGAL, dtype=np.float32)
+            for i in range(min(len(legal_actions), MAX_LEGAL)):
+                mask[i] = 1.0
+
+        flat_idx, _, _, self._hx, picks, choice_vec = self.policy.act(
+            obs_vec,
+            mask,
+            deterministic=self.deterministic,
+            hx=self._hx,
+            options=options,
+            ordered=ordered,
+            num_choices=num_choices,
+        )
+        if choice_vec:
+            if choice_vec in [list(v) for v in legal_actions]:
+                return list(choice_vec)
+            if ordered is False:
+                target = sorted(choice_vec)
+                for vec in legal_actions:
+                    if sorted(vec) == target:
+                        return list(vec)
+            if options is not None and picks:
+                rebuilt = picks_to_vector(
+                    options, picks, ordered=bool(ordered)
+                )
+                if rebuilt:
+                    return rebuilt
+        # Do not call act() again — LSTM already advanced above.
+        if 0 <= flat_idx < len(legal_actions):
+            return list(legal_actions[flat_idx])
+        return list(legal_actions[0])
 
     @staticmethod
     def _obs_vector(
