@@ -59,6 +59,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pillage.cash": "Rahaa",
         "pillage.loot": "Ryöstösaalis",
         "pillage.atrocities": "Hirmutekoja",
+        "pillage.atrocities_if_under_influence": "Hirmuteko, jos humalassa",
+        "pillage.cards": "Kortteja",
+        "pillage.intoxicate": "Humalaannuttaa",
     },
     "en": {
         "unit.panzer": "panzer",
@@ -111,6 +114,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pillage.cash": "Cash",
         "pillage.loot": "Loot",
         "pillage.atrocities": "Atrocities",
+        "pillage.atrocities_if_under_influence": "Atrocity if under the influence",
+        "pillage.cards": "Cards",
+        "pillage.intoxicate": "Intoxicates",
     },
 }
 

@@ -35,8 +35,8 @@ class SelfPlayConfig:
     prefer_opponent_weight: float = 0.7
     hidden: int = 256
     n_layers: int = 2
-    lstm_hidden: int = 512
-    lstm_layers: int = 2
+    width: int = 128
+    num_envs: int = 8
     device: str = "cpu"
     reward_mode: str = "win"
     pp_reward: float = 0.25
@@ -79,11 +79,11 @@ class SelfPlayTrainer:
                 obs_dim=obs_dim,
                 hidden=self.config.hidden,
                 n_layers=self.config.n_layers,
-                lstm_hidden=self.config.lstm_hidden,
-                lstm_layers=self.config.lstm_layers,
+                width=self.config.width,
                 num_players=self.config.num_players,
             )
         self.policy = policy.to(self.device)
+        self.policy.eval()
         self.trainer = PPOTrainer(
             self.policy, self.config.ppo, device=self.device
         )
@@ -93,8 +93,6 @@ class SelfPlayTrainer:
             capacity=self.config.rollout_steps,
             gamma=self.config.ppo.gamma,
             gae_lambda=self.config.ppo.gae_lambda,
-            lstm_hidden=self.policy.lstm_hidden,
-            lstm_layers=self.policy.lstm_layers,
         )
         self.learner_name = learner_name
         self.parent_id = parent_id
@@ -107,14 +105,14 @@ class SelfPlayTrainer:
                 self.policy,
                 name=f"{learner_name}-init",
                 parent_id=parent_id,
-                tags=["init", self.config.league_name, "rnn"],
+                tags=["init", self.config.league_name, "transformer"],
                 config={
                     "num_players": self.config.num_players,
                     "hidden": self.config.hidden,
-                    "lstm_hidden": self.config.lstm_hidden,
-                    "lstm_layers": self.config.lstm_layers,
+                    "width": self.config.width,
+                    "num_envs": self.config.num_envs,
                     "reward_mode": self.config.reward_mode,
-                    "arch": "lstm_ar",
+                    "arch": "transformer_ar",
                 },
             )
             self.parent_id = entry.id
@@ -164,180 +162,286 @@ class SelfPlayTrainer:
                 seats[seat] = self._load_frozen(oid)
         return seats
 
-    def _hx_numpy(
-        self, hx: tuple[torch.Tensor, torch.Tensor] | None
-    ) -> tuple[np.ndarray, np.ndarray]:
-        size = self.policy.lstm_state_size
-        if hx is None:
-            z = np.zeros(size, dtype=np.float32)
-            return z, z.copy()
-        h, c = hx
-        return (
-            h.detach().cpu().numpy().reshape(-1)[:size],
-            c.detach().cpu().numpy().reshape(-1)[:size],
-        )
+    def _new_slot(self) -> dict[str, Any]:
+        slot: dict[str, Any] = {"env": self._make_env()}
+        self._reset_slot(slot)
+        return slot
 
-    def _act_live(
+    def _reset_slot(self, slot: dict[str, Any]) -> None:
+        cfg = self.config
+        seed = int(self.rng.integers(0, 2**31 - 1))
+        env: ConvoyEnv = slot["env"]
+        env.reset(seed=seed)
+        learner_seat = int(self.rng.integers(0, cfg.num_players))
+        seat_agents = self._assign_opponents(learner_seat)
+        for bot in seat_agents.values():
+            if bot is not None:
+                bot.reset_memory()
+        slot["learner_id"] = f"player_{learner_seat}"
+        slot["seat_agents"] = seat_agents
+        slot["pending"] = None
+        slot["pending_reward"] = 0.0
+        slot["traj"] = []
+        slot["ep_len"] = 0
+        slot["finished"] = False
+
+    def _episode_over(self, slot: dict[str, Any]) -> bool:
+        env: ConvoyEnv = slot["env"]
+        if slot["ep_len"] > 50_000:
+            return True
+        if not env.agents:
+            return True
+        if all(env.terminations.values()) or all(env.truncations.values()):
+            return True
+        return False
+
+    def _close_slot(
         self,
-        obs: np.ndarray,
-        mask: np.ndarray,
-        *,
-        hx: tuple[torch.Tensor, torch.Tensor] | None,
-        choice_spec: dict[str, Any] | None,
-    ) -> tuple[int | list[int], float, float, tuple[torch.Tensor, torch.Tensor], list[int], int]:
-        options = None
-        ordered = None
-        num_choices = None
-        if choice_spec:
-            options = list(choice_spec.get("options") or [])
-            ordered = bool(choice_spec.get("ordered"))
-            num_choices = int(choice_spec.get("num_choices") or 0)
-        flat_idx, logp, value, hx2, picks, choice_vec = self.policy.act(
+        slot: dict[str, Any],
+        ep_returns: list[float],
+        ep_lens: list[int],
+    ) -> None:
+        if slot["pending"] is not None:
+            step = dict(slot["pending"])
+            step["reward"] = float(slot["pending_reward"])
+            step["done"] = True
+            slot["traj"].append(step)
+            slot["pending"] = None
+            slot["pending_reward"] = 0.0
+        if len(self.buffer) < self.config.rollout_steps and slot["traj"]:
+            self.buffer.extend_episode(slot["traj"])
+        env: ConvoyEnv = slot["env"]
+        learner_id = slot["learner_id"]
+        ep_returns.append(float(env._cumulative_rewards.get(learner_id, 0.0)))
+        ep_lens.append(int(slot["ep_len"]))
+        self.episodes += 1
+        slot["traj"] = []
+        slot["finished"] = True
+
+    def _mask_for(self, info: dict[str, Any], legal: list) -> np.ndarray:
+        mask = info.get("action_mask")
+        if mask is None:
+            mask = np.zeros(MAX_LEGAL, dtype=np.float32)
+            for i in range(min(len(legal), MAX_LEGAL)):
+                mask[i] = 1.0
+        return np.asarray(mask, dtype=np.float32)
+
+    def _decision(self, slot: dict[str, Any]) -> dict[str, Any] | None:
+        if slot["finished"] or self._episode_over(slot):
+            return None
+        env: ConvoyEnv = slot["env"]
+        agent = env.agent_selection
+        info = env.infos[agent]
+        legal = list(info.get("legal_actions") or [])
+        if not legal:
+            return {"kind": "empty", "slot": slot}
+        seat = int(agent.split("_")[1])
+        obs = np.asarray(env.observe(agent), dtype=np.float32)
+        mask = self._mask_for(info, legal)
+        spec = info.get("choice_spec") or {}
+        raw = info.get("raw") or {}
+        choice = raw.get("choice") if isinstance(raw, dict) else None
+        item = {
+            "slot": slot,
+            "agent": agent,
+            "seat": seat,
+            "obs": obs,
+            "mask": mask,
+            "legal": legal,
+            "spec": spec,
+            "choice": choice,
+        }
+        if agent == slot["learner_id"]:
+            item["kind"] = "live"
+            item["is_learner"] = True
+            return item
+        bot = slot["seat_agents"].get(seat)
+        if bot is None:
+            item["kind"] = "live"
+            item["is_learner"] = False
+            return item
+        item["kind"] = "frozen"
+        item["bot"] = bot
+        return item
+
+    def _commit_pending(self, slot: dict[str, Any]) -> None:
+        if slot["pending"] is None:
+            return
+        step = dict(slot["pending"])
+        step["reward"] = float(slot["pending_reward"])
+        step["done"] = False
+        slot["traj"].append(step)
+        slot["pending"] = None
+        slot["pending_reward"] = 0.0
+
+    def _apply_env_step(self, slot: dict[str, Any], action: int | list[int]) -> None:
+        env: ConvoyEnv = slot["env"]
+        env.step(action)
+        slot["ep_len"] += 1
+        self.global_step += 1
+        if slot["pending"] is not None:
+            slot["pending_reward"] += float(
+                env.rewards.get(slot["learner_id"], 0.0)
+            )
+
+    def _spec_fields(
+        self, item: dict[str, Any]
+    ) -> tuple[list[Any] | None, bool | None, int | None]:
+        spec = item.get("spec") or {}
+        choice = item.get("choice") or {}
+        options = spec.get("options")
+        if options is None and isinstance(choice, dict):
+            options = choice.get("options")
+        options_l = list(options) if options is not None else None
+        if "ordered" in spec:
+            ordered: bool | None = bool(spec.get("ordered"))
+        else:
+            ordered = None
+        if spec.get("num_choices") is not None:
+            num_choices: int | None = int(spec.get("num_choices") or 0)
+        elif isinstance(choice, dict) and choice.get("num_choice") is not None:
+            num_choices = int(choice.get("num_choice") or 0)
+        else:
+            num_choices = None
+        return options_l, ordered, num_choices
+
+    def _action_from_result(
+        self,
+        result: tuple[int, float, float, list[int], list[int]],
+        legal: list,
+    ) -> int | list[int]:
+        flat_idx, _logp, _value, _picks, choice_vec = result
+        if choice_vec:
+            if choice_vec in legal:
+                return list(choice_vec)
+            target = sorted(choice_vec)
+            for vec in legal:
+                if sorted(vec) == target:
+                    return list(vec)
+        if 0 <= flat_idx < len(legal):
+            return flat_idx
+        return 0
+
+    def _step_live_batch(self, items: list[dict[str, Any]]) -> None:
+        if not items:
+            return
+        obs = np.stack([it["obs"] for it in items])
+        mask = np.stack([it["mask"] for it in items])
+        options: list[list[Any] | None] = []
+        ordered: list[bool | None] = []
+        num_choices: list[int | None] = []
+        for it in items:
+            opt, ord_flag, n = self._spec_fields(it)
+            options.append(opt)
+            ordered.append(ord_flag)
+            num_choices.append(n)
+        results = self.policy.act_batch(
             obs,
             mask,
             deterministic=False,
-            hx=hx,
             options=options,
             ordered=ordered,
             num_choices=num_choices,
         )
-        action: int | list[int]
-        if choice_vec:
-            action = choice_vec
-        else:
-            action = flat_idx if flat_idx >= 0 else 0
-        return action, logp, value, hx2, picks, num_choices or len(picks)
+        for it, result in zip(items, results):
+            slot = it["slot"]
+            if it["is_learner"]:
+                self._commit_pending(slot)
+                flat_idx, logp, value, picks, choice_vec = result
+                slot["pending"] = {
+                    "obs": it["obs"].copy(),
+                    "mask": it["mask"].copy(),
+                    "action_idx": int(flat_idx) if flat_idx >= 0 else 0,
+                    "logprob": float(logp),
+                    "value": float(value),
+                    "picks": list(picks),
+                    "num_picks": len(picks) if choice_vec else 0,
+                }
+                slot["pending_reward"] = 0.0
+            self._apply_env_step(slot, self._action_from_result(result, it["legal"]))
+
+    def _step_frozen_batch(self, items: list[dict[str, Any]]) -> None:
+        if not items:
+            return
+        bot: RLAgent = items[0]["bot"]
+        obs = np.stack([it["obs"] for it in items])
+        mask = np.stack([it["mask"] for it in items])
+        options = []
+        ordered = []
+        num_choices = []
+        for it in items:
+            opt, ord_flag, n = self._spec_fields(it)
+            if opt is None and isinstance(it.get("choice"), dict):
+                opt = list(it["choice"].get("options") or [])
+            options.append(opt)
+            ordered.append(ord_flag)
+            num_choices.append(n)
+        results = bot.policy.act_batch(
+            obs,
+            mask,
+            deterministic=bot.deterministic,
+            options=options,
+            ordered=ordered,
+            num_choices=num_choices,
+        )
+        for it, result in zip(items, results):
+            self._apply_env_step(
+                it["slot"], self._action_from_result(result, it["legal"])
+            )
 
     def collect_rollout(self) -> dict[str, float]:
+        """Play ``num_envs`` games in flight and batch their decisions."""
         cfg = self.config
-        env = self._make_env()
+        n_env = max(1, int(cfg.num_envs))
         self.buffer.clear()
+        self.policy.eval()
+        slots = [self._new_slot() for _ in range(n_env)]
         ep_returns: list[float] = []
         ep_lens: list[int] = []
+        guard = 0
+        limit = cfg.rollout_steps * 40 + n_env * 100
 
-        while len(self.buffer) < cfg.rollout_steps:
-            seed = int(self.rng.integers(0, 2**31 - 1))
-            env.reset(seed=seed)
-            learner_seat = int(self.rng.integers(0, cfg.num_players))
-            seat_agents = self._assign_opponents(learner_seat)
-            for bot in seat_agents.values():
-                if bot is not None:
-                    bot.reset_memory()
-            learner_id = f"player_{learner_seat}"
-            live_hx: dict[int, tuple[torch.Tensor, torch.Tensor] | None] = {
-                i: None for i in range(cfg.num_players)
-            }
+        while len(self.buffer) < cfg.rollout_steps and guard < limit:
+            guard += 1
+            for slot in slots:
+                if not slot["finished"] and self._episode_over(slot):
+                    self._close_slot(slot, ep_returns, ep_lens)
+            if len(self.buffer) >= cfg.rollout_steps:
+                break
+            for slot in slots:
+                if slot["finished"]:
+                    if len(self.buffer) >= cfg.rollout_steps:
+                        break
+                    self._reset_slot(slot)
 
-            ep_reward = 0.0
-            ep_len = 0
-            last_learner_transition: dict[str, Any] | None = None
-
-            while env.agents and not all(env.terminations.values()):
-                agent = env.agent_selection
-                info = env.infos[agent]
-                legal = info.get("legal_actions") or []
-                mask = info.get("action_mask")
-                if mask is None:
-                    mask = np.zeros(MAX_LEGAL, dtype=np.float32)
-                    for i in range(min(len(legal), MAX_LEGAL)):
-                        mask[i] = 1.0
-                obs = env.observe(agent)
-                seat = int(agent.split("_")[1])
-                choice_spec = info.get("choice_spec")
-
-                if agent == learner_id and legal:
-                    if last_learner_transition is not None:
-                        self.buffer.add(
-                            last_learner_transition["obs"],
-                            last_learner_transition["mask"],
-                            last_learner_transition["action_idx"],
-                            float(env.rewards.get(learner_id, 0.0)),
-                            False,
-                            last_learner_transition["logprob"],
-                            last_learner_transition["value"],
-                            picks=last_learner_transition["picks"],
-                            num_picks=last_learner_transition["num_picks"],
-                            h0=last_learner_transition["h0"],
-                            c0=last_learner_transition["c0"],
-                        )
-                        if len(self.buffer) >= cfg.rollout_steps:
-                            last_learner_transition = None
-                            break
-                    h0, c0 = self._hx_numpy(live_hx[seat])
-                    action, logp, value, hx2, picks, n_picks = self._act_live(
-                        obs, mask, hx=live_hx[seat], choice_spec=choice_spec
-                    )
-                    live_hx[seat] = hx2
-                    action_idx = action if isinstance(action, int) else -1
-                    last_learner_transition = {
-                        "obs": obs.copy(),
-                        "mask": np.asarray(mask, dtype=np.float32).copy(),
-                        "action": action,
-                        "action_idx": int(action_idx) if action_idx >= 0 else 0,
-                        "logprob": float(logp),
-                        "value": float(value),
-                        "picks": list(picks),
-                        "num_picks": int(n_picks),
-                        "h0": h0,
-                        "c0": c0,
-                    }
+            live: list[dict[str, Any]] = []
+            frozen: dict[int, list[dict[str, Any]]] = {}
+            for slot in slots:
+                if slot["finished"]:
+                    continue
+                item = self._decision(slot)
+                if item is None:
+                    continue
+                if item["kind"] == "empty":
+                    self._apply_env_step(slot, 0)
+                    continue
+                if item["kind"] == "live":
+                    live.append(item)
                 else:
-                    bot = seat_agents.get(seat)
-                    if bot is None:
-                        action, _, _, hx2, _, _ = self._act_live(
-                            obs, mask, hx=live_hx[seat], choice_spec=choice_spec
-                        )
-                        live_hx[seat] = hx2
-                    else:
-                        raw = info.get("raw") or {}
-                        action = bot.act(
-                            obs,
-                            legal,
-                            action_mask=mask,
-                            raw_choice=raw.get("choice"),
-                        )
+                    frozen.setdefault(id(item["bot"]), []).append(item)
+            if live:
+                self._step_live_batch(live)
+            for group in frozen.values():
+                self._step_frozen_batch(group)
+            if not live and not frozen and all(s["finished"] for s in slots):
+                break
 
-                env.step(action if legal else 0)
-                ep_len += 1
-                self.global_step += 1
-
-                if env.terminations.get(agent, False) or all(
-                    env.terminations.get(a, False) for a in env.possible_agents
-                ):
-                    break
-                if ep_len > 50_000:
-                    break
-
-            term_r = float(env.rewards.get(learner_id, 0.0))
-            if env.terminations.get(learner_id, False):
-                term_r = float(env.rewards.get(learner_id, term_r))
-            ep_reward = float(env._cumulative_rewards.get(learner_id, term_r))
-            if last_learner_transition is not None and len(self.buffer) < cfg.rollout_steps:
-                self.buffer.add(
-                    last_learner_transition["obs"],
-                    last_learner_transition["mask"],
-                    last_learner_transition["action_idx"],
-                    term_r,
-                    True,
-                    last_learner_transition["logprob"],
-                    last_learner_transition["value"],
-                    picks=last_learner_transition["picks"],
-                    num_picks=last_learner_transition["num_picks"],
-                    h0=last_learner_transition["h0"],
-                    c0=last_learner_transition["c0"],
-                )
-            self.episodes += 1
-            ep_returns.append(ep_reward)
-            ep_lens.append(ep_len)
-
-        last_done = True
-        last_value = 0.0
-        self.buffer.compute_returns_and_advantages(last_value, last_done)
         return {
             "ep_return_mean": float(np.mean(ep_returns)) if ep_returns else 0.0,
             "ep_len_mean": float(np.mean(ep_lens)) if ep_lens else 0.0,
             "episodes": float(len(ep_returns)),
             "buffer_size": float(len(self.buffer)),
+            "num_envs": float(n_env),
         }
 
     def evaluate(self, n_episodes: int | None = None) -> dict[str, float]:
@@ -409,13 +513,13 @@ class SelfPlayTrainer:
             step=self.global_step,
             episodes=self.episodes,
             metrics=metrics or {},
-            tags=[self.config.league_name, "rnn"] + ([tag] if tag else []),
+            tags=[self.config.league_name, "transformer"] + ([tag] if tag else []),
             config={
                 "hidden": self.config.hidden,
-                "lstm_hidden": self.config.lstm_hidden,
-                "lstm_layers": self.config.lstm_layers,
+                "width": self.config.width,
+                "num_envs": self.config.num_envs,
                 "num_players": self.config.num_players,
-                "arch": "lstm_ar",
+                "arch": "transformer_ar",
             },
         )
         self.parent_id = entry.id
@@ -438,10 +542,11 @@ class SelfPlayTrainer:
         )
 
         self.log(
-            f"self-play RNN start players={cfg.num_players} "
+            f"self-play transformer start players={cfg.num_players} "
             f"timesteps={cfg.total_timesteps} "
             f"max_seconds={cfg.max_seconds} device={cfg.device} "
-            f"lstm={cfg.lstm_hidden}x{cfg.lstm_layers} bptt={cfg.ppo.bptt_len} "
+            f"width={cfg.width} envs={cfg.num_envs} "
+            f"minibatch={cfg.ppo.minibatch_size} "
             f"pp={cfg.pp_reward} cash={cfg.cash_reward} ent={cfg.ppo.ent_coef}"
         )
         while self.global_step < cfg.total_timesteps:

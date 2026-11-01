@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from sixtyfivekmconvoy.core.constants import ChoiceType
+from sixtyfivekmconvoy.rl.events import EVENT_FIELDS, EVENT_WINDOW, events_to_features
 
 
 MAX_UNITS = 15
@@ -218,6 +219,8 @@ def flatten_observation(obs: dict[str, Any], agent_index: int, num_players: int)
     feats.append(float(opt_mask.sum()) / MAX_OPTIONS)
     feats.extend(opt_feats.reshape(-1).tolist())
     feats.extend(opt_mask.tolist())
+    # Formal event window (already visibility-masked). Oldest padded on the left.
+    feats.extend(events_to_features(obs.get("event_rows")))
 
     return np.asarray(feats, dtype=np.float32)
 
@@ -243,7 +246,8 @@ def option_block_slices(obs_dim: int | None = None) -> tuple[int, int, int, int]
     into the flat observation vector.
     """
     dim = obs_dim if obs_dim is not None else observation_size()
-    mask_end = dim
+    # Event window is appended after the option mask.
+    mask_end = dim - EVENT_WINDOW * EVENT_FIELDS
     mask_start = mask_end - MAX_OPTIONS
     feats_end = mask_start
     feats_start = feats_end - MAX_OPTIONS * OPTION_FEAT_DIM

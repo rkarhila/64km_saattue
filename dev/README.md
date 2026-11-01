@@ -31,7 +31,7 @@ pip install -e ".[rl]"
 # pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 convoy-train --league runs/league --name main --players 3 --timesteps 50000 \
-  --lstm-hidden 512 --bptt-len 16
+  --width 128 --num-envs 8 --minibatch-size 256
 convoy-league --league runs/league list
 convoy-league --league runs/league branch <id> --name aggressive
 convoy-train --league runs/league --from <id> --branch-as aggressive --timesteps 20000

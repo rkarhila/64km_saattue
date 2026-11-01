@@ -43,9 +43,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--eval-every", type=int, default=10_000)
     p.add_argument("--eval-episodes", type=int, default=8)
     p.add_argument("--hidden", type=int, default=256)
-    p.add_argument("--lstm-hidden", type=int, default=512)
-    p.add_argument("--lstm-layers", type=int, default=2)
-    p.add_argument("--bptt-len", type=int, default=16)
+    p.add_argument(
+        "--width",
+        type=int,
+        default=128,
+        help="Width of the value head and the per-decision pick GRU",
+    )
+    p.add_argument(
+        "--num-envs",
+        type=int,
+        default=8,
+        help="Games in flight. Their decisions form one batch.",
+    )
+    p.add_argument("--minibatch-size", type=int, default=256)
     p.add_argument("--n-layers", type=int, default=2)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--device", type=str, default="cpu")
@@ -98,11 +108,11 @@ def main(argv: list[str] | None = None) -> None:
         eval_episodes=args.eval_episodes,
         hidden=args.hidden,
         n_layers=args.n_layers,
-        lstm_hidden=args.lstm_hidden,
-        lstm_layers=args.lstm_layers,
+        width=args.width,
+        num_envs=args.num_envs,
         device=args.device,
         reward_mode=args.reward_mode,
-        ppo=PPOConfig(lr=args.lr, bptt_len=args.bptt_len),
+        ppo=PPOConfig(lr=args.lr, minibatch_size=args.minibatch_size),
     )
     trainer = SelfPlayTrainer(
         league,

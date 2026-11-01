@@ -88,21 +88,18 @@ def test_encode_choice_options_mask():
     assert ctype == int(ChoiceType.CHOOSE_CARDS_TO_DISCARD)
 
 
-def test_lstm_checkpoint_roundtrip(tmp_path):
+def test_transformer_checkpoint_roundtrip(tmp_path):
     dim = observation_size(3)
-    model = MaskedActorCritic(
-        obs_dim=dim, hidden=32, n_layers=1, lstm_hidden=24, lstm_layers=2
-    )
+    model = MaskedActorCritic(obs_dim=dim, hidden=32, n_layers=1, width=24)
+    assert not any(isinstance(m, torch.nn.LSTM) for m in model.modules())
     path = tmp_path / "ckpt.pt"
     torch.save({"policy": model.checkpoint_dict()}, path)
     loaded = MaskedActorCritic.from_checkpoint(
         torch.load(path, map_location="cpu", weights_only=False)["policy"]
     )
-    assert loaded.lstm_hidden == 24
-    assert loaded.lstm_layers == 2
+    assert loaded.width == 24
+    assert loaded.sequence == "transformer"
     assert loaded.obs_dim == dim
-    h0, c0 = loaded.initial_state(1)
-    assert h0.shape == (2, 1, 24) and c0.shape == (2, 1, 24)
     bot = RLAgent(loaded, deterministic=True)
     obs = np.zeros(dim, dtype=np.float32)
     mask = np.zeros(256, dtype=np.float32)
@@ -111,6 +108,40 @@ def test_lstm_checkpoint_roundtrip(tmp_path):
     a2 = bot.act(obs, [[0], [1], [2]], action_mask=mask)
     assert a1 in (0, 1, 2) and a2 in (0, 1, 2)
     bot.reset_memory()
+
+
+def test_act_batch_matches_single_row():
+    dim = observation_size(3)
+    model = MaskedActorCritic(obs_dim=dim, hidden=32, n_layers=1, width=24)
+    model.eval()
+    obs = np.zeros((3, dim), dtype=np.float32)
+    mask = np.zeros((3, 256), dtype=np.float32)
+    mask[:, 0] = 1
+    rows = model.act_batch(obs, mask, deterministic=True)
+    assert len(rows) == 3
+    one = model.act(obs[0], mask[0], deterministic=True)
+    assert rows[0][0] == one[0]
+    assert rows[0][2] == one[2]
+
+
+def test_gae_stops_at_episode_boundary():
+    from sixtyfivekmconvoy.rl.buffer import RolloutBuffer
+
+    buf = RolloutBuffer(obs_dim=4, n_actions=2, capacity=8, gamma=1.0, gae_lambda=1.0)
+    step = {
+        "obs": np.zeros(4, np.float32),
+        "mask": np.ones(2, np.float32),
+        "action_idx": 0,
+        "logprob": 0.0,
+        "value": 0.0,
+        "picks": [0],
+        "num_picks": 0,
+    }
+    buf.extend_episode([{**step, "reward": 1.0, "done": True}])
+    buf.extend_episode([{**step, "reward": 0.0, "done": True}])
+    # gamma=1, value=0, lambda=1 → advantage equals that step's own reward.
+    assert buf.advantages[0] == pytest.approx(1.0)
+    assert buf.advantages[1] == pytest.approx(0.0)
 
 
 def test_ar_act_returns_choice_vector():
@@ -135,7 +166,7 @@ def test_ar_act_returns_choice_vector():
     }
     obs = flatten_observation(raw, 0, 3)
     mask = np.ones(256, dtype=np.float32)
-    flat, logp, val, hx, picks, vec = model.act(
+    flat, logp, val, picks, vec = model.act(
         obs,
         mask,
         deterministic=True,
@@ -146,5 +177,5 @@ def test_ar_act_returns_choice_vector():
     assert len(picks) == 2
     assert len(vec) == 2
     assert set(vec).issubset({5, 6, 7})
-    assert hx is not None
+    assert flat == -1
     assert isinstance(logp, float) and isinstance(val, float)

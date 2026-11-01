@@ -345,6 +345,9 @@
     "pillage.cash": "Rahaa",
     "pillage.loot": "Ryöstösaalis",
     "pillage.atrocities": "Hirmutekoja",
+    "pillage.atrocities_if_under_influence": "Hirmuteko, jos humalassa",
+    "pillage.cards": "Kortteja",
+    "pillage.intoxicate": "Humalaannuttaa",
     "deck.officer": "Upseeri",
     "officer.always_on": "Aina päällä",
     "officer.discard": "Poista",
@@ -482,20 +485,39 @@
     const cash = Number(reward.cash || 0);
     const loot = Array.isArray(reward.loot) ? reward.loot : [];
     const atrocities = Number(reward.atrocities || 0);
+    const atrocitiesIfDrunk = Number(reward.atrocities_if_under_influence || 0);
+    const cards = Number(reward.cards || 0);
+    const intoxicate = Number(reward.intoxicate || 0);
+    const lootChips = loot.filter((v) => Number(v) > 0);
     const lines = [];
     if (cash > 0) {
       lines.push(
         `<span>${escapeHtml(t("pillage.cash"))}: <strong>${cash}</strong></span>`
       );
     }
-    if (loot.length) {
+    if (lootChips.length) {
       lines.push(
-        `<span>${escapeHtml(t("pillage.loot"))}: <strong>${escapeHtml(loot.join(" · "))}</strong></span>`
+        `<span>${escapeHtml(t("pillage.loot"))}: <strong>${escapeHtml(lootChips.join(" · "))}</strong></span>`
       );
     }
     if (atrocities > 0) {
       lines.push(
         `<span>${escapeHtml(t("pillage.atrocities"))}: <strong>${atrocities}</strong></span>`
+      );
+    }
+    if (atrocitiesIfDrunk > 0) {
+      lines.push(
+        `<span>${escapeHtml(t("pillage.atrocities_if_under_influence"))}: <strong>${atrocitiesIfDrunk}</strong></span>`
+      );
+    }
+    if (cards > 0) {
+      lines.push(
+        `<span>${escapeHtml(t("pillage.cards"))}: <strong>${cards}</strong></span>`
+      );
+    }
+    if (intoxicate > 0) {
+      lines.push(
+        `<span>${escapeHtml(t("pillage.intoxicate"))}</span>`
       );
     }
     const body = lines.length

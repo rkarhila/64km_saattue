@@ -20,8 +20,8 @@ from sixtyfivekmconvoy.rl.policy import MaskedActorCritic
 class RLAgent:
     """
     Bot that picks a legal-action *index* (PettingZoo) or the underlying
-    choice vector (engine ``choose``). Maintains LSTM state across calls;
-    call ``reset_memory()`` at episode boundaries.
+    choice vector (engine ``choose``). Decisions are stateless: the event
+    window inside the observation is the history.
     """
 
     def __init__(
@@ -37,10 +37,10 @@ class RLAgent:
         self.deterministic = deterministic
         self.device = torch.device(device)
         self.rng = np.random.default_rng(seed)
-        self._hx: tuple[torch.Tensor, torch.Tensor] | None = None
 
     def reset_memory(self) -> None:
-        self._hx = None
+        """Episode boundary hook. The transformer keeps no hidden state."""
+        return None
 
     @classmethod
     def from_checkpoint(
@@ -93,11 +93,10 @@ class RLAgent:
             options = list(raw_choice.get("options") or [])
             _, _, num_choices, ordered, _ = encode_choice_options(raw_choice)
 
-        flat_idx, _, _, self._hx, _picks, choice_vec = self.policy.act(
+        flat_idx, _, _, _picks, choice_vec = self.policy.act(
             obs_vec,
             mask,
             deterministic=self.deterministic,
-            hx=self._hx,
             options=options,
             ordered=ordered,
             num_choices=num_choices,
@@ -152,11 +151,10 @@ class RLAgent:
             for i in range(min(len(legal_actions), MAX_LEGAL)):
                 mask[i] = 1.0
 
-        flat_idx, _, _, self._hx, picks, choice_vec = self.policy.act(
+        flat_idx, _, _, picks, choice_vec = self.policy.act(
             obs_vec,
             mask,
             deterministic=self.deterministic,
-            hx=self._hx,
             options=options,
             ordered=ordered,
             num_choices=num_choices,
@@ -175,7 +173,6 @@ class RLAgent:
                 )
                 if rebuilt:
                     return rebuilt
-        # Do not call act() again — LSTM already advanced above.
         if 0 <= flat_idx < len(legal_actions):
             return list(legal_actions[flat_idx])
         return list(legal_actions[0])

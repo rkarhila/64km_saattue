@@ -8,8 +8,8 @@ weights stay tied to the same reward and deal parameters.
 CONFIG_NAME = "default"
 
 # Cards dealt to each player at round start.
-CARDS_TO_DEAL_FIRST_ROUND = 7
-CARDS_TO_DEAL = 3
+CARDS_TO_DEAL_FIRST_ROUND = 5
+CARDS_TO_DEAL = 5
 
 # Defence soak rewards (per attack type soaked: A=air, G=ground, S=sabotage).
 SOAK_AIR_CASH = 2

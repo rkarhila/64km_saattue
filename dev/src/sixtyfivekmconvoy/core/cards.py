@@ -526,9 +526,14 @@ def load_pillage_deck() -> dict[int, PillageCard]:
                 id=cid,
                 name=row["name"].strip(),
                 reward={
-                    "cash": int(row["cash"].strip()),
+                    "cash": int(row["cash"].strip() or 0),
                     "loot": loot,
-                    "atrocities": int(row["atrocities"].strip()),
+                    "atrocities": int(row["atrocities"].strip() or 0),
+                    "atrocities_if_under_influence": _int_or_zero(
+                        row.get("atrocities_if_under_influence")
+                    ),
+                    "cards": _int_or_zero(row.get("cards")),
+                    "intoxicate": _int_or_zero(row.get("intoxicate")),
                 },
             )
     return deck

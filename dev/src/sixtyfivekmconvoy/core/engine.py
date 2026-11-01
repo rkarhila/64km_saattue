@@ -141,6 +141,7 @@ class GameEngine:
         self.round_unit_damage: list[tuple[int, int]] = []
         self.messages: list[str] = []
         self.event_log: list[dict[str, Any]] = []
+        self.event_rows: list[list[int]] = []
         self.ranking: list[dict] | None = None
 
         # decks/queues filled in reset()
@@ -177,6 +178,7 @@ class GameEngine:
         self.sudden_death_pp = False
         self.messages = []
         self.event_log: list[dict[str, Any]] = []
+        self.event_rows: list[list[int]] = []
         self.round_action_summaries = []
         self.max_rounds = max_rounds
         self.stats = EpisodeStats(seed=seed, num_players=num_players)
@@ -342,6 +344,8 @@ class GameEngine:
         self.messages.append(message)
         if not hasattr(self, "event_log") or self.event_log is None:
             self.event_log: list[dict[str, Any]] = []
+        if not hasattr(self, "event_rows") or self.event_rows is None:
+            self.event_rows = []
         entry: dict[str, Any] = {
             "i": len(self.event_log),
             "round": self.rounds.count if self.rounds else 0,
@@ -351,6 +355,17 @@ class GameEngine:
         if detail:
             entry["detail"] = detail
         self.event_log.append(entry)
+        from sixtyfivekmconvoy.rl.events import event_from_detail
+
+        row = event_from_detail(
+            detail,
+            round_n=self.rounds.count if self.rounds else 0,
+            stage=self.rounds.stage if self.rounds else -1,
+        )
+        if row is not None:
+            if not hasattr(self, "event_rows") or self.event_rows is None:
+                self.event_rows = []
+            self.event_rows.append(row)
 
     def _apply_unit_placements(self, placements: dict[int, list[int]]) -> None:
         """Build convoy order from ownership pattern + per-player troop permutations."""
@@ -633,7 +648,14 @@ class GameEngine:
                         summary = yield from action_mod.resolve_action(
                             self, unit_idx, desc, actioncard
                         )
-                        self._broadcast(summary)
+                        self._broadcast(
+                            summary,
+                            event_type=1,
+                            actor=unit.player.number,
+                            card_id=actioncard,
+                            card_visible=True,
+                            amount=choice_i,
+                        )
                         early = self._finished_result()
                         if early is not None:
                             return early
@@ -694,7 +716,13 @@ class GameEngine:
             mauling = self.mauling_deck.describe(maul_id)
             msg = yield from resolve_mauling(self, mauling)
             maul_line = f"Mauling {mauling['name']}: {msg}"
-            self._broadcast(maul_line)
+            self._broadcast(
+                maul_line,
+                event_type=3,
+                queue=1,
+                card_id=maul_id,
+                card_visible=True,
+            )
             early = self._finished_result()
             if early is not None:
                 return early

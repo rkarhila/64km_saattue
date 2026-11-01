@@ -662,15 +662,10 @@ def resolve_action(
         rewards = yield from _resolve_pillage(engine, unit, extra)
         disciplined = name == ActionName.PILLAGE_WITH_EXTRA_ATROCITY
         for r in rewards:
-            _apply_pillage_reward(player, unit, r, disciplined=disciplined)
-            parts.append(
-                format_pillage_effect(
-                    unit,
-                    r,
-                    disciplined=disciplined,
-                    influence=bool(action.get("intoxicate")),
-                )
+            applied = _apply_pillage_reward(
+                player, unit, r, disciplined=disciplined
             )
+            parts.append(format_pillage_effect(unit, r, applied=applied))
 
     elif name in ATTACK_TYPE_BY_DEFENCE_ACTION:
         # Defend→G (ground), Human shields→A (air), Patrol→S (sabotage).
@@ -750,15 +745,10 @@ def resolve_action(
         if len(engine.pillage_queue) >= 1:
             rewards = yield from _resolve_pillage(engine, unit, 0)
             for r in rewards:
-                _apply_pillage_reward(player, unit, r, disciplined=False)
-                parts.append(
-                    format_pillage_effect(
-                        unit,
-                        r,
-                        disciplined=False,
-                        influence=bool(action.get("intoxicate")),
-                    )
+                applied = _apply_pillage_reward(
+                    player, unit, r, disciplined=False
                 )
+                parts.append(format_pillage_effect(unit, r, applied=applied))
         else:
             parts.append("nothing to pillage after search")
 
@@ -877,27 +867,59 @@ def _loot_list(loot: Any) -> list[int]:
     return [int(x) for x in loot if int(x)]
 
 
+def _ignores_pillage_intoxication(unit: Unit) -> bool:
+    """Huikka Möttönen: pillaging cards do not make this unit drunk."""
+    return (
+        _has_officer(unit, "no_boozing_while_pillaging", kind="passive_effect")
+        is not None
+    )
+
+
 def _apply_pillage_reward(
     player: Any, unit: Unit, card: dict, *, disciplined: bool
-) -> None:
+) -> dict:
+    """Apply one pillage card. Influence on the card is checked before it is set."""
     reward = card.get("reward") or {}
+    was_influenced = unit.under_influence > 0
     cash = int(reward.get("cash") or 0)
     if cash:
         player.get_cash(cash)
     cards = int(reward.get("cards") or 0)
     if cards:
         player.draw_card(cards)
-    unit.gain_loot(reward.get("loot") or [])
+    loot = _loot_list(reward.get("loot"))
+    if loot:
+        unit.gain_loot(loot)
     atro = int(reward.get("atrocities") or 0)
     if disciplined:
         atro = max(0, atro - 1)
-    unit.gain_atrocities(atro)
+    if was_influenced:
+        atro += int(reward.get("atrocities_if_under_influence") or 0)
+    if atro:
+        unit.gain_atrocities(atro)
+    became_influenced = False
+    intoxicate_ignored = False
+    if int(reward.get("intoxicate") or 0) and not was_influenced:
+        if _ignores_pillage_intoxication(unit):
+            intoxicate_ignored = True
+        else:
+            unit.under_influence = 1
+            became_influenced = True
+    return {
+        "cash": cash,
+        "cards": cards,
+        "loot": loot,
+        "atrocities": atro,
+        "became_influenced": became_influenced,
+        "intoxicate_ignored": intoxicate_ignored,
+    }
 
 
 def format_pillage_effect(
     unit: Unit,
     card: dict,
     *,
+    applied: dict | None = None,
     disciplined: bool = False,
     influence: bool = False,
 ) -> str:
@@ -905,20 +927,32 @@ def format_pillage_effect(
     reward = card.get("reward") or {}
     label = unit_log_label(unit)
     name = card.get("name") or "?"
-    loot = _loot_list(reward.get("loot"))
-    atro = int(reward.get("atrocities") or 0)
-    if disciplined:
-        atro = max(0, atro - 1)
-    cash = int(reward.get("cash") or 0)
-    cards = int(reward.get("cards") or 0)
+    if applied is None:
+        loot = _loot_list(reward.get("loot"))
+        atro = int(reward.get("atrocities") or 0)
+        if disciplined:
+            atro = max(0, atro - 1)
+        cash = int(reward.get("cash") or 0)
+        cards = int(reward.get("cards") or 0)
+        became = influence
+        ignored = False
+    else:
+        loot = applied.get("loot") or []
+        atro = int(applied.get("atrocities") or 0)
+        cash = int(applied.get("cash") or 0)
+        cards = int(applied.get("cards") or 0)
+        became = bool(applied.get("became_influenced"))
+        ignored = bool(applied.get("intoxicate_ignored"))
     bits: list[str] = []
     if loot:
         shown = "+".join(str(v) for v in loot)
         bits.append(f"gains {len(loot)} loot ({shown})")
     if atro:
         bits.append(f"commits {atro} atrocities")
-    if influence:
+    if became:
         bits.append("is now under the influence")
+    elif ignored:
+        bits.append("ignores intoxication")
     if cards:
         bits.append(f"player draws {cards} cards")
     if cash:

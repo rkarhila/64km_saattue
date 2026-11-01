@@ -28,7 +28,8 @@ def test_league_add_branch_lineage(tmp_path):
 
     loaded = league.load_model(child.id)
     assert isinstance(loaded, MaskedActorCritic)
-    assert loaded.recurrent
+    assert loaded.sequence == "transformer"
+    assert loaded.recurrent is False
     chain = league.lineage(child.id)
     assert [e.name for e in chain] == ["root", "fork-a"]
 
@@ -80,10 +81,10 @@ def test_selfplay_short_train(tmp_path):
         eval_episodes=2,
         hidden=32,
         n_layers=1,
-        lstm_hidden=32,
-        lstm_layers=2,
+        width=32,
+        num_envs=4,
         device="cpu",
-        ppo=PPOConfig(epochs=1, minibatch_size=64, lr=1e-3, bptt_len=8),
+        ppo=PPOConfig(epochs=1, minibatch_size=64, lr=1e-3),
     )
     logs: list[str] = []
     trainer = SelfPlayTrainer(

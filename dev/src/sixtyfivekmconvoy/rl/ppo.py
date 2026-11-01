@@ -1,4 +1,4 @@
-"""Proximal Policy Optimization with truncated BPTT for LSTM policies."""
+"""Proximal Policy Optimization over independent transformer decisions."""
 
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ class PPOConfig:
     max_grad_norm: float = 0.5
     epochs: int = 4
     minibatch_size: int = 256
-    bptt_len: int = 16
     gamma: float = 0.99
     gae_lambda: float = 0.95
 
@@ -44,10 +43,11 @@ class PPOTrainer:
     def update(self, buffer: RolloutBuffer) -> dict[str, float]:
         batch = buffer.get(self.device)
         cfg = self.config
-        n = batch.obs.shape[0]
+        n = int(batch.obs.shape[0])
         if n == 0:
             return {}
 
+        self.policy.train()
         metrics: dict[str, list[float]] = {
             "policy_loss": [],
             "value_loss": [],
@@ -55,17 +55,12 @@ class PPOTrainer:
             "approx_kl": [],
             "clipfrac": [],
         }
-
-        bptt = max(1, int(cfg.bptt_len))
+        mb = max(1, min(int(cfg.minibatch_size), n))
         for _ in range(cfg.epochs):
-            # Contiguous BPTT windows (preserve temporal order for LSTM).
-            starts = list(range(0, n, bptt))
-            # Shuffle window starts only.
-            order = torch.randperm(len(starts), device=self.device).tolist()
-            for oi in order:
-                start = starts[oi]
-                end = min(start + bptt, n)
-                loss_info = self._sequence_loss(batch, start, end)
+            order = torch.randperm(n, device=self.device)
+            for start in range(0, n, mb):
+                sel = order[start : start + mb]
+                loss_info = self._batch_loss(batch, sel)
                 self.optimizer.zero_grad(set_to_none=True)
                 loss_info["loss"].backward()
                 nn.utils.clip_grad_norm_(
@@ -76,74 +71,38 @@ class PPOTrainer:
                     if k == "loss":
                         continue
                     metrics[k].append(float(v))
-
+        self.policy.eval()
         return {
             k: float(sum(vs) / max(1, len(vs))) for k, vs in metrics.items()
         }
 
-    def _sequence_loss(
-        self, batch: RolloutBatch, start: int, end: int
-    ) -> dict[str, Any]:
+    def _batch_loss(self, batch: RolloutBatch, sel: torch.Tensor) -> dict[str, Any]:
         cfg = self.config
-        obs = batch.obs[start:end]
-        masks = batch.masks[start:end]
-        actions = batch.actions[start:end]
-        picks = batch.picks[start:end]
-        num_picks = batch.num_picks[start:end]
-        old_logp = batch.logprobs[start:end]
-        advantages = batch.advantages[start:end]
-        returns = batch.returns[start:end]
-        dones = batch.dones[start:end]
-
-        # Seed LSTM from stored pre-step state of the first timestep.
-        layers = self.policy.lstm_layers
-        hidden = self.policy.lstm_hidden
-        h = batch.h0[start].view(layers, 1, hidden)
-        c = batch.c0[start].view(layers, 1, hidden)
-        hx: tuple[torch.Tensor, torch.Tensor] | None = (h, c)
-
-        logps: list[torch.Tensor] = []
-        ents: list[torch.Tensor] = []
-        vals: list[torch.Tensor] = []
-
-        for t in range(obs.shape[0]):
-            if t > 0 and float(dones[t - 1].item()) > 0.5:
-                hx = self.policy.initial_state(1, device=self.device)
-            logp, ent, value, hx = self.policy.evaluate_actions(
-                obs[t : t + 1],
-                masks[t : t + 1],
-                actions[t : t + 1],
-                hx=hx,
-                picks=picks[t : t + 1],
-                num_picks=num_picks[t : t + 1],
-            )
-            # Detach across BPTT window boundary only happens by windowing.
-            logps.append(logp)
-            ents.append(ent)
-            vals.append(value)
-            # Truncate BPTT graph for next step within window? Keep connected.
-            assert hx is not None
-            hx = (hx[0], hx[1])
-
-        logp_t = torch.cat(logps, dim=0)
-        ent_t = torch.cat(ents, dim=0)
-        values = torch.cat(vals, dim=0)
-
-        ratio = torch.exp(logp_t - old_logp)
+        logp, ent, values = self.policy.evaluate_actions(
+            batch.obs[sel],
+            batch.masks[sel],
+            batch.actions[sel],
+            picks=batch.picks[sel],
+            num_picks=batch.num_picks[sel],
+        )
+        old_logp = batch.logprobs[sel]
+        advantages = batch.advantages[sel]
+        returns = batch.returns[sel]
+        ratio = torch.exp(logp - old_logp)
         unclipped = advantages * ratio
         clipped = advantages * torch.clamp(
             ratio, 1.0 - cfg.clip_range, 1.0 + cfg.clip_range
         )
         policy_loss = -torch.min(unclipped, clipped).mean()
         value_loss = 0.5 * (returns - values).pow(2).mean()
-        entropy_loss = ent_t.mean()
+        entropy_loss = ent.mean()
         loss = (
             policy_loss
             + cfg.vf_coef * value_loss
             - cfg.ent_coef * entropy_loss
         )
         with torch.no_grad():
-            approx_kl = (old_logp - logp_t).mean().item()
+            approx_kl = (old_logp - logp).mean().item()
             clipfrac = (
                 ((ratio - 1.0).abs() > cfg.clip_range).float().mean().item()
             )

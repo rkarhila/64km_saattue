@@ -72,6 +72,7 @@ def player_view(
         "log": list(engine.messages),
         # Structured events (same text as log, plus machine-readable detail).
         "events": list(getattr(engine, "event_log", []) or []),
+        "event_rows": list(getattr(engine, "event_rows", []) or []),
         "setup_complete": getattr(engine, "setup_complete", True),
         "setup_pattern": list(getattr(engine, "setup_pattern", ()) or ()),
     }
