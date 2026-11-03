@@ -46,7 +46,9 @@ def action_reward_bits(action_name: str | None) -> dict[str, Any]:
     elif key == ActionName.ATTACK:
         cash = int(getattr(config, "ATTACK_CASH", 0) or 0)
     elif key == ActionName.SCOUT:
-        cash = int(getattr(config, "SCOUT_CASH", 0) or 0)
+        cash = int(getattr(config, "REVEAL_RESISTANCE_CASH", 0) or 0)
+    elif key == ActionName.SIGINT:
+        cash = int(getattr(config, "REVEAL_MAULING_CASH", 0) or 0)
     elif key in (ActionName.DEFEND, ActionName.HUMAN_SHIELDS, ActionName.PATROL):
         soak = {
             ActionName.HUMAN_SHIELDS: (

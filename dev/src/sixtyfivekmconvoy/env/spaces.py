@@ -120,13 +120,29 @@ def picks_to_vector(
     return vec
 
 
+def relative_seat(seat: int, viewer: int, num_players: int) -> int:
+    """Rotate seats so ``viewer`` is player 0. Negative seats stay unset."""
+    if seat < 0 or num_players <= 0:
+        return int(seat)
+    return (int(seat) - int(viewer)) % int(num_players)
+
+
+def _viewer_seat_order(viewer: int, num_players: int) -> list[int]:
+    """Absolute seats in the order the viewer should see them, self first."""
+    n = max(1, int(num_players))
+    return [(int(viewer) + k) % n for k in range(n)]
+
+
 def flatten_observation(obs: dict[str, Any], agent_index: int, num_players: int) -> np.ndarray:
-    """Build a fixed-size float32 vector from a player FOV dict."""
+    """Build a fixed-size float32 vector from a player FOV dict.
+
+    The viewer is always player 0. Other seats follow in turn order.
+    """
     feats: list[float] = []
 
-    # Self identity
+    # Self identity. The viewer is always the first player in its own report.
     one_hot = [0.0] * MAX_PLAYERS
-    one_hot[agent_index] = 1.0
+    one_hot[0] = 1.0
     feats.extend(one_hot)
 
     feats.append(float(obs.get("round", 0)))
@@ -138,13 +154,16 @@ def flatten_observation(obs: dict[str, Any], agent_index: int, num_players: int)
     feats.append(1.0 if res.get("active") else 0.0)
     feats.append(float(res.get("durability") or 0) / 20.0)
 
-    # Players (pad)
+    # Players, rotated so the viewer occupies slot 0.
     players = obs.get("players") or []
-    you = obs.get("you", agent_index)
+    by_number = {
+        int(p.get("number", i)): p for i, p in enumerate(players) if isinstance(p, dict)
+    }
     own_cards: list[Any] = []
+    order = _viewer_seat_order(agent_index, num_players)
     for i in range(MAX_PLAYERS):
-        if i < len(players):
-            p = players[i]
+        p = by_number.get(order[i]) if i < len(order) else None
+        if p is not None:
             feats.extend(
                 [
                     float(p.get("cash_this_round", 0)) / 20.0,
@@ -153,7 +172,7 @@ def flatten_observation(obs: dict[str, Any], agent_index: int, num_players: int)
                     float(p.get("card_count", 0)) / MAX_HAND,
                 ]
             )
-            if p.get("number", i) == you and "cards" in p:
+            if i == 0 and "cards" in p:
                 own_cards = list(p.get("cards") or [])
         else:
             feats.extend([0.0, 0.0, 0.0, 0.0])
@@ -174,7 +193,8 @@ def flatten_observation(obs: dict[str, Any], agent_index: int, num_players: int)
             ut_oh = [0.0, 0.0, 0.0]
             ut_oh[ut] = 1.0
             feats.extend(ut_oh)
-            feats.append(float(u.get("player", 0)) / max(1, num_players - 1))
+            owner = relative_seat(int(u.get("player", 0)), agent_index, num_players)
+            feats.append(float(owner) / max(1, num_players - 1))
             feats.append(float(u.get("tiredness", 0)) / 10.0)
             feats.append(1.0 if u.get("under_influence") else 0.0)
             feats.append(float(u.get("atrocities", 0)) / 10.0)
@@ -220,12 +240,154 @@ def flatten_observation(obs: dict[str, Any], agent_index: int, num_players: int)
     feats.extend(opt_feats.reshape(-1).tolist())
     feats.extend(opt_mask.tolist())
     # Formal event window (already visibility-masked). Oldest padded on the left.
-    feats.extend(events_to_features(obs.get("event_rows")))
+    feats.extend(
+        events_to_features(
+            obs.get("event_rows"), viewer=agent_index, num_players=num_players
+        )
+    )
 
     return np.asarray(feats, dtype=np.float32)
 
 
+def fill_observation(
+    engine: Any,
+    agent_index: int,
+    num_players: int,
+    out: np.ndarray | None = None,
+) -> np.ndarray:
+    """
+    Write the same vector as ``flatten_observation(player_view(...))`` straight
+    from the engine. The viewer is always player 0. Skips deck-name lookups
+    and the JSON view.
+    """
+    dim = observation_size(num_players)
+    if out is None or out.shape != (dim,):
+        out = np.zeros(dim, dtype=np.float32)
+    else:
+        out.fill(0.0)
+
+    out[0] = 1.0
+    i = MAX_PLAYERS
+    rounds = engine.rounds
+    out[i] = float(rounds.count if rounds else 0)
+    out[i + 1] = float(rounds.stage if rounds else -1)
+    out[i + 2] = 1.0 if engine.terminal else 0.0
+    i += 3
+    res = engine.resistance
+    if res is not None and res.name:
+        out[i] = 1.0 if res.active else 0.0
+        out[i + 1] = float(res.durability or 0) / 20.0
+    i += 2
+
+    own_cards: list[Any] = []
+    by_number = {p.number: p for p in engine.players}
+    order = _viewer_seat_order(agent_index, num_players)
+    for p_i in range(MAX_PLAYERS):
+        p = by_number.get(order[p_i]) if p_i < len(order) else None
+        if p is not None:
+            out[i] = float(p.this_round_cash) / 20.0
+            out[i + 1] = float(p.total_cash) / 50.0
+            out[i + 2] = float(p.promotion_points) / 10.0
+            out[i + 3] = float(len(p.action_cards)) / MAX_HAND
+            if p_i == 0:
+                own_cards = p.action_cards
+        i += 4
+
+    type_index = {"panzer": 0, "infantry": 1, "logistics": 2}
+    units = engine.convoy.units if engine.convoy is not None else []
+    denom = max(1, num_players - 1)
+    for u_i in range(MAX_UNITS):
+        if u_i < len(units):
+            u = units[u_i]
+            ut = type_index.get(u.type_to_str.get(u.unittype, ""), 0)
+            out[i + ut] = 1.0
+            owner = relative_seat(u.player.number, agent_index, num_players)
+            out[i + 3] = float(owner) / denom
+            out[i + 4] = float(u.tired) / 10.0
+            out[i + 5] = 1.0 if u.under_influence else 0.0
+            out[i + 6] = float(u.atrocities) / 10.0
+            carry = u.carry
+            out[i + 7] = len(carry) / 4.0
+            out[i + 8] = sum(c for c in carry if c > 0) / 20.0
+            zone = u.zone() if u.convoy is not None else ""
+            out[i + 9] = 1.0 if zone == "A" else 0.0
+            out[i + 10] = 1.0 if zone == "B" else 0.0
+            out[i + 11] = 1.0 if zone == "C" else 0.0
+            out[i + 12] = float(len(u.officers)) / 4.0
+            # player_view stores action cards under "action", which the flat
+            # vector does not read. Keep that zero so the layout stays put.
+        i += 14
+
+    for h_i in range(MAX_HAND):
+        if h_i < len(own_cards):
+            out[i] = _norm_id(own_cards[h_i], scale=25.0)
+        i += 1
+    out[i] = len(own_cards) / MAX_HAND
+    i += 1
+
+    queues = (
+        ("resistance", engine.resistance_deck, engine.resistance_queue),
+        ("pillage", engine.pillage_deck, engine.pillage_queue),
+        ("mauling", engine.mauling_deck, engine.mauling_queue),
+        ("officer", engine.officer_deck, engine.officer_queue),
+    )
+    for _key, deck, queue in queues:
+        deck_n, discard_n = deck.get_sizes()
+        out[i] = deck_n / 40.0
+        out[i + 1] = discard_n / 40.0
+        i += 2
+        entries = queue.cards_and_visibilities
+        n = len(entries)
+        hidden = 0
+        visible: list[float] = []
+        for card_id, vis in entries:
+            if vis:
+                visible.append(_norm_id(card_id))
+            else:
+                hidden += 1
+        out[i] = n / 10.0
+        out[i + 1] = hidden / 10.0
+        out[i + 2] = (n - hidden) / 10.0
+        i += 3
+        for q_i in range(MAX_QUEUE_VISIBLE):
+            if q_i < len(visible):
+                out[i] = visible[q_i]
+            i += 1
+
+    pending = engine._pending
+    show = pending is not None and pending.player_id == f"player_{agent_index}"
+    fs, fe, ms, me = option_block_slices(dim)
+    if i != fs - 5:
+        raise RuntimeError(f"observation cursor {i} != choice block {fs - 5}")
+    if show:
+        choice = pending.to_json()
+        out[i] = 1.0
+        opt_feats, opt_mask, n_pick, ordered, ctype = encode_choice_options(choice)
+        out[i + 1] = ctype / 12.0 if ctype >= 0 else -0.1
+        out[i + 2] = float(n_pick) / MAX_PICKS
+        out[i + 3] = 1.0 if ordered else 0.0
+        out[i + 4] = float(opt_mask.sum()) / MAX_OPTIONS
+        out[fs:fe] = opt_feats.reshape(-1)
+        out[ms:me] = opt_mask
+    else:
+        out[i + 1] = -0.1
+    ev = np.asarray(
+        events_to_features(
+            list(engine.event_rows), viewer=agent_index, num_players=num_players
+        ),
+        dtype=np.float32,
+    )
+    out[-ev.shape[0] :] = ev
+    return out
+
+
+_OBS_SIZE: dict[int, int] = {}
+
+
 def observation_size(num_players: int = MAX_PLAYERS) -> int:
+    cached = _OBS_SIZE.get(num_players)
+    if cached is not None:
+        return cached
     dummy = {
         "round": 0,
         "stage": 0,
@@ -237,7 +399,9 @@ def observation_size(num_players: int = MAX_PLAYERS) -> int:
         "you": 0,
         "decks": {"rows": []},
     }
-    return int(flatten_observation(dummy, 0, num_players).shape[0])
+    size = int(flatten_observation(dummy, 0, num_players).shape[0])
+    _OBS_SIZE[num_players] = size
+    return size
 
 
 def option_block_slices(obs_dim: int | None = None) -> tuple[int, int, int, int]:

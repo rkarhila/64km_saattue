@@ -22,7 +22,11 @@ SOAK_SABOTAGE_ATROCITIES = 0
 # Action cash incentives (shown on action faces in the UI).
 SERVICE_CASH = 1
 ATTACK_CASH = 2
-SCOUT_CASH = 3
+# Per card turned face-up by scout or sigint. Pillage reveals pay nothing.
+REVEAL_MAULING_CASH = 1
+REVEAL_RESISTANCE_CASH = 1
+# Kept so older imports still resolve. Scout no longer pays this flat amount.
+SCOUT_CASH = 0
 FIRST_UNIT_ADVANCE_CASH = 1
 
 # Cash granted when a resistance hit does not destroy (status==1 from take_damage).
@@ -38,5 +42,5 @@ CASH_TO_WIN = 50
 # Backward-compatible aliases (older imports / tests).
 INCENTIVE_SERVICE_CASH = SERVICE_CASH
 INCENTIVE_ATTACK_CASH = ATTACK_CASH
-INCENTIVE_SCOUT_CASH = SCOUT_CASH
+INCENTIVE_SCOUT_CASH = REVEAL_RESISTANCE_CASH
 INCENTIVE_FIRST_UNIT_ADVANCE_CASH = FIRST_UNIT_ADVANCE_CASH

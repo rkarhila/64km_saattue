@@ -21,9 +21,10 @@ python -m sixtyfivekmconvoy.cli.selfplay --players 3 --seed 0 --verbose
 
 ## RL training (self-play + bot league)
 
-Install the optional torch extra, then train an **LSTM + autoregressive** PPO
-policy into a **league** of versioned / branchable bots. Full walkthrough:
-**[docs/rl-training.md](docs/rl-training.md)**.
+Install the optional torch extra, then train a **transformer** PPO policy
+into a **league** of versioned / branchable bots. Full walkthrough:
+**[docs/rl-training.md](docs/rl-training.md)**. A 4-hour GPU run of the
+1050-sized network is `PYTHONPATH=src python scripts/train_4h.py` from `dev/`.
 
 ```bash
 pip install -e ".[rl]"

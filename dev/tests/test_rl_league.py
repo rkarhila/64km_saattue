@@ -82,8 +82,13 @@ def test_selfplay_short_train(tmp_path):
         hidden=32,
         n_layers=1,
         width=32,
+        d_model=32,
+        nhead=4,
+        dim_feedforward=64,
+        tf_layers=1,
         num_envs=4,
         device="cpu",
+        log_path=str(tmp_path / "league" / "train.jsonl"),
         ppo=PPOConfig(epochs=1, minibatch_size=64, lr=1e-3),
     )
     logs: list[str] = []
@@ -99,3 +104,11 @@ def test_selfplay_short_train(tmp_path):
     assert len(league.list()) >= 2
     registry = json.loads((tmp_path / "league" / "league.json").read_text())
     assert registry["entries"]
+    lines = (tmp_path / "league" / "train.jsonl").read_text().splitlines()
+    rows = [json.loads(line) for line in lines]
+    assert rows[0]["type"] == "start"
+    assert rows[-1]["type"] == "end"
+    rollouts = [row for row in rows if row["type"] == "rollout"]
+    assert rollouts
+    assert "sim_sec" in rollouts[0] and "update_sec" in rollouts[0]
+    assert result["time_update_sec"] >= 0.0

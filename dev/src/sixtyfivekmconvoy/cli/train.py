@@ -42,12 +42,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--checkpoint-every", type=int, default=10_000)
     p.add_argument("--eval-every", type=int, default=10_000)
     p.add_argument("--eval-episodes", type=int, default=8)
-    p.add_argument("--hidden", type=int, default=256)
+    p.add_argument("--hidden", type=int, default=512)
     p.add_argument(
         "--width",
         type=int,
-        default=128,
+        default=256,
         help="Width of the value head and the per-decision pick GRU",
+    )
+    p.add_argument("--d-model", type=int, default=256)
+    p.add_argument("--nhead", type=int, default=4)
+    p.add_argument("--ff", type=int, default=1024, dest="dim_feedforward")
+    p.add_argument("--tf-layers", type=int, default=4)
+    p.add_argument(
+        "--max-seconds",
+        type=float,
+        default=None,
+        help="Wall-clock stop. The current rollout finishes, then training exits.",
     )
     p.add_argument(
         "--num-envs",
@@ -109,7 +119,12 @@ def main(argv: list[str] | None = None) -> None:
         hidden=args.hidden,
         n_layers=args.n_layers,
         width=args.width,
+        d_model=args.d_model,
+        nhead=args.nhead,
+        dim_feedforward=args.dim_feedforward,
+        tf_layers=args.tf_layers,
         num_envs=args.num_envs,
+        max_seconds=args.max_seconds,
         device=args.device,
         reward_mode=args.reward_mode,
         ppo=PPOConfig(lr=args.lr, minibatch_size=args.minibatch_size),

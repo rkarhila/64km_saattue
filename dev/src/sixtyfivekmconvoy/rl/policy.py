@@ -54,6 +54,10 @@ class MaskedActorCritic(nn.Module):
         max_options: int = MAX_OPTIONS,
         max_picks: int = MAX_PICKS,
         *,
+        d_model: int = 128,
+        nhead: int = 4,
+        dim_feedforward: int = 256,
+        tf_layers: int = 2,
         lstm_hidden: int | None = None,
         lstm_layers: int | None = None,
         sequence: str | None = None,
@@ -68,6 +72,14 @@ class MaskedActorCritic(nn.Module):
         self.hidden = int(hidden)
         self.n_layers = max(1, int(n_layers))
         self.width = int(width)
+        self.d_model = int(d_model)
+        self.nhead = int(nhead)
+        self.dim_feedforward = int(dim_feedforward)
+        self.tf_layers = max(1, int(tf_layers))
+        if self.d_model % self.nhead != 0:
+            raise ValueError(
+                f"d_model ({self.d_model}) must be divisible by nhead ({self.nhead})"
+            )
         # Alias so older call sites that read the decision width still work.
         self.lstm_hidden = self.width
         self.n_actions = MAX_LEGAL
@@ -82,20 +94,18 @@ class MaskedActorCritic(nn.Module):
             layers.extend([nn.Linear(in_dim, self.hidden), nn.Tanh()])
             in_dim = self.hidden
         self.encoder = nn.Sequential(*layers)
-        d_model = 128
-        self.d_model = d_model
-        self.tf_board = nn.Linear(self.hidden, d_model)
-        self.tf_event = nn.Linear(EVENT_FIELDS, d_model)
+        self.tf_board = nn.Linear(self.hidden, self.d_model)
+        self.tf_event = nn.Linear(EVENT_FIELDS, self.d_model)
         tf_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=4,
-            dim_feedforward=256,
+            d_model=self.d_model,
+            nhead=self.nhead,
+            dim_feedforward=self.dim_feedforward,
             dropout=0.0,
             batch_first=True,
             activation="gelu",
         )
-        self.transformer = nn.TransformerEncoder(tf_layer, num_layers=2)
-        self.tf_out = nn.Linear(d_model, self.width)
+        self.transformer = nn.TransformerEncoder(tf_layer, num_layers=self.tf_layers)
+        self.tf_out = nn.Linear(self.d_model, self.width)
         self.value_head = nn.Linear(self.width, 1)
         self.flat_policy_head = nn.Linear(self.width, self.n_actions)
         self.option_proj = nn.Linear(OPTION_FEAT_DIM, self.width)
@@ -404,6 +414,10 @@ class MaskedActorCritic(nn.Module):
             "hidden": self.hidden,
             "n_layers": self.n_layers,
             "width": self.width,
+            "d_model": self.d_model,
+            "nhead": self.nhead,
+            "dim_feedforward": self.dim_feedforward,
+            "tf_layers": self.tf_layers,
             "lstm_hidden": self.width,
             "max_options": self.max_options,
             "max_picks": self.max_picks,
@@ -427,6 +441,10 @@ class MaskedActorCritic(nn.Module):
             width=width,
             max_options=int(data.get("max_options", MAX_OPTIONS)),
             max_picks=int(data.get("max_picks", MAX_PICKS)),
+            d_model=int(data.get("d_model", 128)),
+            nhead=int(data.get("nhead", 4)),
+            dim_feedforward=int(data.get("dim_feedforward", 256)),
+            tf_layers=int(data.get("tf_layers", 2)),
         )
         state = data["state_dict"]
         model_state = model.state_dict()

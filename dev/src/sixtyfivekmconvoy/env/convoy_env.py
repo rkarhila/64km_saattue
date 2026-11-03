@@ -13,8 +13,11 @@ from pettingzoo.utils import agent_selector, wrappers
 from sixtyfivekmconvoy.core.engine import GameEngine
 from sixtyfivekmconvoy.env.spaces import (
     MAX_LEGAL,
+    MAX_OPTIONS,
+    MAX_PICKS,
+    choice_is_ordered,
     encode_choice_options,
-    flatten_observation,
+    fill_observation,
     observation_size,
 )
 
@@ -60,6 +63,7 @@ class ConvoyEnv(AECEnv):
         cash_reward: float = 0.05,
         win_reward: float = 1.0,
         lose_reward: float = 0.0,
+        fast: bool = False,
     ):
         super().__init__()
         self.num_players = num_players
@@ -71,9 +75,11 @@ class ConvoyEnv(AECEnv):
         self.lose_reward = float(lose_reward)
         self.max_cycles = max_cycles
         self.render_mode = render_mode
+        self.fast = bool(fast)
         self.engine = GameEngine()
         # RL / bot self-play must not pause for human "continue" prompts.
         self.engine.pause_after_actions = False
+        self.engine.record_text_log = not self.fast
         self.possible_agents = [f"player_{i}" for i in range(num_players)]
         self.agents: list[str] = []
         self._obs_size = observation_size(num_players)
@@ -93,8 +99,11 @@ class ConvoyEnv(AECEnv):
     def reset(self, seed: int | None = None, options: dict | None = None):
         if seed is None:
             seed = self._seed
+        self.engine.record_text_log = not self.fast
+        self.engine.pause_after_actions = False
         self.engine.reset(num_players=self.num_players, seed=seed)
         self.engine.pause_after_actions = False
+        self.engine.record_text_log = not self.fast
         self.agents = self.possible_agents[:]
         self.rewards = {a: 0.0 for a in self.agents}
         self._cumulative_rewards = {a: 0.0 for a in self.agents}
@@ -111,9 +120,8 @@ class ConvoyEnv(AECEnv):
         self._update_views()
 
     def observe(self, agent: str):
-        raw = self.engine.observe(agent)
         idx = int(agent.split("_")[1])
-        return flatten_observation(raw, idx, self.num_players)
+        return fill_observation(self.engine, idx, self.num_players)
 
     def step(self, action: int | list[int] | None):
         if self.terminations.get(self.agent_selection, False) or self.truncations.get(
@@ -122,27 +130,43 @@ class ConvoyEnv(AECEnv):
             self._was_dead_step(action if isinstance(action, int) or action is None else 0)
             return
 
-        legal = self.engine.legal_actions()
-        if not legal:
-            # No pending choice — should not happen if agent order is synced
-            self._sync_agent_order()
-            self._update_views()
-            return
-
-        if isinstance(action, list):
-            choice = list(action)
-            # Prefer exact / unordered match against legal vectors when possible.
-            if choice not in legal:
-                target = sorted(choice)
-                matched = next(
-                    (v for v in legal if sorted(v) == target), None
-                )
-                choice = list(matched) if matched is not None else legal[0]
+        if self.fast and not isinstance(action, list):
+            # Flat index into the cheap legal list. Combinations are not built.
+            if self.engine._pending is None:
+                self._sync_agent_order()
+                self._update_views()
+                return
+            legal, _mask, _spec = self._fast_pending()
+            idx = 0
+            if action is not None and 0 <= int(action) < len(legal):
+                idx = int(action)
+            result = self.engine.step(list(legal[idx]))
+        elif self.fast and isinstance(action, list):
+            if self.engine._pending is None:
+                self._sync_agent_order()
+                self._update_views()
+                return
+            result = self.engine.step(list(action))
         else:
-            if action is None or action < 0 or action >= len(legal):
-                action = 0
-            choice = legal[int(action)]
-        result = self.engine.step(choice)
+            legal = self.engine.legal_actions()
+            if not legal:
+                self._sync_agent_order()
+                self._update_views()
+                return
+
+            if isinstance(action, list):
+                choice = list(action)
+                if choice not in legal:
+                    target = sorted(choice)
+                    matched = next(
+                        (v for v in legal if sorted(v) == target), None
+                    )
+                    choice = list(matched) if matched is not None else legal[0]
+            else:
+                if action is None or action < 0 or action >= len(legal):
+                    action = 0
+                choice = legal[int(action)]
+            result = self.engine.step(choice)
         self._cycle += 1
 
         for a in self.agents:
@@ -247,17 +271,54 @@ class ConvoyEnv(AECEnv):
         else:
             self.agent_selection = self.agents[0]
 
+    def _fast_pending(self) -> tuple[list[list[int]], np.ndarray, dict[str, Any]]:
+        """Choice summary without enumerating combinations."""
+        pending = self.engine._pending
+        assert pending is not None
+        opts = list(pending.options)
+        ctype = int(pending.choicetype)
+        ordered = choice_is_ordered(ctype)
+        n_avail = min(len(opts), MAX_OPTIONS)
+        n_pick = max(0, min(int(pending.num_choices), MAX_PICKS, n_avail))
+        if n_pick <= 1:
+            legal = [[o] for o in opts] or [[]]
+        else:
+            legal = [list(opts)]
+        mask = np.zeros(MAX_LEGAL, dtype=np.float32)
+        for i in range(min(len(legal), MAX_LEGAL)):
+            mask[i] = 1.0
+        spec = {
+            "options": opts,
+            "num_choices": n_pick,
+            "ordered": ordered,
+            "choicetype": ctype,
+        }
+        return legal, mask, spec
+
     def _update_views(self) -> None:
+        current = self.engine.current_agent()
+        stats = self.engine.stats.to_json() if self.engine.terminal else None
         for a in self.agents:
-            raw = self.engine.observe(a)
-            legal: list[list[int]] = []
-            mask = np.zeros(MAX_LEGAL, dtype=np.int8)
-            choice_spec: dict[str, Any] | None = None
-            if self.engine.current_agent() == a:
+            if a != current or self.engine._pending is None:
+                self.infos[a] = {
+                    "raw": None,
+                    "legal_actions": [],
+                    "action_mask": np.zeros(MAX_LEGAL, dtype=np.float32),
+                    "choice_spec": None,
+                    "stats": stats,
+                }
+                continue
+            if self.fast:
+                legal, mask, choice_spec = self._fast_pending()
+                raw = None
+            else:
+                raw = self.engine.observe(a)
                 legal = self.engine.legal_actions()
+                mask = np.zeros(MAX_LEGAL, dtype=np.float32)
                 for i in range(min(len(legal), MAX_LEGAL)):
-                    mask[i] = 1
-                choice = raw.get("choice")
+                    mask[i] = 1.0
+                choice = raw.get("choice") if raw else None
+                choice_spec = None
                 if choice:
                     opt_feats, opt_mask, n_pick, ordered, ctype = encode_choice_options(
                         choice
@@ -275,5 +336,5 @@ class ConvoyEnv(AECEnv):
                 "legal_actions": legal,
                 "action_mask": mask,
                 "choice_spec": choice_spec,
-                "stats": self.engine.stats.to_json() if self.engine.terminal else None,
+                "stats": stats,
             }

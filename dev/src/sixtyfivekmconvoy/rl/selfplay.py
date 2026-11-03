@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
@@ -16,6 +19,7 @@ from sixtyfivekmconvoy.rl.buffer import RolloutBuffer
 from sixtyfivekmconvoy.rl.league import League
 from sixtyfivekmconvoy.rl.policy import MaskedActorCritic
 from sixtyfivekmconvoy.rl.ppo import PPOConfig, PPOTrainer
+from sixtyfivekmconvoy.rl.vec_env import GamePool, RemoteEnv
 
 
 @dataclass
@@ -24,6 +28,7 @@ class SelfPlayConfig:
     seed: int = 0
     total_timesteps: int = 100_000
     max_seconds: float | None = None  # wall-clock stop after current rollout
+    log_path: str | None = None  # JSONL rollout log, appended and flushed
     rollout_steps: int = 2048
     checkpoint_every_steps: int = 10_000
     eval_every_steps: int = 10_000
@@ -33,9 +38,13 @@ class SelfPlayConfig:
     # Prefer these checkpoint ids as opponents (e.g. sibling fork).
     prefer_opponent_ids: list[str] = field(default_factory=list)
     prefer_opponent_weight: float = 0.7
-    hidden: int = 256
+    hidden: int = 512
     n_layers: int = 2
-    width: int = 128
+    width: int = 256
+    d_model: int = 256
+    nhead: int = 4
+    dim_feedforward: int = 1024
+    tf_layers: int = 4
     num_envs: int = 8
     device: str = "cpu"
     reward_mode: str = "win"
@@ -81,6 +90,10 @@ class SelfPlayTrainer:
                 n_layers=self.config.n_layers,
                 width=self.config.width,
                 num_players=self.config.num_players,
+                d_model=self.config.d_model,
+                nhead=self.config.nhead,
+                dim_feedforward=self.config.dim_feedforward,
+                tf_layers=self.config.tf_layers,
             )
         self.policy = policy.to(self.device)
         self.policy.eval()
@@ -99,6 +112,10 @@ class SelfPlayTrainer:
         self.global_step = 0
         self.episodes = 0
         self._frozen_cache: dict[str, RLAgent] = {}
+        self._pool: GamePool | None = None
+        self._step_queue: list[tuple[dict[str, Any], int | list[int]]] = []
+        self._sim_sec = 0.0
+        self._infer_sec = 0.0
 
         if not self.league.list():
             entry = self.league.add(
@@ -108,8 +125,12 @@ class SelfPlayTrainer:
                 tags=["init", self.config.league_name, "transformer"],
                 config={
                     "num_players": self.config.num_players,
-                    "hidden": self.config.hidden,
-                    "width": self.config.width,
+                    "hidden": self.policy.hidden,
+                    "width": self.policy.width,
+                    "d_model": self.policy.d_model,
+                    "nhead": self.policy.nhead,
+                    "dim_feedforward": self.policy.dim_feedforward,
+                    "tf_layers": self.policy.tf_layers,
                     "num_envs": self.config.num_envs,
                     "reward_mode": self.config.reward_mode,
                     "arch": "transformer_ar",
@@ -126,18 +147,33 @@ class SelfPlayTrainer:
             )
         return self._frozen_cache[entry_id]
 
-    def _make_env(self, *, seed: int | None = None) -> ConvoyEnv:
+    def _env_kwargs(self, *, fast: bool) -> dict[str, Any]:
         cfg = self.config
-        return ConvoyEnv(
-            num_players=cfg.num_players,
-            seed=seed,
-            reward_mode=cfg.reward_mode,
-            max_cycles=50_000,
-            pp_reward=cfg.pp_reward,
-            cash_reward=cfg.cash_reward,
-            win_reward=cfg.win_reward,
-            lose_reward=cfg.lose_reward,
-        )
+        return {
+            "num_players": cfg.num_players,
+            "reward_mode": cfg.reward_mode,
+            "max_cycles": 50_000,
+            "pp_reward": cfg.pp_reward,
+            "cash_reward": cfg.cash_reward,
+            "win_reward": cfg.win_reward,
+            "lose_reward": cfg.lose_reward,
+            "fast": fast,
+        }
+
+    def _make_env(self, *, seed: int | None = None, fast: bool = False) -> ConvoyEnv:
+        return ConvoyEnv(seed=seed, **self._env_kwargs(fast=fast))
+
+    def _ensure_pool(self, n_env: int) -> GamePool:
+        if self._pool is not None and self._pool.n == n_env:
+            return self._pool
+        self.close()
+        self._pool = GamePool(n_env, self._env_kwargs(fast=True))
+        return self._pool
+
+    def close(self) -> None:
+        if self._pool is not None:
+            self._pool.close()
+            self._pool = None
 
     def _assign_opponents(self, learner_seat: int) -> dict[int, RLAgent | None]:
         n = self.config.num_players
@@ -162,16 +198,9 @@ class SelfPlayTrainer:
                 seats[seat] = self._load_frozen(oid)
         return seats
 
-    def _new_slot(self) -> dict[str, Any]:
-        slot: dict[str, Any] = {"env": self._make_env()}
-        self._reset_slot(slot)
-        return slot
-
-    def _reset_slot(self, slot: dict[str, Any]) -> None:
+    def _prepare_slot(self, slot: dict[str, Any]) -> None:
         cfg = self.config
         seed = int(self.rng.integers(0, 2**31 - 1))
-        env: ConvoyEnv = slot["env"]
-        env.reset(seed=seed)
         learner_seat = int(self.rng.integers(0, cfg.num_players))
         seat_agents = self._assign_opponents(learner_seat)
         for bot in seat_agents.values():
@@ -184,6 +213,20 @@ class SelfPlayTrainer:
         slot["traj"] = []
         slot["ep_len"] = 0
         slot["finished"] = False
+        slot["_seed"] = seed
+
+    def _flush_resets(self, slots: list[dict[str, Any]]) -> None:
+        if not slots:
+            return
+        for slot in slots:
+            self._prepare_slot(slot)
+        t0 = time.perf_counter()
+        for slot in slots:
+            env: RemoteEnv = slot["env"]
+            env.begin_reset(slot["_seed"])
+        for slot in slots:
+            slot["env"].finish_reset()
+        self._sim_sec += time.perf_counter() - t0
 
     def _episode_over(self, slot: dict[str, Any]) -> bool:
         env: ConvoyEnv = slot["env"]
@@ -275,14 +318,26 @@ class SelfPlayTrainer:
         slot["pending_reward"] = 0.0
 
     def _apply_env_step(self, slot: dict[str, Any], action: int | list[int]) -> None:
-        env: ConvoyEnv = slot["env"]
-        env.step(action)
-        slot["ep_len"] += 1
-        self.global_step += 1
-        if slot["pending"] is not None:
-            slot["pending_reward"] += float(
-                env.rewards.get(slot["learner_id"], 0.0)
-            )
+        self._step_queue.append((slot, action))
+
+    def _flush_steps(self) -> None:
+        queue = self._step_queue
+        self._step_queue = []
+        if not queue:
+            return
+        t0 = time.perf_counter()
+        for slot, action in queue:
+            slot["env"].begin_step(action)
+        for slot, _action in queue:
+            env: RemoteEnv = slot["env"]
+            env.finish_step()
+            slot["ep_len"] += 1
+            self.global_step += 1
+            if slot["pending"] is not None:
+                slot["pending_reward"] += float(
+                    env.rewards.get(slot["learner_id"], 0.0)
+                )
+        self._sim_sec += time.perf_counter() - t0
 
     def _spec_fields(
         self, item: dict[str, Any]
@@ -318,6 +373,7 @@ class SelfPlayTrainer:
             for vec in legal:
                 if sorted(vec) == target:
                     return list(vec)
+            return list(choice_vec)
         if 0 <= flat_idx < len(legal):
             return flat_idx
         return 0
@@ -335,6 +391,7 @@ class SelfPlayTrainer:
             options.append(opt)
             ordered.append(ord_flag)
             num_choices.append(n)
+        t0 = time.perf_counter()
         results = self.policy.act_batch(
             obs,
             mask,
@@ -343,6 +400,7 @@ class SelfPlayTrainer:
             ordered=ordered,
             num_choices=num_choices,
         )
+        self._infer_sec += time.perf_counter() - t0
         for it, result in zip(items, results):
             slot = it["slot"]
             if it["is_learner"]:
@@ -376,6 +434,7 @@ class SelfPlayTrainer:
             options.append(opt)
             ordered.append(ord_flag)
             num_choices.append(n)
+        t0 = time.perf_counter()
         results = bot.policy.act_batch(
             obs,
             mask,
@@ -384,6 +443,7 @@ class SelfPlayTrainer:
             ordered=ordered,
             num_choices=num_choices,
         )
+        self._infer_sec += time.perf_counter() - t0
         for it, result in zip(items, results):
             self._apply_env_step(
                 it["slot"], self._action_from_result(result, it["legal"])
@@ -395,9 +455,14 @@ class SelfPlayTrainer:
         n_env = max(1, int(cfg.num_envs))
         self.buffer.clear()
         self.policy.eval()
-        slots = [self._new_slot() for _ in range(n_env)]
+        self._step_queue = []
+        pool = self._ensure_pool(n_env)
+        slots = [{"env": env} for env in pool.envs]
+        self._flush_resets(slots)
         ep_returns: list[float] = []
         ep_lens: list[int] = []
+        self._sim_sec = 0.0
+        self._infer_sec = 0.0
         guard = 0
         limit = cfg.rollout_steps * 40 + n_env * 100
 
@@ -408,11 +473,12 @@ class SelfPlayTrainer:
                     self._close_slot(slot, ep_returns, ep_lens)
             if len(self.buffer) >= cfg.rollout_steps:
                 break
-            for slot in slots:
-                if slot["finished"]:
-                    if len(self.buffer) >= cfg.rollout_steps:
-                        break
-                    self._reset_slot(slot)
+            restart = [
+                slot
+                for slot in slots
+                if slot["finished"] and len(self.buffer) < cfg.rollout_steps
+            ]
+            self._flush_resets(restart)
 
             live: list[dict[str, Any]] = []
             frozen: dict[int, list[dict[str, Any]]] = {}
@@ -433,6 +499,7 @@ class SelfPlayTrainer:
                 self._step_live_batch(live)
             for group in frozen.values():
                 self._step_frozen_batch(group)
+            self._flush_steps()
             if not live and not frozen and all(s["finished"] for s in slots):
                 break
 
@@ -442,11 +509,13 @@ class SelfPlayTrainer:
             "episodes": float(len(ep_returns)),
             "buffer_size": float(len(self.buffer)),
             "num_envs": float(n_env),
+            "sim_sec": float(self._sim_sec),
+            "infer_sec": float(self._infer_sec),
         }
 
     def evaluate(self, n_episodes: int | None = None) -> dict[str, float]:
         n_episodes = n_episodes or self.config.eval_episodes
-        env = self._make_env()
+        env = self._make_env(fast=False)
         live = RLAgent(self.policy, deterministic=True, device=self.device)
         wins = 0
         returns: list[float] = []
@@ -515,8 +584,12 @@ class SelfPlayTrainer:
             metrics=metrics or {},
             tags=[self.config.league_name, "transformer"] + ([tag] if tag else []),
             config={
-                "hidden": self.config.hidden,
-                "width": self.config.width,
+                "hidden": self.policy.hidden,
+                "width": self.policy.width,
+                "d_model": self.policy.d_model,
+                "nhead": self.policy.nhead,
+                "dim_feedforward": self.policy.dim_feedforward,
+                "tf_layers": self.policy.tf_layers,
                 "num_envs": self.config.num_envs,
                 "num_players": self.config.num_players,
                 "arch": "transformer_ar",
@@ -530,6 +603,102 @@ class SelfPlayTrainer:
         )
         return entry.id
 
+    def _append_jsonl(self, row: dict[str, Any]) -> None:
+        if not self.config.log_path:
+            return
+        path = Path(self.config.log_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row) + "\n")
+            handle.flush()
+
+    def _cuda_reset_peak(self) -> None:
+        if self.device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats(self.device)
+
+    def _cuda_peak_mb(self) -> float:
+        if self.device.type != "cuda" or not torch.cuda.is_available():
+            return 0.0
+        return float(torch.cuda.max_memory_allocated(self.device) / (1024**2))
+
+    def _start_record(self) -> dict[str, Any]:
+        cfg = self.config
+        record: dict[str, Any] = {
+            "type": "start",
+            "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "torch": torch.__version__,
+            "params": int(sum(p.numel() for p in self.policy.parameters())),
+            "device": str(self.device),
+            "players": cfg.num_players,
+            "hidden": self.policy.hidden,
+            "n_layers": self.policy.n_layers,
+            "width": self.policy.width,
+            "d_model": self.policy.d_model,
+            "nhead": self.policy.nhead,
+            "dim_feedforward": self.policy.dim_feedforward,
+            "tf_layers": self.policy.tf_layers,
+            "num_envs": cfg.num_envs,
+            "rollout_steps": cfg.rollout_steps,
+            "minibatch_size": cfg.ppo.minibatch_size,
+            "epochs": cfg.ppo.epochs,
+            "lr": cfg.ppo.lr,
+            "ent_coef": cfg.ppo.ent_coef,
+            "max_seconds": cfg.max_seconds,
+            "total_timesteps": cfg.total_timesteps,
+            "reward_mode": cfg.reward_mode,
+            "pp_reward": cfg.pp_reward,
+            "cash_reward": cfg.cash_reward,
+            "checkpoint_every_steps": cfg.checkpoint_every_steps,
+            "eval_every_steps": cfg.eval_every_steps,
+            "eval_episodes": cfg.eval_episodes,
+            "log_path": cfg.log_path,
+        }
+        if self.device.type == "cuda" and torch.cuda.is_available():
+            props = torch.cuda.get_device_properties(self.device)
+            record.update(
+                {
+                    "gpu_name": props.name,
+                    "gpu_capability": f"{props.major}.{props.minor}",
+                    "gpu_total_mb": round(props.total_memory / (1024**2), 1),
+                    "gpu_multiprocessors": int(
+                        getattr(props, "multi_processor_count", 0)
+                    ),
+                }
+            )
+        return record
+
+    def _format_log_row(self, row: dict[str, float]) -> str:
+        keys = (
+            "step",
+            "rollout_env_steps",
+            "rollout_learner_steps",
+            "episodes",
+            "ep_len_mean",
+            "ep_return_mean",
+            "sim_sec",
+            "infer_sec",
+            "update_sec",
+            "eval_sec",
+            "collect_env_sps",
+            "steps_per_sec",
+            "policy_loss",
+            "value_loss",
+            "entropy",
+            "approx_kl",
+            "eval_win_rate",
+            "vram_update_mb",
+        )
+        parts: list[str] = []
+        for key in keys:
+            if key not in row:
+                continue
+            value = row[key]
+            if key in ("step", "rollout_env_steps", "rollout_learner_steps", "episodes"):
+                parts.append(f"{key}={int(value)}")
+            else:
+                parts.append(f"{key}={value:.3f}")
+        return " | ".join(parts)
+
     def train(self) -> dict[str, Any]:
         cfg = self.config
         t0 = time.time()
@@ -540,83 +709,159 @@ class SelfPlayTrainer:
         deadline = (
             t0 + float(cfg.max_seconds) if cfg.max_seconds is not None else None
         )
+        time_sim = 0.0
+        time_infer = 0.0
+        time_update = 0.0
+        time_eval = 0.0
+        learner_steps = 0
 
+        start = self._start_record()
+        self._append_jsonl(start)
+        gpu = start.get("gpu_name", "cpu")
         self.log(
             f"self-play transformer start players={cfg.num_players} "
             f"timesteps={cfg.total_timesteps} "
-            f"max_seconds={cfg.max_seconds} device={cfg.device} "
-            f"width={cfg.width} envs={cfg.num_envs} "
-            f"minibatch={cfg.ppo.minibatch_size} "
-            f"pp={cfg.pp_reward} cash={cfg.cash_reward} ent={cfg.ppo.ent_coef}"
+            f"max_seconds={cfg.max_seconds} device={cfg.device} gpu={gpu} "
+            f"params={start['params']} "
+            f"d_model={self.policy.d_model} tf_layers={self.policy.tf_layers} "
+            f"ff={self.policy.dim_feedforward} heads={self.policy.nhead} "
+            f"hidden={self.policy.hidden} width={self.policy.width} "
+            f"envs={cfg.num_envs} "
+            f"minibatch={cfg.ppo.minibatch_size} epochs={cfg.ppo.epochs} "
+            f"pp={cfg.pp_reward} cash={cfg.cash_reward} ent={cfg.ppo.ent_coef} "
+            f"log={cfg.log_path}"
         )
-        while self.global_step < cfg.total_timesteps:
-            if deadline is not None and time.time() >= deadline:
-                self.log(
-                    f"wall-clock deadline reached "
-                    f"({cfg.max_seconds:.0f}s) at step={self.global_step}"
-                )
-                break
-            roll = self.collect_rollout()
-            update = self.trainer.update(self.buffer)
-            elapsed = max(1e-6, time.time() - t0)
-            steps_delta = max(0, self.global_step - start_step)
-            sps = steps_delta / elapsed
-            row = {
-                "step": float(self.global_step),
-                "episodes": float(self.episodes),
-                "elapsed_sec": float(elapsed),
-                "steps_per_sec": float(sps),
-                **roll,
-                **update,
-            }
-            hit_step_cap = self.global_step >= cfg.total_timesteps
-            hit_deadline = deadline is not None and time.time() >= deadline
-            if (
-                self.global_step - last_eval >= cfg.eval_every_steps
-                or hit_step_cap
-                or hit_deadline
-            ):
-                ev = self.evaluate()
-                row.update(ev)
-                last_eval = self.global_step
-            history.append(row)
-            self.log(
-                " | ".join(
-                    f"{k}={v:.3f}" if isinstance(v, float) else f"{k}={v}"
-                    for k, v in row.items()
-                    if k
-                    in (
-                        "step",
-                        "ep_return_mean",
-                        "policy_loss",
-                        "entropy",
-                        "eval_return_mean",
-                        "eval_win_rate",
-                        "steps_per_sec",
+        try:
+            while self.global_step < cfg.total_timesteps:
+                if deadline is not None and time.time() >= deadline:
+                    self.log(
+                        f"wall-clock deadline reached "
+                        f"({cfg.max_seconds:.0f}s) at step={self.global_step}"
                     )
-                )
-            )
-            if self.global_step - last_ckpt >= cfg.checkpoint_every_steps:
-                self.checkpoint(metrics={k: float(row[k]) for k in row if k != "step"})
-                last_ckpt = self.global_step
-            if hit_deadline:
-                break
+                    break
+                env_before = self.global_step
+                self._cuda_reset_peak()
+                t_collect = time.perf_counter()
+                roll = self.collect_rollout()
+                collect_sec = time.perf_counter() - t_collect
+                vram_collect = self._cuda_peak_mb()
+                rollout_env = self.global_step - env_before
+                rollout_learner = int(roll.get("buffer_size", 0))
+                learner_steps += rollout_learner
+                sim_sec = float(roll.get("sim_sec", 0.0))
+                infer_sec = float(roll.get("infer_sec", 0.0))
+                time_sim += sim_sec
+                time_infer += infer_sec
 
-        final_id = self.checkpoint(
-            tag="final",
-            metrics=history[-1] if history else {},
-        )
-        elapsed = time.time() - t0
-        sps = (self.global_step - start_step) / max(1e-6, elapsed)
-        self.log(
-            f"done in {elapsed:.1f}s final={final_id} "
-            f"steps={self.global_step} sps={sps:.1f}"
-        )
-        return {
-            "final_id": final_id,
-            "steps": self.global_step,
-            "episodes": self.episodes,
-            "elapsed_sec": elapsed,
-            "steps_per_sec": sps,
-            "history": history,
-        }
+                self._cuda_reset_peak()
+                t_update = time.perf_counter()
+                update = self.trainer.update(self.buffer)
+                update_sec = time.perf_counter() - t_update
+                vram_update = self._cuda_peak_mb()
+                time_update += update_sec
+
+                elapsed = max(1e-6, time.time() - t0)
+                steps_delta = max(0, self.global_step - start_step)
+                row: dict[str, float] = {
+                    "step": float(self.global_step),
+                    "episodes": float(self.episodes),
+                    "elapsed_sec": float(elapsed),
+                    "steps_per_sec": float(steps_delta / elapsed),
+                    "learner_steps": float(learner_steps),
+                    "learner_per_sec": float(learner_steps / elapsed),
+                    "rollout_env_steps": float(rollout_env),
+                    "rollout_learner_steps": float(rollout_learner),
+                    "rollout_episodes": float(roll.get("episodes", 0.0)),
+                    "ep_return_mean": float(roll.get("ep_return_mean", 0.0)),
+                    "ep_len_mean": float(roll.get("ep_len_mean", 0.0)),
+                    "buffer_size": float(roll.get("buffer_size", 0.0)),
+                    "num_envs": float(roll.get("num_envs", cfg.num_envs)),
+                    "collect_sec": float(collect_sec),
+                    "sim_sec": sim_sec,
+                    "infer_sec": infer_sec,
+                    "collect_other_sec": float(max(0.0, collect_sec - sim_sec - infer_sec)),
+                    "update_sec": float(update_sec),
+                    "collect_env_sps": float(rollout_env / max(1e-6, collect_sec)),
+                    "sim_env_sps": float(rollout_env / max(1e-6, sim_sec)),
+                    "vram_collect_mb": float(vram_collect),
+                    "vram_update_mb": float(vram_update),
+                }
+                for key, value in update.items():
+                    row[key] = float(value)
+                hit_step_cap = self.global_step >= cfg.total_timesteps
+                hit_deadline = deadline is not None and time.time() >= deadline
+                eval_sec = 0.0
+                if (
+                    self.global_step - last_eval >= cfg.eval_every_steps
+                    or hit_step_cap
+                    or hit_deadline
+                ):
+                    t_eval = time.perf_counter()
+                    evaluated = self.evaluate()
+                    eval_sec = time.perf_counter() - t_eval
+                    for key, value in evaluated.items():
+                        row[key] = float(value)
+                    last_eval = self.global_step
+                row["eval_sec"] = float(eval_sec)
+                time_eval += eval_sec
+                history.append(row)
+                self.log(self._format_log_row(row))
+                logged = {"type": "rollout", "time": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+                logged.update(row)
+                self._append_jsonl(logged)
+                if self.global_step - last_ckpt >= cfg.checkpoint_every_steps:
+                    self.checkpoint(
+                        metrics={k: float(row[k]) for k in row if k != "step"}
+                    )
+                    last_ckpt = self.global_step
+                if hit_deadline:
+                    break
+
+            final_id = self.checkpoint(
+                tag="final",
+                metrics=history[-1] if history else {},
+            )
+            elapsed = time.time() - t0
+            sps = (self.global_step - start_step) / max(1e-6, elapsed)
+            accounted = time_sim + time_infer + time_update + time_eval
+            end = {
+                "type": "end",
+                "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "final_id": final_id,
+                "steps": self.global_step,
+                "learner_steps": learner_steps,
+                "episodes": self.episodes,
+                "elapsed_sec": elapsed,
+                "steps_per_sec": sps,
+                "learner_per_sec": learner_steps / max(1e-6, elapsed),
+                "time_sim_sec": time_sim,
+                "time_infer_sec": time_infer,
+                "time_update_sec": time_update,
+                "time_eval_sec": time_eval,
+                "time_other_sec": max(0.0, elapsed - accounted),
+            }
+            self._append_jsonl(end)
+            self.log(
+                f"done in {elapsed:.1f}s final={final_id} "
+                f"steps={self.global_step} learner_steps={learner_steps} "
+                f"sps={sps:.1f} "
+                f"sim={time_sim:.0f}s infer={time_infer:.0f}s "
+                f"update={time_update:.0f}s eval={time_eval:.0f}s"
+            )
+            return {
+                "final_id": final_id,
+                "steps": self.global_step,
+                "learner_steps": learner_steps,
+                "episodes": self.episodes,
+                "elapsed_sec": elapsed,
+                "steps_per_sec": sps,
+                "learner_per_sec": end["learner_per_sec"],
+                "time_sim_sec": time_sim,
+                "time_infer_sec": time_infer,
+                "time_update_sec": time_update,
+                "time_eval_sec": time_eval,
+                "time_other_sec": end["time_other_sec"],
+                "history": history,
+            }
+        finally:
+            self.close()

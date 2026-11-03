@@ -20,17 +20,38 @@ the default PyPI torch often pulls large NVIDIA CUDA packages.
 ## Architecture
 
 The policy is a **transformer** over the board encoding plus the formal event
-window already stored in the observation. There is no hidden state between
-decisions. A small GRU decodes the slots of the current choice only
+window already stored in the observation. The default size, aimed at a
+GTX 1050 (compute capability 6.1, FP32), is width 256, 4 heads, feedforward
+1024, 4 layers, encoder hidden 512, and decision width 256. There is no
+hidden state between decisions. A small GRU decodes the slots of the current
+choice only
 (combinations / permutations over legal options). Several games stay in flight
-(`--num-envs`); their decisions are one batch, and PPO minibatches shuffle
-those decisions independently.
+(`--num-envs`), each in its own process. Their decisions are one batch, and
+PPO minibatches shuffle those decisions independently. The training step
+skips human log text and legal-combination enumeration; the web UI and
+evaluation still use the full view.
 
 Observations include queues (face-up only), own hand, and pending choice
 options. `reset_memory` at game start is a no-op for this policy.
 
 Older LSTM or flat-MLP checkpoints load only the tensors that still match.
 Retrain for a transformer policy.
+
+## Four-hour GPU run
+
+[`scripts/train_4h.py`](../scripts/train_4h.py) trains that default network
+until four hours have elapsed. Launch it from `dev/` in the CUDA environment:
+
+```bash
+cd dev
+PYTHONPATH=src python scripts/train_4h.py
+```
+
+Checkpoints go to `runs/league_tf4h/`. Each rollout is appended to
+`runs/league_tf4h/train_4h.jsonl` (game time, forward time, update time,
+eval, return, losses, GPU memory). `train_4h.json` holds the totals when
+the run finishes. `--hours` and `--device` override the defaults. FP16 is
+the wrong dtype on this GPU (Pascal runs it at 1/64 of FP32).
 
 ## Timed fork schedule (specialized bots)
 
@@ -98,9 +119,11 @@ Runs PPO self-play and writes checkpoints into `--league`.
 | `--rollout-steps` | PPO rollout length before each update |
 | `--checkpoint-every` / `--eval-every` | Cadence in env steps |
 | `--device` | `cpu` or `cuda` |
-| `--hidden` / `--n-layers` | Encoder MLP size |
-| `--width` | Value head and pick-decoder width (default 128) |
-| `--num-envs` | Games in flight; their decisions share one batch (default 8) |
+| `--hidden` / `--n-layers` | Encoder MLP size (default hidden 512, 2 layers) |
+| `--d-model` / `--nhead` / `--ff` / `--tf-layers` | Transformer width, heads, feedforward, depth (default 256 / 4 / 1024 / 4) |
+| `--width` | Value head and pick-decoder width (default 256) |
+| `--max-seconds` | Wall-clock stop after the current rollout |
+| `--num-envs` | Games in flight, one process each; their decisions share one batch (default 8) |
 | `--minibatch-size` | PPO minibatch of independent decisions (default 256) |
 | `--reward-mode` | `win` (default), `rank`, or `points` — see below |
 

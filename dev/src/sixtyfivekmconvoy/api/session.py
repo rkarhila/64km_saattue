@@ -128,7 +128,13 @@ class GameSession:
             "cash_rewards": {
                 "service": int(getattr(game_config, "SERVICE_CASH", 0) or 0),
                 "attack": int(getattr(game_config, "ATTACK_CASH", 0) or 0),
-                "scout": int(getattr(game_config, "SCOUT_CASH", 0) or 0),
+                "scout": int(getattr(game_config, "REVEAL_RESISTANCE_CASH", 0) or 0),
+                "reveal_mauling": int(
+                    getattr(game_config, "REVEAL_MAULING_CASH", 0) or 0
+                ),
+                "reveal_resistance": int(
+                    getattr(game_config, "REVEAL_RESISTANCE_CASH", 0) or 0
+                ),
                 "resistance_hit": int(
                     getattr(game_config, "RESISTANCE_HIT_CASH", 0) or 0
                 ),

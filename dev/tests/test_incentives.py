@@ -3,7 +3,8 @@ from sixtyfivekmconvoy.core.models import UnitType, Unit, Resistance
 from sixtyfivekmconvoy.core.constants import ActionName, ChoiceType
 from sixtyfivekmconvoy.core import actions as action_mod
 from sixtyfivekmconvoy.core.config import (
-    SCOUT_CASH,
+    REVEAL_MAULING_CASH,
+    REVEAL_RESISTANCE_CASH,
     SERVICE_CASH,
     ATTACK_CASH,
     FIRST_UNIT_ADVANCE_CASH,
@@ -59,7 +60,36 @@ def test_incentive_scout():
     except StopIteration:
         pass
 
-    assert p0.total_cash == initial_cash + SCOUT_CASH
+    assert p0.total_cash == initial_cash + REVEAL_RESISTANCE_CASH
+
+
+def test_incentive_reveal_pays_per_card():
+    engine, p0, p1, u0, u1, u2 = _setup_custom_game()
+    engine.pause_after_actions = False
+    initial_cash = p0.total_cash
+    hidden = [
+        idx
+        for idx, (_, vis) in enumerate(engine.mauling_queue.cards_and_visibilities)
+        if not vis
+    ]
+    assert len(hidden) >= 2
+    opts = [100 + hidden[0], 100 + hidden[1]]
+
+    gen = action_mod.resolve_scout(
+        engine,
+        u0,
+        count=2,
+        allowed_queue_codes={action_mod.SCOUT_QUEUE_MAULING},
+        verb="sigint",
+    )
+    next(gen)
+    reorder = gen.send(opts)
+    assert reorder.choicetype == ChoiceType.REORDER_SCOUTED_CARDS
+    assert p0.total_cash == initial_cash + 2 * REVEAL_MAULING_CASH
+    try:
+        gen.send(list(reorder.options))
+    except StopIteration:
+        pass
 
 
 def test_incentive_service_other_player():

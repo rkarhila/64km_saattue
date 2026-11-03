@@ -73,11 +73,25 @@ def recent_events(rows: list[list[int]] | None, window: int = EVENT_WINDOW) -> l
     ]
 
 
-def events_to_features(rows: list[list[int]] | None) -> list[float]:
-    """Normalized floats for the observation tail. Hidden card ids stay 0."""
+def events_to_features(
+    rows: list[list[int]] | None,
+    *,
+    viewer: int = 0,
+    num_players: int | None = None,
+) -> list[float]:
+    """Normalized floats for the observation tail. Hidden card ids stay 0.
+
+    When ``num_players`` is set, actor and target seats are rotated so
+    ``viewer`` is player 0. Unset seats (negative) stay unset.
+    """
     feats: list[float] = []
     for row in recent_events(rows):
         etype, rnd, stage, actor, target, queue, cid, amount, vis = row
+        if num_players:
+            if actor >= 0:
+                actor = (int(actor) - int(viewer)) % int(num_players)
+            if target >= 0:
+                target = (int(target) - int(viewer)) % int(num_players)
         feats.extend(
             [
                 etype / max(1, N_EVENT_TYPES - 1),

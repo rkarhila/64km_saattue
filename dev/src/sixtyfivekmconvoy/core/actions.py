@@ -288,6 +288,27 @@ def matching_officer_queue_indices(engine: GameEngine, unit: Unit) -> list[int]:
     return out
 
 
+def _cash_for_revealed_cards(engine: GameEngine, player, code: int, count: int, label: str) -> None:
+    """1 cash per mauling or resistance card turned face-up. Pillage pays nothing."""
+    if count <= 0:
+        return
+    from .config import REVEAL_MAULING_CASH, REVEAL_RESISTANCE_CASH
+
+    if code == SCOUT_QUEUE_MAULING:
+        per, source, kind = REVEAL_MAULING_CASH, "reveal mauling", "mauling"
+    elif code == SCOUT_QUEUE_RESISTANCE:
+        per, source, kind = REVEAL_RESISTANCE_CASH, "reveal resistance", "resistance"
+    else:
+        return
+    if per <= 0:
+        return
+    total = per * count
+    player.get_cash(total, source=source)
+    engine._broadcast(
+        f"{label} rewarded {total} cash for revealing {count} {kind} card(s)"
+    )
+
+
 def _cash_for_resistance_hit(player, status: int) -> None:
     """Grant hit cash when resistance is damaged but not destroyed (destroy cash is on the card)."""
     if status != 1:
@@ -295,7 +316,7 @@ def _cash_for_resistance_hit(player, status: int) -> None:
     from .config import RESISTANCE_HIT_CASH
 
     if RESISTANCE_HIT_CASH > 0:
-        player.get_cash(RESISTANCE_HIT_CASH)
+        player.get_cash(RESISTANCE_HIT_CASH, source="resistance hit")
 
 
 def _current_action_index(engine: GameEngine) -> int:
@@ -614,7 +635,7 @@ def resolve_action(
 
         from .config import ATTACK_CASH
         if ATTACK_CASH > 0:
-            player.get_cash(ATTACK_CASH)
+            player.get_cash(ATTACK_CASH, source="attack")
             engine._broadcast(
                 f"{unit_log_label(unit)} rewarded {ATTACK_CASH} cash for attacking"
             )
@@ -653,7 +674,7 @@ def resolve_action(
     elif name == ActionName.EXIT:
         loot_cash = sum(unit.carry)
         if loot_cash:
-            player.get_cash(loot_cash)
+            player.get_cash(loot_cash, source="exit loot")
         convoy.units.pop(unit.index())
         parts.append(f"exited with loot worth {loot_cash}")
 
@@ -832,10 +853,15 @@ def resolve_action(
 
     elif name == ActionName.EXIT_FROM_C_WITH_COST:
         cost_cash = modifier or 5
+        before_cash = player.total_cash
         player.total_cash = max(0, player.total_cash - cost_cash)
+        spent = before_cash - player.total_cash
+        spent_ledger = getattr(engine, "cash_spent", None)
+        if spent_ledger is not None and spent:
+            spent_ledger[player.number] += int(spent)
         loot_cash = sum(unit.carry)
         if loot_cash:
-            player.get_cash(loot_cash)
+            player.get_cash(loot_cash, source="exit loot")
         convoy.units.pop(unit.index())
         parts.append(f"paid {cost_cash} and exited from C")
 
@@ -883,7 +909,7 @@ def _apply_pillage_reward(
     was_influenced = unit.under_influence > 0
     cash = int(reward.get("cash") or 0)
     if cash:
-        player.get_cash(cash)
+        player.get_cash(cash, source="pillage")
     cards = int(reward.get("cards") or 0)
     if cards:
         player.draw_card(cards)
@@ -1054,7 +1080,7 @@ def _resolve_service(
     msg = f"serviced {unit_log_label(target)}"
     from .config import SERVICE_CASH
     if SERVICE_CASH > 0:
-        unit.player.get_cash(SERVICE_CASH)
+        unit.player.get_cash(SERVICE_CASH, source="service")
         engine._broadcast(
             f"{unit_log_label(unit)} rewarded {SERVICE_CASH} cash for service"
         )
@@ -1273,15 +1299,7 @@ def _resolve_scout_from_deck(
     keep_name = deck.get_name(keep) or str(keep)
     placed_index = len(queue) - 1
 
-    if verb == "scout" and code == SCOUT_QUEUE_RESISTANCE:
-        from .config import SCOUT_CASH
-
-        if SCOUT_CASH > 0:
-            unit.player.get_cash(SCOUT_CASH)
-            engine._broadcast(
-                f"{label} rewarded {SCOUT_CASH} cash for scouting resistance "
-                f"from deck"
-            )
+    _cash_for_revealed_cards(engine, unit.player, code, 1, label)
 
     engine._broadcast(
         f"{label} {verb} → {qname} queue +{keep_name} (face-up from deck; "
@@ -1429,13 +1447,8 @@ def resolve_scout(
         idx = opt % 100
         chosen_by_queue.setdefault(code, []).append(idx)
 
-    if verb == "scout" and SCOUT_QUEUE_RESISTANCE in chosen_by_queue:
-        from .config import SCOUT_CASH
-        if SCOUT_CASH > 0:
-            unit.player.get_cash(SCOUT_CASH)
-            engine._broadcast(
-                f"{label} rewarded {SCOUT_CASH} cash for scouting resistance card(s)"
-            )
+    for code, indices in chosen_by_queue.items():
+        _cash_for_revealed_cards(engine, unit.player, code, len(indices), label)
 
     for code, indices in chosen_by_queue.items():
         queue = _queue_by_scout_code(engine, code)

@@ -90,7 +90,16 @@ def test_encode_choice_options_mask():
 
 def test_transformer_checkpoint_roundtrip(tmp_path):
     dim = observation_size(3)
-    model = MaskedActorCritic(obs_dim=dim, hidden=32, n_layers=1, width=24)
+    model = MaskedActorCritic(
+        obs_dim=dim,
+        hidden=32,
+        n_layers=1,
+        width=24,
+        d_model=32,
+        nhead=4,
+        dim_feedforward=64,
+        tf_layers=1,
+    )
     assert not any(isinstance(m, torch.nn.LSTM) for m in model.modules())
     path = tmp_path / "ckpt.pt"
     torch.save({"policy": model.checkpoint_dict()}, path)
@@ -98,6 +107,8 @@ def test_transformer_checkpoint_roundtrip(tmp_path):
         torch.load(path, map_location="cpu", weights_only=False)["policy"]
     )
     assert loaded.width == 24
+    assert loaded.d_model == 32
+    assert loaded.tf_layers == 1
     assert loaded.sequence == "transformer"
     assert loaded.obs_dim == dim
     bot = RLAgent(loaded, deterministic=True)

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import itertools
 import random
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Generator
+
+from sixtyfivekmconvoy.rl.events import EVENT_WINDOW, event_from_detail
 
 # card_display imported lazily in choice builders to avoid cycles
 
@@ -141,7 +144,9 @@ class GameEngine:
         self.round_unit_damage: list[tuple[int, int]] = []
         self.messages: list[str] = []
         self.event_log: list[dict[str, Any]] = []
-        self.event_rows: list[list[int]] = []
+        self.event_rows: deque[list[int]] = deque(maxlen=EVENT_WINDOW)
+        # Training turns this off so log strings are not stored.
+        self.record_text_log = True
         self.ranking: list[dict] | None = None
 
         # decks/queues filled in reset()
@@ -177,8 +182,8 @@ class GameEngine:
         # True after ≥2 players hit PROMOTION_POINTS_TO_WIN on the same round.
         self.sudden_death_pp = False
         self.messages = []
-        self.event_log: list[dict[str, Any]] = []
-        self.event_rows: list[list[int]] = []
+        self.event_log = []
+        self.event_rows = deque(maxlen=EVENT_WINDOW)
         self.round_action_summaries = []
         self.max_rounds = max_rounds
         self.stats = EpisodeStats(seed=seed, num_players=num_players)
@@ -340,12 +345,17 @@ class GameEngine:
                 self.ranking = stop.value.ranking
 
     def _broadcast(self, message: str, **detail: Any) -> None:
-        """Append a player-visible log line; optional structured detail for debugging."""
+        """Append a log line. Training keeps only the fixed event-row ring."""
+        row = event_from_detail(
+            detail,
+            round_n=self.rounds.count if self.rounds else 0,
+            stage=self.rounds.stage if self.rounds else -1,
+        )
+        if row is not None:
+            self.event_rows.append(row)
+        if not self.record_text_log:
+            return
         self.messages.append(message)
-        if not hasattr(self, "event_log") or self.event_log is None:
-            self.event_log: list[dict[str, Any]] = []
-        if not hasattr(self, "event_rows") or self.event_rows is None:
-            self.event_rows = []
         entry: dict[str, Any] = {
             "i": len(self.event_log),
             "round": self.rounds.count if self.rounds else 0,
@@ -355,17 +365,6 @@ class GameEngine:
         if detail:
             entry["detail"] = detail
         self.event_log.append(entry)
-        from sixtyfivekmconvoy.rl.events import event_from_detail
-
-        row = event_from_detail(
-            detail,
-            round_n=self.rounds.count if self.rounds else 0,
-            stage=self.rounds.stage if self.rounds else -1,
-        )
-        if row is not None:
-            if not hasattr(self, "event_rows") or self.event_rows is None:
-                self.event_rows = []
-            self.event_rows.append(row)
 
     def _apply_unit_placements(self, placements: dict[int, list[int]]) -> None:
         """Build convoy order from ownership pattern + per-player troop permutations."""
@@ -672,7 +671,9 @@ class GameEngine:
                     from .config import FIRST_UNIT_ADVANCE_CASH
                     if FIRST_UNIT_ADVANCE_CASH > 0:
                         first_unit = self.convoy.units[0]
-                        first_unit.player.get_cash(FIRST_UNIT_ADVANCE_CASH)
+                        first_unit.player.get_cash(
+                            FIRST_UNIT_ADVANCE_CASH, source="lead the advance"
+                        )
                         self._broadcast(
                             f"{first_unit.player.agent_id()} rewarded {FIRST_UNIT_ADVANCE_CASH} cash for having the first unit when the convoy advanced"
                         )
@@ -766,7 +767,7 @@ class GameEngine:
                                 description=f"Choose {CARD_TO_POINTS_RATIO} cards to cash in",
                             )
                             pl.discard(list(discard))
-                        pl.get_cash(1)
+                        pl.get_cash(1, source="cash in cards")
                         self._broadcast(f"{PLAYER_COLORS[pl.number % len(PLAYER_COLORS)]} player cashed in cards")
                         early = self._finished_result()
                         if early is not None:
