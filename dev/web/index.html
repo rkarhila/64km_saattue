@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>65km Convoy</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="top-brand">
+      <h1>65km Convoy</h1>
+      <p class="tag">Ihmispelaaja vs botit</p>
+    </div>
+    <div id="markerTray" class="marker-tray" aria-label="Statusmerkit">
+      <div class="marker-pile" data-kind="tired" title="Väsymys">
+        <span class="status-chip tired"></span>
+        <span class="status-chip tired"></span>
+        <span class="status-chip tired"></span>
+      </div>
+      <div class="marker-pile" data-kind="influence" title="Humala">
+        <span class="status-chip influence"></span>
+        <span class="status-chip influence"></span>
+      </div>
+      <div class="marker-pile" data-kind="damage" title="Vahinko">
+        <span class="status-chip damage"></span>
+        <span class="status-chip damage"></span>
+        <span class="status-chip damage"></span>
+      </div>
+      <div class="marker-pile" data-kind="atrocity" title="Hirmuteko">
+        <span class="status-chip atrocity"></span>
+        <span class="status-chip atrocity"></span>
+      </div>
+    </div>
+  </header>
+
+  <section class="controls" id="lobby">
+    <label>Pelaajia
+      <input type="number" id="numPlayers" min="2" max="5" value="3" />
+    </label>
+    <label>Seed
+      <input type="number" id="seed" value="1" />
+    </label>
+    <label>Vastustajat
+      <select id="botKind">
+        <option value="random">Satunnaiset botit</option>
+        <option value="rl">League-RL -botti</option>
+      </select>
+    </label>
+    <label id="botIdLabel">Botti (league)
+      <select id="botId" disabled>
+        <option value="">Ladataan…</option>
+      </select>
+    </label>
+    <label class="pause-toggle">
+      <input type="checkbox" id="lobbyPauseToggle" checked />
+      Pysäytä lokin jälkeen
+    </label>
+    <button id="startBtn" type="button">Uusi peli</button>
+    <p id="botHint" class="hint muted"></p>
+  </section>
+
+  <main id="game" class="hidden">
+    <div class="status-bar">
+      <span id="message"></span>
+      <button id="shareBtn" type="button" class="share-btn">Jaa peli</button>
+    </div>
+
+    <aside id="continuePanel" class="continue-panel" aria-live="polite">
+      <div id="roundInfo" class="side-round"></div>
+      <label class="pause-toggle side-pause">
+        <input type="checkbox" id="pauseToggle" checked />
+        Pysäytä lokin jälkeen
+      </label>
+      <button id="randomChoiceBtn" type="button" class="secondary random-choice-btn" title="Valitse satunnainen laillinen toiminto (testaus)">
+        Satunnainen
+      </button>
+      <div id="continueActions" class="continue-actions hidden">
+        <p id="continueHint">Toiminto kirjattu lokiin.</p>
+        <button id="continueBtn" type="button">Jatka</button>
+      </div>
+    </aside>
+
+    <section>
+      <h2>Pelaajat</h2>
+      <div id="players" class="players"></div>
+    </section>
+
+    <section>
+      <h2>Pakat ja jonot</h2>
+      <div id="deckRows" class="deck-rows"></div>
+    </section>
+
+    <section>
+      <h2>Saattue</h2>
+      <div class="convoy-field">
+        <div id="resistanceBlock" class="resistance-block" aria-label="Vastarinta"></div>
+        <div id="convoy" class="convoy"></div>
+      </div>
+    </section>
+
+    <section id="choicePanel" class="choice-panel hidden">
+      <h2 id="choiceTitle">Valintasi</h2>
+      <p id="choiceDesc"></p>
+      <div id="choiceOptions" class="options"></div>
+    </section>
+
+    <section id="handSection" class="hand-section">
+      <h2>Käsi</h2>
+      <div id="handCards" class="card-row"></div>
+    </section>
+
+    <section id="endPanel" class="hidden">
+      <h2>Peli päättyi</h2>
+      <pre id="ranking"></pre>
+    </section>
+
+    <section class="log-section">
+      <h2>Loki</h2>
+      <div id="gameLog" class="game-log" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js?v=pillage-columns"></script>
+</body>
+</html>

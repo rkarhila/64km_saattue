@@ -1,0 +1,307 @@
+# RL self-play & bot league
+
+Train a PPO policy that plays 65km Convoy against itself and against frozen
+checkpoints. Checkpoints live in a **league** directory with parent lineage so
+you can fork distinct bots for playtesting.
+
+## Install
+
+```bash
+cd dev
+pip install -e ".[rl]"
+```
+
+Torch is an optional extra (`rl`). CPU works for a first pass.
+
+Prefer a **CPU torch wheel** if you are not training on GPU
+(`pip install torch --index-url https://download.pytorch.org/whl/cpu`) —
+the default PyPI torch often pulls large NVIDIA CUDA packages.
+
+## Architecture
+
+The policy is a **transformer** over the board encoding plus the formal event
+window already stored in the observation. The default size, aimed at a
+GTX 1050 (compute capability 6.1, FP32), is width 256, 4 heads, feedforward
+1024, 4 layers, encoder hidden 512, and decision width 256. There is no
+hidden state between decisions. A small GRU decodes the slots of the current
+choice only
+(combinations / permutations over legal options). Several games stay in flight
+(`--num-envs`), each in its own process. Their decisions are one batch, and
+PPO minibatches shuffle those decisions independently. The training step
+skips human log text and legal-combination enumeration; the web UI and
+evaluation still use the full view.
+
+Observations include queues (face-up only), own hand, and pending choice
+options. `reset_memory` at game start is a no-op for this policy.
+
+Older LSTM or flat-MLP checkpoints load only the tensors that still match.
+Retrain for a transformer policy.
+
+## Four-hour GPU run
+
+[`scripts/train_4h.py`](../scripts/train_4h.py) trains that default network
+until four hours have elapsed. Launch it from `dev/` in the CUDA environment:
+
+```bash
+cd dev
+PYTHONPATH=src python scripts/train_4h.py
+```
+
+Checkpoints go to `runs/league_tf4h/`. Each rollout is appended to
+`runs/league_tf4h/train_4h.jsonl` (game time, forward time, update time,
+eval, return, losses, GPU memory). `train_4h.json` holds the totals when
+the run finishes. `--hours` and `--device` override the defaults. FP16 is
+the wrong dtype on this GPU (Pascal runs it at 1/64 of FP32).
+
+## Timed fork schedule (specialized bots)
+
+For wall-clock training on a throttled CPU, use the schedule script. It
+**resumes** a league, trains shared for N hours, forks **alpha** (PP-heavy) and
+**beta** (cash-heavy), then alternates blocks for M hours or until head-to-head
+win rate stays near 50%.
+
+Script path: [`scripts/train_fork_schedule.py`](../scripts/train_fork_schedule.py)
+
+```bash
+cd dev
+PYTHONPATH=src python scripts/train_fork_schedule.py \
+  --league runs/league_rnn50k \
+  --from main-init \
+  --shared-hours 1 \
+  --alt-hours 6 \
+  --block-minutes 20 \
+  --device cpu
+```
+
+Useful flags: `--checkpoint-every`, `--h2h-episodes`, `--converge-lo/hi/streak`,
+`--width`, `--num-envs`. Logs: `fork_schedule.log.jsonl` and
+`fork_schedule_summary.json` under the league directory. Each train step line
+includes `steps_per_sec` so you can see CPU-throttle impact.
+
+## Quick start
+
+```bash
+# 1) Train a main lineage (transformer + per-decision pick decoder)
+convoy-train --league runs/league --name main --players 3 --timesteps 50000 \
+  --width 128 --num-envs 8 --minibatch-size 256
+
+# 2) List checkpoints (copy an id for branching)
+convoy-league --league runs/league list
+
+# 3a) Fork only (copy weights, no training)
+convoy-league --league runs/league branch <id> --name aggressive
+
+# 3b) Or fork and keep training the branch
+convoy-train --league runs/league --from <id> --branch-as aggressive --timesteps 20000
+
+# 4) Smoke-eval vs random opponents
+convoy-league --league runs/league eval aggressive --episodes 20
+
+# 5) Tag / export for playtesting
+convoy-league --league runs/league promote aggressive --tag playtest
+convoy-league --league runs/league export aggressive -o bots/playtest.pt
+```
+
+## Command reference
+
+### `convoy-train`
+
+Runs PPO self-play and writes checkpoints into `--league`.
+
+| Flag | Meaning |
+|------|---------|
+| `--league DIR` | League root (`league.json` + `checkpoints/`) |
+| `--name NAME` | Learner lineage name (used in checkpoint names) |
+| `--players N` | Seats per game (default 3) |
+| `--timesteps N` | Env steps to train |
+| `--from ID\|NAME` | Resume weights from an existing checkpoint |
+| `--branch-as NAME` | With `--from`, fork a new entry named `NAME` then train it |
+| `--rollout-steps` | PPO rollout length before each update |
+| `--checkpoint-every` / `--eval-every` | Cadence in env steps |
+| `--device` | `cpu` or `cuda` |
+| `--hidden` / `--n-layers` | Encoder MLP size (default hidden 512, 2 layers) |
+| `--d-model` / `--nhead` / `--ff` / `--tf-layers` | Transformer width, heads, feedforward, depth (default 256 / 4 / 1024 / 4) |
+| `--width` | Value head and pick-decoder width (default 256) |
+| `--max-seconds` | Wall-clock stop after the current rollout |
+| `--num-envs` | Games in flight, one process each; their decisions share one batch (default 8) |
+| `--minibatch-size` | PPO minibatch of independent decisions (default 256) |
+| `--reward-mode` | `win` (default), `rank`, or `points` — see below |
+
+**Examples**
+
+```bash
+convoy-train --league runs/league --name main --players 3 --timesteps 50000
+```
+
+Starts a new learner called `main`, trains for 50k env steps in 3-player games,
+and stores init / periodic / final checkpoints under `runs/league`. Opponents are
+a mix of the live policy (mirror self-play) and active league checkpoints.
+
+```bash
+convoy-train --league runs/league --from <id> --branch-as aggressive --timesteps 20000
+```
+
+Copies `<id>` into a new league entry `aggressive`, then trains that fork for
+20k more steps. Use this to grow a named variant away from `main`.
+
+Without `--branch-as`, `--from` resumes training on the same lineage name
+(`--name`) while still recording new checkpoints that point at the parent.
+
+### `convoy-league`
+
+Manages the on-disk league: list, branch, promote, eval, export.
+
+Shared flag: `--league DIR` (default `runs/league`).
+
+#### `list`
+
+```bash
+convoy-league --league runs/league list
+convoy-league --league runs/league list --active --tag playtest
+```
+
+Prints id, name, parent, step, tags. Use an id from here as `<id>` in other
+commands.
+
+#### `show`
+
+```bash
+convoy-league --league runs/league show <id-or-name>
+```
+
+One entry plus its parent chain (root → … → entry).
+
+#### `branch`
+
+```bash
+convoy-league --league runs/league branch <id> --name aggressive
+```
+
+Forks checkpoint `<id>` into a new entry named `aggressive` with
+`parent_id = <id>`. Weights match the parent at fork time; this does **not**
+train. Training the fork is a separate `convoy-train --from … --branch-as …`
+(or `--from aggressive` later).
+
+#### `promote`
+
+```bash
+convoy-league --league runs/league promote <id-or-name> --tag playtest
+```
+
+Marks a bot for playtesting (keeps it active and adds a tag). Optional
+`--name` renames the entry.
+
+#### `set-active`
+
+```bash
+convoy-league --league runs/league set-active <id-or-name>
+convoy-league --league runs/league set-active <id-or-name> --off
+```
+
+Controls whether the checkpoint is sampled as a training opponent.
+
+#### `eval`
+
+```bash
+convoy-league --league runs/league eval aggressive --episodes 20
+```
+
+Loads `aggressive` (by name or id), plays N games with that bot in one seat and
+random agents in the others, then prints win rate and mean return. Quick check
+that a bot is worth playtesting.
+
+#### `export`
+
+```bash
+convoy-league --league runs/league export aggressive -o bots/playtest.pt
+```
+
+Copies the checkpoint file for use outside the league directory.
+
+## Victory conditions (engine)
+
+The match ends when any of these fire:
+
+1. **Promotion race** — first *sole* player to reach `PROMOTION_POINTS_TO_WIN`
+   (default **6**, in `configs/default.py`). Checked after bookkeeping PP awards.
+   If **two or more** hit the threshold on the **same** round → **sudden death**:
+   play on until one player has **strictly more PP** than every other; that player
+   wins immediately.
+2. **Cash race** — first player whose `total_cash` reaches `CASH_TO_WIN`
+   (default **50**) wins **immediately**, even mid-round (as soon as the cash
+   gain is applied).
+3. **Convoy collapses** — living units ≤ number of players after bookkeeping.
+4. **Max rounds** — `max_rounds` reached (engine default 200).
+
+For (3) and (4), ranking is PP desc, then total cash desc. For (1) and (2) the
+triggering player is forced to 1st place.
+
+How PP are earned: each round’s bookkeeping, every player who tied for the
+**highest `this_round_cash`** (and that max is > 0) gains **+1 PP**.
+
+Cash accumulates from actions (attack rewards, pillage, service, card cash-in,
+etc.) into `total_cash`.
+
+RL `win` mode still treats “finish 1st” as the primary target, with PP/cash
+deltas as proxies (same signals that drive races 1–2).
+
+## RL reward target
+
+Default `--reward-mode win`:
+
+| Signal | When | Weight (defaults) |
+|--------|------|-------------------|
+| **Win** | Terminal, agent is 1st in ranking | `+1.0` (`win_reward`) |
+| Non-win | Terminal, not 1st | `0.0` (`lose_reward`) |
+| **PP proxy** | Each step, per +1 promotion point | `+0.25` (`pp_reward`) |
+| **Cash proxy** | Each step, per +1 total cash | `+0.05` (`cash_reward`) |
+
+Legacy modes: `rank` = sparse terminal +1…−1 by place; `points` = sparse
+terminal raw PP total (no win bonus / no step proxies).
+
+## League layout
+
+```
+runs/league/
+  league.json          # registry: id, name, parent_id, tags, metrics
+  checkpoints/
+    <id>.pt            # policy weights + meta
+```
+
+Branching only copies weights and records lineage; each continued
+`convoy-train` run appends new child checkpoints.
+
+## Python API
+
+```python
+from sixtyfivekmconvoy.rl import League, RLAgent, SelfPlayTrainer
+
+league = League("runs/league")
+bot = RLAgent(league.load_model("playtest"), deterministic=True)
+# bot.act(obs_vec, legal_actions, action_mask=mask) → index into legal_actions
+```
+
+PettingZoo env details (obs / action mask) are in the main [README](../README.md).
+
+## Play vs a trained bot (web)
+
+```bash
+# From dev/, with a league at runs/league (or CONVOY_LEAGUE=/path/to/league)
+PYTHONPATH=src python -m sixtyfivekmconvoy.api.app
+# open http://127.0.0.1:8000/
+```
+
+In the lobby: set **Vastustajat → League-RL -botti**, pick a checkpoint (e.g.
+`main-step54979`), then **Uusi peli**. All non-human seats use that policy.
+
+`GET /league/bots` lists active checkpoints for the dropdown.
+
+## Related CLIs
+
+| Command | Role |
+|---------|------|
+| `convoy-selfplay` | Random-agent episodes (no learning) |
+| `convoy-train` | PPO self-play into a league |
+| `convoy-league` | Branch / promote / eval / export bots |
+| `convoy-web` | Human play; lobby can load league RL bots vs random |
+| `convoy-terminal` | Human play (still random bots unless extended) |

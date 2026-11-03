@@ -1,0 +1,340 @@
+"""PettingZoo AECEnv wrapper around GameEngine."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import functools
+import numpy as np
+from gymnasium import spaces
+from pettingzoo import AECEnv
+from pettingzoo.utils import agent_selector, wrappers
+
+from sixtyfivekmconvoy.core.engine import GameEngine
+from sixtyfivekmconvoy.env.spaces import (
+    MAX_LEGAL,
+    MAX_OPTIONS,
+    MAX_PICKS,
+    choice_is_ordered,
+    encode_choice_options,
+    fill_observation,
+    observation_size,
+)
+
+
+def env(**kwargs):
+    """PettingZoo-style factory with order enforcing + capture stdout."""
+    environment = ConvoyEnv(**kwargs)
+    environment = wrappers.OrderEnforcingWrapper(environment)
+    return environment
+
+
+class ConvoyEnv(AECEnv):
+    """
+    Multi-agent AEC environment.
+
+    Each step the current agent selects an index into `legal_actions()`
+    (stored in infos['legal_actions']). Actions outside the mask are ignored
+    and replaced with legal action 0.
+
+    Reward modes
+    ------------
+    ``win`` (default)
+        Primary target: finish 1st (game ranking). Proxies each step:
+        +``pp_reward`` per promotion point gained, +``cash_reward`` per cash
+        gained. At terminal: +``win_reward`` if 1st else ``lose_reward``.
+    ``rank``
+        Sparse terminal only: 1st = +1 … last = −1 (linear).
+    ``points``
+        Sparse terminal only: raw promotion_points total.
+    """
+
+    metadata = {"render_modes": ["human"], "name": "sixtyfivekmconvoy_v0", "is_parallelizable": False}
+
+    def __init__(
+        self,
+        num_players: int = 3,
+        seed: int | None = None,
+        reward_mode: str = "win",
+        max_cycles: int = 10_000,
+        render_mode: str | None = None,
+        *,
+        pp_reward: float = 0.25,
+        cash_reward: float = 0.05,
+        win_reward: float = 1.0,
+        lose_reward: float = 0.0,
+        fast: bool = False,
+    ):
+        super().__init__()
+        self.num_players = num_players
+        self._seed = seed
+        self.reward_mode = reward_mode
+        self.pp_reward = float(pp_reward)
+        self.cash_reward = float(cash_reward)
+        self.win_reward = float(win_reward)
+        self.lose_reward = float(lose_reward)
+        self.max_cycles = max_cycles
+        self.render_mode = render_mode
+        self.fast = bool(fast)
+        self.engine = GameEngine()
+        # RL / bot self-play must not pause for human "continue" prompts.
+        self.engine.pause_after_actions = False
+        self.engine.record_text_log = not self.fast
+        self.possible_agents = [f"player_{i}" for i in range(num_players)]
+        self.agents: list[str] = []
+        self._obs_size = observation_size(num_players)
+        self._cycle = 0
+        self._agent_selector: agent_selector.agent_selector | None = None
+        self._prev_pp: dict[str, int] = {}
+        self._prev_cash: dict[str, int] = {}
+
+    @functools.lru_cache(maxsize=None)
+    def observation_space(self, agent: str):
+        return spaces.Box(low=-10.0, high=10.0, shape=(self._obs_size,), dtype=np.float32)
+
+    @functools.lru_cache(maxsize=None)
+    def action_space(self, agent: str):
+        return spaces.Discrete(MAX_LEGAL)
+
+    def reset(self, seed: int | None = None, options: dict | None = None):
+        if seed is None:
+            seed = self._seed
+        self.engine.record_text_log = not self.fast
+        self.engine.pause_after_actions = False
+        self.engine.reset(num_players=self.num_players, seed=seed)
+        self.engine.pause_after_actions = False
+        self.engine.record_text_log = not self.fast
+        self.agents = self.possible_agents[:]
+        self.rewards = {a: 0.0 for a in self.agents}
+        self._cumulative_rewards = {a: 0.0 for a in self.agents}
+        self.terminations = {a: False for a in self.agents}
+        self.truncations = {a: False for a in self.agents}
+        self.infos = {a: {} for a in self.agents}
+        self._cycle = 0
+        self._prev_pp = {a: 0 for a in self.agents}
+        self._prev_cash = {a: 0 for a in self.agents}
+        # Sync baselines to whatever the engine starts with (normally 0).
+        self._snapshot_score_baselines()
+
+        self._sync_agent_order()
+        self._update_views()
+
+    def observe(self, agent: str):
+        idx = int(agent.split("_")[1])
+        return fill_observation(self.engine, idx, self.num_players)
+
+    def step(self, action: int | list[int] | None):
+        if self.terminations.get(self.agent_selection, False) or self.truncations.get(
+            self.agent_selection, False
+        ):
+            self._was_dead_step(action if isinstance(action, int) or action is None else 0)
+            return
+
+        if self.fast and not isinstance(action, list):
+            # Flat index into the cheap legal list. Combinations are not built.
+            if self.engine._pending is None:
+                self._sync_agent_order()
+                self._update_views()
+                return
+            legal, _mask, _spec = self._fast_pending()
+            idx = 0
+            if action is not None and 0 <= int(action) < len(legal):
+                idx = int(action)
+            result = self.engine.step(list(legal[idx]))
+        elif self.fast and isinstance(action, list):
+            if self.engine._pending is None:
+                self._sync_agent_order()
+                self._update_views()
+                return
+            result = self.engine.step(list(action))
+        else:
+            legal = self.engine.legal_actions()
+            if not legal:
+                self._sync_agent_order()
+                self._update_views()
+                return
+
+            if isinstance(action, list):
+                choice = list(action)
+                if choice not in legal:
+                    target = sorted(choice)
+                    matched = next(
+                        (v for v in legal if sorted(v) == target), None
+                    )
+                    choice = list(matched) if matched is not None else legal[0]
+            else:
+                if action is None or action < 0 or action >= len(legal):
+                    action = 0
+                choice = legal[int(action)]
+            result = self.engine.step(choice)
+        self._cycle += 1
+
+        for a in self.agents:
+            self.rewards[a] = 0.0
+
+        if self.reward_mode == "win":
+            self._assign_win_mode_rewards(terminal=bool(result.terminal))
+        elif result.terminal:
+            ranking = result.ranking or []
+            order = [f"player_{r['number']}" for r in ranking]
+            for a in self.agents:
+                self.rewards[a] = self._terminal_reward(a, order)
+                self._cumulative_rewards[a] += self.rewards[a]
+
+        if result.terminal:
+            for a in self.agents:
+                self.terminations[a] = True
+            self._update_views()
+            return
+
+        if self._cycle >= self.max_cycles:
+            for a in self.agents:
+                self.truncations[a] = True
+            self._update_views()
+            return
+
+        self._sync_agent_order()
+        self._update_views()
+
+    def render(self):
+        if self.render_mode != "human":
+            return
+        agent = self.agent_selection
+        raw = self.engine.observe(agent)
+        print(f"[{agent}] round={raw.get('round')} stage={raw.get('stage')} res={raw.get('resistance')}")
+        if "choice" in raw:
+            print("  choice:", raw["choice"].get("description", "")[:120])
+
+    def close(self):
+        pass
+
+    # ------------------------------------------------------------------
+
+    def _player_for_agent(self, agent: str):
+        idx = int(agent.split("_")[1])
+        return self.engine.players[idx]
+
+    def _snapshot_score_baselines(self) -> None:
+        for a in self.agents:
+            pl = self._player_for_agent(a)
+            self._prev_pp[a] = int(pl.promotion_points)
+            self._prev_cash[a] = int(pl.total_cash)
+
+    def _assign_win_mode_rewards(self, *, terminal: bool) -> None:
+        """Proxy shaping (PP / cash deltas) + optional terminal win bonus."""
+        for a in self.agents:
+            pl = self._player_for_agent(a)
+            d_pp = int(pl.promotion_points) - self._prev_pp.get(a, 0)
+            d_cash = int(pl.total_cash) - self._prev_cash.get(a, 0)
+            r = self.pp_reward * d_pp + self.cash_reward * d_cash
+            self._prev_pp[a] = int(pl.promotion_points)
+            self._prev_cash[a] = int(pl.total_cash)
+            self.rewards[a] = r
+
+        if terminal:
+            ranking = self.engine.winner_ranking() or []
+            order = [f"player_{r['number']}" for r in ranking]
+            for a in self.agents:
+                won = bool(order) and order[0] == a
+                self.rewards[a] = self.rewards[a] + (
+                    self.win_reward if won else self.lose_reward
+                )
+
+        for a in self.agents:
+            self._cumulative_rewards[a] += self.rewards[a]
+
+    def _terminal_reward(self, agent: str, order: list[str]) -> float:
+        if agent not in order:
+            return -1.0
+        place = order.index(agent)
+        n = max(1, len(order) - 1)
+        if self.reward_mode == "points":
+            ranking = self.engine.winner_ranking() or []
+            for r in ranking:
+                if f"player_{r['number']}" == agent:
+                    return float(r.get("promotion_points", 0))
+            return 0.0
+        if self.reward_mode == "win":
+            return self.win_reward if place == 0 else self.lose_reward
+        # rank: first +1, last -1, linear in between
+        return 1.0 - 2.0 * place / n
+
+    def _sync_agent_order(self) -> None:
+        current = self.engine.current_agent()
+        if current is None:
+            # Terminal or between — pick first living agent
+            self.agent_selection = self.agents[0]
+            return
+        # Rotate agents list so agent_selector starts at current
+        if current in self.agents:
+            self.agent_selection = current
+        else:
+            self.agent_selection = self.agents[0]
+
+    def _fast_pending(self) -> tuple[list[list[int]], np.ndarray, dict[str, Any]]:
+        """Choice summary without enumerating combinations."""
+        pending = self.engine._pending
+        assert pending is not None
+        opts = list(pending.options)
+        ctype = int(pending.choicetype)
+        ordered = choice_is_ordered(ctype)
+        n_avail = min(len(opts), MAX_OPTIONS)
+        n_pick = max(0, min(int(pending.num_choices), MAX_PICKS, n_avail))
+        if n_pick <= 1:
+            legal = [[o] for o in opts] or [[]]
+        else:
+            legal = [list(opts)]
+        mask = np.zeros(MAX_LEGAL, dtype=np.float32)
+        for i in range(min(len(legal), MAX_LEGAL)):
+            mask[i] = 1.0
+        spec = {
+            "options": opts,
+            "num_choices": n_pick,
+            "ordered": ordered,
+            "choicetype": ctype,
+        }
+        return legal, mask, spec
+
+    def _update_views(self) -> None:
+        current = self.engine.current_agent()
+        stats = self.engine.stats.to_json() if self.engine.terminal else None
+        for a in self.agents:
+            if a != current or self.engine._pending is None:
+                self.infos[a] = {
+                    "raw": None,
+                    "legal_actions": [],
+                    "action_mask": np.zeros(MAX_LEGAL, dtype=np.float32),
+                    "choice_spec": None,
+                    "stats": stats,
+                }
+                continue
+            if self.fast:
+                legal, mask, choice_spec = self._fast_pending()
+                raw = None
+            else:
+                raw = self.engine.observe(a)
+                legal = self.engine.legal_actions()
+                mask = np.zeros(MAX_LEGAL, dtype=np.float32)
+                for i in range(min(len(legal), MAX_LEGAL)):
+                    mask[i] = 1.0
+                choice = raw.get("choice") if raw else None
+                choice_spec = None
+                if choice:
+                    opt_feats, opt_mask, n_pick, ordered, ctype = encode_choice_options(
+                        choice
+                    )
+                    choice_spec = {
+                        "options": list(choice.get("options") or []),
+                        "num_choices": n_pick,
+                        "ordered": ordered,
+                        "choicetype": ctype,
+                        "option_feats": opt_feats,
+                        "option_mask": opt_mask,
+                    }
+            self.infos[a] = {
+                "raw": raw,
+                "legal_actions": legal,
+                "action_mask": mask,
+                "choice_spec": choice_spec,
+                "stats": stats,
+            }

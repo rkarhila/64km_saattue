@@ -1,0 +1,468 @@
+"""In-memory game sessions: one human seat + bot seats (multi-seat ready)."""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from dataclasses import dataclass, field
+from typing import Any
+
+from sixtyfivekmconvoy.api.bots import make_seat_bots
+from sixtyfivekmconvoy.core.card_display import describe_action_card
+from sixtyfivekmconvoy.core.constants import ChoiceType
+from sixtyfivekmconvoy.core.engine import GameEngine
+from sixtyfivekmconvoy.core.i18n import unit_type_label
+
+
+@dataclass
+class GameSession:
+    game_id: str
+    engine: GameEngine
+    human_seats: set[str]
+    bots: dict[str, Any] = field(default_factory=dict)
+    bot_meta: dict[str, Any] = field(default_factory=dict)
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # When True, stop after a step that appends log lines (unless human must act).
+    pause_after_actions: bool = True
+    awaiting_continue: bool = False
+    human_choices: list[list[int]] = field(default_factory=list)
+
+    def is_human(self, player_id: str) -> bool:
+        return player_id in self.human_seats
+
+    def set_pause_after_actions(self, enabled: bool) -> None:
+        self.pause_after_actions = enabled
+        self.engine.pause_after_actions = enabled
+        if not enabled:
+            if self.awaiting_continue:
+                # Clearing pause while waiting: resume immediately is caller's job
+                pass
+            pending = self.engine.pending_choice()
+            if pending is not None and pending.choicetype == ChoiceType.LOG_PAUSE:
+                self.engine.step([0])
+                self._run_bots()
+
+    def snapshot(self, player_id: str) -> dict[str, Any]:
+        view = self.engine.observe(player_id)
+        pending = self.engine.pending_choice()
+        # LOG_PAUSE is shown via the floating continue panel, not the choice UI.
+        log_pause_for_human = (
+            pending is not None
+            and pending.choicetype == ChoiceType.LOG_PAUSE
+            and pending.player_id == player_id
+        )
+        awaiting = self.awaiting_continue or log_pause_for_human
+        # While paused for continue, suppress choice UI even if a bot is "pending"
+        show_choice = (
+            pending is not None
+            and pending.player_id == player_id
+            and not awaiting
+            and pending.choicetype != ChoiceType.LOG_PAUSE
+        )
+        legal = self.engine.legal_actions() if show_choice else []
+        pending_json = pending.to_json() if show_choice else None
+        if pending_json is not None:
+            pending_json["card_catalog"] = self._card_catalog_for_pending(pending)
+            assign_units = self._assign_units_for_pending(pending, player_id)
+            if assign_units:
+                pending_json["assign_units"] = assign_units
+                pending_json["assign_legality"] = self._assign_legality_for_pending(
+                    player_id
+                )
+                blocked = getattr(self.engine, "_last_assign_block_reasons", None)
+                if blocked:
+                    pending_json["assign_block_reasons"] = blocked
+
+        player = self.engine._player_by_id(player_id)
+        hand_cards = {
+            str(cid): describe_action_card(cid) for cid in player.action_cards
+        }
+        # All face-up convoy cards (own always; others after they act),
+        # including WAIT-queued extras in the stack.
+        placed: dict[str, Any] = {}
+        for u in self.engine.convoy.units:
+            if not u.actioncard:
+                continue
+            action = u.to_json(playerview=player).get("action") or {}
+            entries = action.get("cards") or []
+            if not entries and action.get("face_up") and action.get("card") is not None:
+                entries = [action]
+            for entry in entries:
+                if entry.get("face_up") and entry.get("card") is not None:
+                    placed[str(entry["card"])] = describe_action_card(entry["card"])
+
+        continue_hint = None
+        if awaiting:
+            if log_pause_for_human and pending is not None:
+                continue_hint = pending.description or None
+            if not continue_hint and self.engine.messages:
+                continue_hint = self.engine.messages[-1]
+
+        from sixtyfivekmconvoy.core import config as game_config
+
+        return {
+            "game_id": self.game_id,
+            "state": view,
+            "pending": pending_json,
+            "legal_actions": legal,
+            "hand_cards": hand_cards,
+            "placed_cards": placed,
+            "player_colors": [
+                "red",
+                "green",
+                "blue",
+                "orange",
+                "purple",
+            ][: len(self.engine.players)],
+            "terminal": self.engine.terminal,
+            "ranking": self.engine.winner_ranking(),
+            "stats": self.engine.stats.to_json() if self.engine.terminal else None,
+            "awaiting_continue": awaiting,
+            "continue_hint": continue_hint,
+            "pause_after_actions": self.pause_after_actions,
+            "setup_complete": self.engine.setup_complete,
+            "setup_pattern": list(self.engine.setup_pattern),
+            "shareable_state": self.get_shareable_state_string(),
+            "config_name": getattr(game_config, "CONFIG_NAME", "default"),
+            "bots": dict(self.bot_meta or {}),
+            "cash_rewards": {
+                "service": int(getattr(game_config, "SERVICE_CASH", 0) or 0),
+                "attack": int(getattr(game_config, "ATTACK_CASH", 0) or 0),
+                "scout": int(getattr(game_config, "REVEAL_RESISTANCE_CASH", 0) or 0),
+                "reveal_mauling": int(
+                    getattr(game_config, "REVEAL_MAULING_CASH", 0) or 0
+                ),
+                "reveal_resistance": int(
+                    getattr(game_config, "REVEAL_RESISTANCE_CASH", 0) or 0
+                ),
+                "resistance_hit": int(
+                    getattr(game_config, "RESISTANCE_HIT_CASH", 0) or 0
+                ),
+            },
+        }
+
+    def get_shareable_state_string(self) -> str:
+        import json
+        import zlib
+        import base64
+
+        human_seat_str = next(iter(self.human_seats))
+        human_seat = int(human_seat_str.split("_")[1])
+        data = {
+            "p": len(self.engine.players),
+            "s": self.engine.seed,
+            "h": human_seat,
+            "pa": self.pause_after_actions,
+            "c": self.human_choices,
+            "bk": (self.bot_meta or {}).get("bot_kind") or "random",
+            "bid": (self.bot_meta or {}).get("bot_id"),
+            "bl": (self.bot_meta or {}).get("league"),
+        }
+        json_bytes = json.dumps(data, separators=(",", ":")).encode("utf-8")
+        compressed = zlib.compress(json_bytes)
+        encoded = base64.urlsafe_b64encode(compressed).decode("utf-8")
+        return encoded
+
+    def _card_catalog_for_pending(self, pending) -> dict[str, Any]:
+        catalog: dict[str, Any] = {}
+        if pending.choicetype in (
+            ChoiceType.CHOOSE_CARD,
+            ChoiceType.CHOOSE_CARDS_TO_DISCARD,
+        ):
+            for opt in pending.options:
+                if isinstance(opt, int):
+                    catalog[str(opt)] = describe_action_card(opt)
+        if pending.choicetype == ChoiceType.CHOOSE_ACTION:
+            cid = (pending.payload or {}).get("card_id")
+            if isinstance(cid, int):
+                catalog[str(cid)] = describe_action_card(cid)
+        return catalog
+
+    def _assign_units_for_pending(self, pending, player_id: str) -> list[dict[str, Any]]:
+        if pending.choicetype != ChoiceType.CHOOSE_CARD:
+            return []
+        player = self.engine._player_by_id(player_id)
+        units = [u for u in self.engine.convoy.units if u.player is player]
+        if pending.num_choices != len(units) or pending.num_choices < 2:
+            return []
+        return [
+            {
+                "index": u.index(),
+                "unit_type": u.type_to_str[u.unittype],
+                "unit_type_label": unit_type_label(u.unittype),
+            }
+            for u in units
+        ]
+
+    def _assign_legality_for_pending(self, player_id: str) -> dict[str, dict[str, list[int]]]:
+        """unit_index -> card_id -> legal face indices (for assign-time strikethrough)."""
+        from sixtyfivekmconvoy.core import actions as action_mod
+
+        player = self.engine._player_by_id(player_id)
+        units = [u for u in self.engine.convoy.units if u.player is player]
+        out: dict[str, dict[str, list[int]]] = {}
+        # Parallel map of block reasons for debugging (does not affect UI contract).
+        block_reasons: dict[str, dict[str, dict[str, list[str]]]] = {}
+        for unit in units:
+            by_card: dict[str, list[int]] = {}
+            by_card_blocked: dict[str, dict[str, list[str]]] = {}
+            unit_idx = unit.index()
+            for cid in player.action_cards:
+                faces = player.action_deck.describe(cid) if player.action_deck else []
+                legal: list[int] = []
+                blocked: dict[str, list[str]] = {}
+                if isinstance(faces, list):
+                    for face_i, desc in enumerate(faces):
+                        if not isinstance(desc, dict):
+                            continue
+                        why = action_mod.why_action_impossible(
+                            self.engine, unit_idx, desc
+                        )
+                        if not why:
+                            legal.append(face_i)
+                        else:
+                            blocked[str(face_i)] = why
+                by_card[str(cid)] = legal
+                if blocked:
+                    by_card_blocked[str(cid)] = blocked
+            out[str(unit_idx)] = by_card
+            if by_card_blocked:
+                block_reasons[str(unit_idx)] = by_card_blocked
+        # Stash on engine so a snapshot/log can reference last assign diagnostics.
+        self.engine._last_assign_block_reasons = block_reasons  # type: ignore[attr-defined]
+        return out
+
+    def _human_must_act(self) -> bool:
+        pending = self.engine.pending_choice()
+        return (
+            pending is not None
+            and pending.player_id in self.human_seats
+            and not self.engine.terminal
+        )
+
+    def _pending_is_log_pause(self) -> bool:
+        pending = self.engine.pending_choice()
+        return (
+            pending is not None
+            and pending.choicetype == ChoiceType.LOG_PAUSE
+        )
+
+    def _should_pause(self, log_len_before: int) -> bool:
+        if not self.pause_after_actions:
+            return False
+        if self.engine.terminal:
+            return False
+        if len(self.engine.messages) <= log_len_before:
+            return False
+        # Engine already yielded LOG_PAUSE for this event; UI maps that to continue.
+        if self._pending_is_log_pause():
+            return False
+        # Pause so the new log line is shown before the next human choice / bots.
+        return True
+
+    def apply_human_choice(self, player_id: str, choice: list[int]) -> dict[str, Any]:
+        pending = self.engine.pending_choice()
+        if self.awaiting_continue or (
+            pending is not None
+            and pending.choicetype == ChoiceType.LOG_PAUSE
+            and pending.player_id == player_id
+        ):
+            raise ValueError("Press continue before making another choice")
+        if pending is None or pending.player_id != player_id:
+            raise ValueError("Not your turn")
+        legal = self.engine.legal_actions()
+
+        is_ordered = pending.choicetype in (
+            ChoiceType.CHOOSE_CARD,
+            ChoiceType.CHOOSE_ACTION,
+            ChoiceType.PLACE_UNITS,
+            ChoiceType.REORDER_SCOUTED_CARDS,
+        )
+
+        matched_vector = None
+        if is_ordered:
+            if choice in legal:
+                matched_vector = choice
+        else:
+            # Unordered: compare as sorted lists
+            choice_sorted = sorted(choice)
+            for leg in legal:
+                if sorted(leg) == choice_sorted:
+                    matched_vector = leg
+                    break
+
+        if matched_vector is None:
+            if len(choice) == 1 and 0 <= choice[0] < len(legal):
+                choice = list(legal[choice[0]])
+            else:
+                raise ValueError(f"Illegal choice {choice}")
+        else:
+            choice = matched_vector
+
+        self.human_choices.append(choice)
+        before = len(self.engine.messages)
+        self.engine.step(choice)
+        if self._should_pause(before):
+            self.awaiting_continue = True
+            return self.snapshot(player_id)
+        self._run_bots()
+        return self.snapshot(player_id)
+
+    def continue_play(self, player_id: str) -> dict[str, Any]:
+        """Resume after a pause (or no-op if not paused)."""
+        self.awaiting_continue = False
+        if self.engine.terminal:
+            return self.snapshot(player_id)
+
+        pending = self.engine.pending_choice()
+        if (
+            pending is not None
+            and pending.choicetype == ChoiceType.LOG_PAUSE
+            and pending.player_id == player_id
+        ):
+            before = len(self.engine.messages)
+            legal = self.engine.legal_actions()
+            self.engine.step(legal[0] if legal else [0])
+            if self._should_pause(before):
+                self.awaiting_continue = True
+                return self.snapshot(player_id)
+
+        if self._human_must_act() and not self._pending_is_log_pause():
+            return self.snapshot(player_id)
+        self._run_bots()
+        return self.snapshot(player_id)
+
+    def _run_bots(self) -> None:
+        self.awaiting_continue = False
+        while not self.engine.terminal:
+            pending = self.engine.pending_choice()
+            if pending is None:
+                break
+            if pending.player_id in self.human_seats:
+                break
+            bot = self.bots[pending.player_id]
+            before = len(self.engine.messages)
+            legal = self.engine.legal_actions()
+            seat = int(pending.player_id.split("_")[1])
+            obs = self.engine.observe(pending.player_id)
+            choice = bot.choose(
+                legal,
+                observation=obs,
+                agent_index=seat,
+                num_players=len(self.engine.players),
+                raw_choice=obs.get("choice"),
+            )
+            self.engine.step(choice)
+            if self._should_pause(before):
+                self.awaiting_continue = True
+                break
+            # Engine may have yielded LOG_PAUSE for the human after this step.
+            if self._pending_is_log_pause():
+                break
+
+
+class SessionManager:
+    def __init__(self) -> None:
+        self.sessions: dict[str, GameSession] = {}
+
+    def create(
+        self,
+        num_players: int = 3,
+        human_seat: int = 0,
+        seed: int | None = None,
+        max_rounds: int = 200,
+        pause_after_actions: bool = True,
+        *,
+        bot_kind: str = "random",
+        bot_id: str | None = None,
+        league_path: str | None = None,
+    ) -> GameSession:
+        engine = GameEngine()
+        engine.human_seat = human_seat
+        engine.pause_after_actions = pause_after_actions
+        engine.reset(num_players=num_players, seed=seed, max_rounds=max_rounds)
+        game_id = uuid.uuid4().hex[:10]
+        human_id = f"player_{human_seat}"
+        bots, bot_meta = make_seat_bots(
+            engine.agent_ids(),
+            human_id=human_id,
+            seed=seed,
+            bot_kind=bot_kind,
+            bot_id=bot_id,
+            league_path=league_path,
+        )
+        for bot in bots.values():
+            reset = getattr(bot, "reset_memory", None)
+            if callable(reset):
+                reset()
+        session = GameSession(
+            game_id=game_id,
+            engine=engine,
+            human_seats={human_id},
+            bots=bots,
+            bot_meta=bot_meta,
+            pause_after_actions=pause_after_actions,
+        )
+        session._run_bots()
+        self.sessions[game_id] = session
+        return session
+
+    def create_from_state_string(self, state_string: str) -> GameSession:
+        import json
+        import zlib
+        import base64
+
+        try:
+            compressed = base64.urlsafe_b64decode(state_string.encode("utf-8"))
+            json_bytes = zlib.decompress(compressed)
+            data = json.loads(json_bytes.decode("utf-8"))
+        except Exception as exc:
+            raise ValueError(f"Invalid state string: {exc}")
+
+        num_players = data.get("p", 3)
+        seed = data.get("s")
+        human_seat = data.get("h", 0)
+        pause_after_actions = data.get("pa", True)
+        choices = data.get("c", [])
+        bot_kind = data.get("bk") or "random"
+        bot_id = data.get("bid")
+        league_path = data.get("bl")
+
+        engine = GameEngine()
+        engine.human_seat = human_seat
+        engine.pause_after_actions = pause_after_actions
+        engine.reset(num_players=num_players, seed=seed)
+        game_id = uuid.uuid4().hex[:10]
+        human_id = f"player_{human_seat}"
+        bots, bot_meta = make_seat_bots(
+            engine.agent_ids(),
+            human_id=human_id,
+            seed=engine.seed,
+            bot_kind=bot_kind,
+            bot_id=bot_id,
+            league_path=league_path,
+        )
+        for bot in bots.values():
+            reset = getattr(bot, "reset_memory", None)
+            if callable(reset):
+                reset()
+        session = GameSession(
+            game_id=game_id,
+            engine=engine,
+            human_seats={human_id},
+            bots=bots,
+            bot_meta=bot_meta,
+            pause_after_actions=pause_after_actions,
+        )
+
+        session._run_bots()
+        for choice in choices:
+            while session.awaiting_continue:
+                session.continue_play(human_id)
+            session.apply_human_choice(human_id, choice)
+
+        self.sessions[game_id] = session
+        return session
+
+    def get(self, game_id: str) -> GameSession:
+        return self.sessions[game_id]
