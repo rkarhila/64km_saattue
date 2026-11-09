@@ -8,6 +8,7 @@ from sixtyfivekmconvoy.core.models import UnitType
 
 
 def _seat_front_infantry(engine: GameEngine):
+    engine._open_table()
     if engine._unit_pool:
         engine.convoy.units = list(engine._unit_pool)
         engine._unit_pool = []
@@ -155,6 +156,37 @@ def test_resolve_scout_reorders_when_multiple_from_same_queue():
     assert resistance_queue.cards_and_visibilities[idx1][1] is True
     assert resistance_queue.cards_and_visibilities[idx2][0] == card_id1
     assert resistance_queue.cards_and_visibilities[idx2][1] is True
+
+
+def test_scout_flips_the_last_hidden_card_then_peeks_two():
+    """Modifier 3 with one face-down card: that flip is mandatory, then N-M = 2."""
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=16)
+    engine.pause_after_actions = False
+    inf = _seat_front_infantry(engine)
+    _reveal_all_queues(engine)
+    hidden_idx = 1
+    card_id, _ = engine.resistance_queue.cards_and_visibilities[hidden_idx]
+    engine.resistance_queue.cards_and_visibilities[hidden_idx] = [card_id, False]
+
+    gen = action_mod.resolve_scout(engine, inf, count=3)
+    req = next(gen)
+    assert req.choicetype == ChoiceType.CHOOSE_QUEUE_TO_SCOUT
+    assert engine.resistance_queue.cards_and_visibilities[hidden_idx][1] is True
+
+    req2 = gen.send([action_mod.SCOUT_QUEUE_RESISTANCE])
+    assert req2.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
+    assert len(req2.options) == 2
+    keep = req2.options[0]
+    try:
+        gen.send([keep])
+        raise AssertionError("expected StopIteration")
+    except StopIteration as stop:
+        revealed = stop.value
+
+    assert revealed[0].startswith("resistance:")
+    assert engine.resistance_queue.cards_and_visibilities[-1] == [keep, True]
+    assert len(engine.resistance_queue.cards_and_visibilities) == 4
 
 
 def test_resolve_scout_draws_from_deck_when_queues_known():

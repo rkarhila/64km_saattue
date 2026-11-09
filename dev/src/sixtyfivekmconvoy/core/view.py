@@ -39,7 +39,6 @@ def player_view(
         _deck_row("resistance", engine.resistance_deck, engine.resistance_queue),
         _deck_row("pillage", engine.pillage_deck, engine.pillage_queue),
         _deck_row("mauling", engine.mauling_deck, engine.mauling_queue),
-        _deck_row("hit", engine.hit_deck, None),
         _deck_row("officer", engine.officer_deck, engine.officer_queue),
         _deck_row("action", engine.action_deck, None),
     ]
@@ -49,7 +48,6 @@ def player_view(
             "resistance": engine.resistance_deck.to_json(),
             "pillage": engine.pillage_deck.to_json(),
             "mauling": engine.mauling_deck.to_json(),
-            "hit": engine.hit_deck.to_json(),
             "officer": engine.officer_deck.to_json(),
         },
         "queues": {
@@ -64,6 +62,25 @@ def player_view(
         "convoy": engine.convoy.to_json(playerview=player),
         "players": [p.to_json(playerview=player) for p in engine.players],
         "decks": deck_state,
+        "hit_decks": [
+            {
+                "category": category,
+                "label": t(f"deck.hit_{category}"),
+                "deck": len(engine.hit_decks[category].deck),
+                "drawn": [
+                    dict(card)
+                    for card in engine.hit_draws
+                    if card["category"] == category
+                ],
+            }
+            for category in (1, 3, 5, 10)
+        ],
+        "struck_units": [
+            unit.index()
+            for unit in engine.struck_units
+            if unit in engine.convoy.units
+        ],
+        "resistance_struck": bool(engine.resistance_struck),
         "resistance": engine.resistance.to_json(),
         "round": engine.rounds.count if engine.rounds else 0,
         "stage": engine.rounds.stage if engine.rounds else -1,
@@ -76,6 +93,13 @@ def player_view(
         "setup_complete": getattr(engine, "setup_complete", True),
         "setup_pattern": list(getattr(engine, "setup_pattern", ()) or ()),
     }
+    if not state["setup_complete"] and getattr(engine, "setup_order_card_id", None) is not None:
+        desc = engine.mauling_deck.describe(engine.setup_order_card_id)
+        state["setup_order_card"] = {
+            "id": engine.setup_order_card_id,
+            "visible": True,
+            **(desc if isinstance(desc, dict) else {}),
+        }
     if message:
         state["message"] = message
     if choice is not None and choice.player_id == player.agent_id():

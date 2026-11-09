@@ -149,6 +149,43 @@ SETUP_POOLS: dict[int, tuple[tuple[int, ...], ...]] = {
 }
 
 
+def pattern_from_code(code: str) -> tuple[int, ...]:
+    """Inverse of formation_code. '121221' → (0, 1, 0, 1, 1, 0)."""
+    return tuple(int(ch) - 1 for ch in code)
+
+
+def pattern_for_players(full_code: str, num_players: int) -> tuple[int, ...]:
+    """Starting order for ``num_players`` taken from the 15-seat sequence.
+
+    The full code is three blocks of players 1..5. Seats that are not in
+    this game are dropped, and the remaining order is the convoy, front to back.
+    """
+    if num_players < 2 or num_players > 5:
+        raise ValueError(f"Unsupported player count: {num_players}")
+    text = (full_code or "").strip()
+    if len(text) != 15 or any(ch not in "12345" for ch in text):
+        raise ValueError(f"full formation must be 15 digits in 12345, got {text!r}")
+    pattern = tuple(int(ch) - 1 for ch in text if int(ch) <= num_players)
+    if not _is_valid(pattern, num_players):
+        raise ValueError(
+            f"formation {text!r} does not yield a balanced {num_players}-player order"
+        )
+    return pattern
+
+
+def formation_code(pattern: tuple[int, ...]) -> str:
+    """1-based player digits, front to back. (0, 1, 0, 1, 1, 0) → '121221'."""
+    return "".join(str(seat + 1) for seat in pattern)
+
+
+def formation_for_card(card_id: int, num_players: int) -> str:
+    """Cycle the setup pool so successive mauling cards show different orders."""
+    pool = SETUP_POOLS.get(num_players)
+    if not pool:
+        raise ValueError(f"No setup pool for {num_players} players")
+    return formation_code(pool[card_id % len(pool)])
+
+
 def pick_setup_pattern(num_players: int, rng) -> tuple[int, ...]:
     pool = SETUP_POOLS.get(num_players)
     if not pool:

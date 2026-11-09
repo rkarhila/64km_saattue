@@ -39,6 +39,7 @@ class GameSession:
                 pass
             pending = self.engine.pending_choice()
             if pending is not None and pending.choicetype == ChoiceType.LOG_PAUSE:
+                self.engine.clear_hit_draws()
                 self.engine.step([0])
                 self._run_bots()
 
@@ -183,7 +184,7 @@ class GameSession:
             return []
         player = self.engine._player_by_id(player_id)
         units = [u for u in self.engine.convoy.units if u.player is player]
-        if pending.num_choices != len(units) or pending.num_choices < 2:
+        if pending.num_choices != len(units) or pending.num_choices < 1:
             return []
         return [
             {
@@ -260,14 +261,34 @@ class GameSession:
         # Pause so the new log line is shown before the next human choice / bots.
         return True
 
-    def apply_human_choice(self, player_id: str, choice: list[int]) -> dict[str, Any]:
+    def continue_block_reason(self, player_id: str | None = None) -> str | None:
+        """Why a real choice cannot be applied yet, or None if one can."""
         pending = self.engine.pending_choice()
-        if self.awaiting_continue or (
+        last = self.engine.messages[-1] if self.engine.messages else ""
+        log_pause = (
             pending is not None
             and pending.choicetype == ChoiceType.LOG_PAUSE
-            and pending.player_id == player_id
-        ):
-            raise ValueError("Press continue before making another choice")
+            and (player_id is None or pending.player_id == player_id)
+        )
+        if self.awaiting_continue or log_pause:
+            parts = ["Press Jatka before the next choice."]
+            if self.awaiting_continue:
+                parts.append("The game is paused after a logged action.")
+            if log_pause and pending is not None:
+                parts.append(
+                    "A continue pause is still open"
+                    + (f": {pending.description}" if pending.description else ".")
+                )
+            if last:
+                parts.append(f"Last log line: {last}")
+            return " ".join(parts)
+        return None
+
+    def apply_human_choice(self, player_id: str, choice: list[int]) -> dict[str, Any]:
+        pending = self.engine.pending_choice()
+        blocked = self.continue_block_reason(player_id)
+        if blocked:
+            raise ValueError(blocked)
         if pending is None or pending.player_id != player_id:
             raise ValueError("Not your turn")
         legal = self.engine.legal_actions()
@@ -311,6 +332,7 @@ class GameSession:
     def continue_play(self, player_id: str) -> dict[str, Any]:
         """Resume after a pause (or no-op if not paused)."""
         self.awaiting_continue = False
+        self.engine.clear_hit_draws()
         if self.engine.terminal:
             return self.snapshot(player_id)
 
@@ -456,10 +478,31 @@ class SessionManager:
         )
 
         session._run_bots()
-        for choice in choices:
-            while session.awaiting_continue:
+        for index, choice in enumerate(choices, start=1):
+            hops = 0
+            while session.continue_block_reason(human_id):
+                hops += 1
+                if hops > 40:
+                    raise ValueError(
+                        f"Saved choice {index}/{len(choices)} {choice} was not reached. "
+                        f"{session.continue_block_reason(human_id)}"
+                    )
                 session.continue_play(human_id)
-            session.apply_human_choice(human_id, choice)
+            try:
+                session.apply_human_choice(human_id, choice)
+            except ValueError as exc:
+                pending = session.engine.pending_choice()
+                pending_bit = ""
+                if pending is not None:
+                    pending_bit = (
+                        f" Game is waiting on {pending.choicetype.name} "
+                        f"for {pending.player_id}"
+                        + (f": {pending.description}" if pending.description else ".")
+                    )
+                raise ValueError(
+                    f"Saved choice {index}/{len(choices)} {choice} does not match this game. "
+                    f"{exc}.{pending_bit}"
+                ) from exc
 
         self.sessions[game_id] = session
         return session

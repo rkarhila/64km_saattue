@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>65km Convoy</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=unit-solid" />
 </head>
 <body>
   <header class="top">
@@ -22,10 +22,8 @@
         <span class="status-chip influence"></span>
         <span class="status-chip influence"></span>
       </div>
-      <div class="marker-pile" data-kind="damage" title="Vahinko">
-        <span class="status-chip damage"></span>
-        <span class="status-chip damage"></span>
-        <span class="status-chip damage"></span>
+      <div class="marker-pile marker-pile-card" data-kind="damage" title="Vahinko">
+        <span class="dmg-card"><span class="dmg-boom" aria-hidden="true">💥</span><span class="dmg-num">1</span></span>
       </div>
       <div class="marker-pile" data-kind="atrocity" title="Hirmuteko">
         <span class="status-chip atrocity"></span>
@@ -58,16 +56,93 @@
     </label>
     <button id="startBtn" type="button">Uusi peli</button>
     <p id="botHint" class="hint muted"></p>
+    <aside class="rules-intro" aria-label="Peliohje">
+      <p>Tässä pelissä olet keskikastin upseeri johtamassa panssaripataljoonaa, joka on mukana valtavassa sotilassaattueessa päämääränään vihollismaan pääkaupunki.</p>
+      <p>Saattue on lähtenyt matkaan täydessä epäjärjestyksessä ja joukkosi ovat siellä sun täällä. Metsät, suot, ja liejuiset pellot tekevät kelirikkoiselta maantieltä poikkeamisen mahdottomaksi. Kaikki aloitekykyiset ja selväjärkiset ovat hankkiutuneet pois tästä tehtävästä, jäljellä on lauma julmureita ja juoppoja. Siksi vietät päiväsi ajaen moottoripyörällä kuraisia pientareita mikromanageroimassa joukkojasi, eikä aikasi riitä kaikkien joukkojen tehokkaaseen käyttöön. Haaveilet ylennyksestä pois tästä mutavellistä, tai että saat kerättyä tarpeeksi rahaa paetaksesi loppuelämäksesi johonkin neutraaliin maahan.</p>
+      <p>Armeijan organisaatio on jotain rakennusfirman, mafian ja kirkon väliltä. Pyramidi toimii, kun jokainen kerros ottaa pienen siivun siitä, mikä valuu alaspäin, ja vastaavasti ryöstösaaliista maksetaan kymmenykset ylöspäin. Ylennystä hinkuvien on paras hoitaa voitelut hyvin.</p>
+
+      <h3>Pelin aloitus</h3>
+      <ul>
+        <li>Jokainen pelaaja ottaa oman toimintopakkansa ja sekoittaa sen. Sen viereen jätetään tilaa poistopaka11.lle. Käytetyt toimintakortit menevät pelaajan omaan poistopakkaan ja ne kierrätetään kun toimintopakka tyhjenee.</li>
+        <li>Jokainen pelaaja asettaa yksikkönsä saattueeseen: Valitse satunnaisesti yksi moukarointikortti. Sen reunassa näkyy kunkin pelaajan yksikköhen paikat saattueessa. Yksiköitä on kolme: Panssarijoukot, jalkaväki ja huoltojoukot. Ne asetetaan paikalleen selkäpuoi ylöspäin, ja paljastetaan kun kaikki ovat sijoittaneet yksikkönsä.</li>
+        <li>Ota vastarintapakan aloituskortti syrjään. Sekoita vastarinta-, moukarointi- ja ryöstelypakat.</li>
+        <li>Vastarintapakan eteen laitetaan 2 kortin jono selkäpuoli ylöspäin. Vastarintajonon kärkeen kolmanneksi kortiksi laitetaan aloituskortti naamapuoli ylöspäin.</li>
+        <li>Moukarointipakan eteen laitetaan 3 kortin jono. Kärki naamapuoli ylöspäin, muut selkäpuoli ylöspäin.</li>
+        <li>Jaottele raha/vahinkokortit rahapuoli ylöspäin omiin pakkoihinsa. Jätä tilaa poistopakoille. Sitten mennään!</li>
+      </ul>
+      <p>Näitä kortteja ei kierrätetä, mutta johonkin käytetyt kortit kannattaa järjestää.</p>
+
+      <h3>Pelin kulku</h3>
+      <p>Peliä pelataan kierroksissa, jotka koostuvat käskyvaiheesta, toimintovaiheesta ja kirjanpitovaiheesta.</p>
+
+      <h4>Käskyvaihe</h4>
+      <ul>
+        <li>Kukin pelaaja nostaa 5 korttia ja asettaa yhden toimintokortin jokaiselle omalle yksikölleen selkäpuoli ylöspäin. Kun kaikki pelajaat ovat jakaneet käskyt, siirrytään toimintovaiheeseen:</li>
+      </ul>
+
+      <h4>Toimintovaihe</h4>
+      <p>Jokaisen yksikön toiminto käydään läpi aloittaen saattueen kärjestä:</p>
+      <ul>
+        <li>Yksikön toimintakortti paljastetaan, ja pelaaja valitsee kortista jonkin mahdollisista toiminnoista. Toimintojen mahdollisuutta rajaavat yksikön tyyppi, yksikön sijainti saattueessa sekä pelaajalla olevien käsikorttien määrä.</li>
+        <li>Toiminnon kohdalla ilmoitetaan sen hinta korteissa. Monessa toiminnossa se on yksi kortti kutakin yksiköllä olevaa tilamerkkiä kohden. Joissain tapauksissa vain tietyn tyypin tilamerkit lasketaan tähän hintaan, ja joissain tapauksissa jokin tilamerkki saattaa lisätä hintaa kahdella.</li>
+        <li>Pelaajan on pakko tehdä jokin mahdollisista toiminnoista. Jos mikään toiminnoista ei ole mahdollinen, yksikkö turhautuu: Sevin päin oleva yksikkö kaivaa varastoistaan päiheitä ja saa päihtymismerkin; Päihtynyt yksikkö saa yhden väsymyspisteen lisää.</li>
+        <li>Onnistunut toiminto muuttaa yksikön väsymys- tai päihtymystilaa. Suurin osa toiminnoista lisää yhden väsymyspisteen, muutamat päihdyttävät yksikön. Lepo poistaa joko päihtymys- tai väsymispisteet.</li>
+        <li>Kun toiminnon tai turhautumisen vaikutus on ratkaistu, siirrytään seuraavan yksikön toimintoon, kunnes koko saattue on käyty läpi.</li>
+        <li>Jos jotkin yksiköt ovat odottaneet, tehdään näille uusi kierros samojen sääntöjen mukaan.</li>
+      </ul>
+
+      <h4>Kirjanpitovaihe</h4>
+      <ul>
+        <li>Ensin tarkistetaan eteneminen: Jos vastarinta on murskattu, saattue etenee seuraavaan vastarintapesäkkeenseen. Jos sitä ei ole tiedusteltu, saattue etenee väijytykseen, joka ratkaistaan nyt. Vastarintakortti kuvaa väijytyksen: Vahinko viittaa raha/vahinko-korttipakkaan: Nosta määrätystä pakasta kortti, se kertoo kohdeyksikön saaman vahingon määrän.</li>
+        <li>Seuraavaksi tarkistetaan, miten vihollinen on päivän aikana hyökännyt saattuetta vastaan: Käsitellään moukarointijonon ensimmäinen kortti samaan tapaan kuin vastarinnan väijytys.</li>
+        <li>Pelaajalla on mahdollisuus laittaa 4 korttia poistopakkaan ja saada siitä 1 rahan.</li>
+        <li>Tarkistetaan tällä kierroksella kerätyt rahat. Jos joku pelaajsta on saanut enemmän rahaa kuin muut, hän saa ylennyspisteen.</li>
+      </ul>
+
+      <h3>Pelin lopetus</h3>
+      <p>Peli päättyy heti, kun</p>
+      <ul>
+        <li>joku pelaajista kerää pikavoiton edellyttämän 50 rahaa tai 6 ylennyspistettä.</li>
+        <li>saattuueesta on jäljellä enää yksi kolmannes sen alkuperäisistä yksiköistä. Voittaja on eniten rahaa kerännyt pelaaja (ei tarvitse ola enää mukana pelissä)</li>
+      </ul>
+
+      <h3>Toiminnot</h3>
+      <ul class="rules-actions">
+        <li><strong>Hyökkää.</strong> Aiheuttaa hyökkäystyypin kortin vahingon aktiiviseen vastarintaan. Onnistunut hyökkäys tuo 2 rahaa.</li>
+        <li><strong>Rynnäkkö!</strong> Siirry yksi paikka eteenpäin ja aiheuta hyökkäystyypin kortin vahinko aktiiviseen vastarintaan.</li>
+        <li><strong>Ohita.</strong> Siirry eteenpäin kortin askelmäärän verran, jos matkalle on tilaa.</li>
+        <li><strong>Puolustusasemiin!</strong> Alenna yksikköön tai naapuriin kohdistuvan maahyökkäyksen kategoriaa yhdellä. Jos hyökkäystä ei tulekaan, yksikkö turhautuu vuoron lopussa.</li>
+        <li><strong>Sayonara, suckers!</strong> Poistu pelistä ja vaihda kantamasi saalis rahaksi.</li>
+        <li><strong>Ihmiskilpiä.</strong> Vähennä yksikköön tai naapuriyksikköön kohdistuvan ilmahyökkäyksen tyyppiä yhdellä: Onnistuessasi saat 2 rahaa ja 1 hirmutekopisteen. Jos hyökkäystä ei tule, yksikkö turhautuu vuoron lopuusa.</li>
+        <li><strong>Käskytä.</strong> Pelaa yksi käden kortti odottavan naapurin kautta. Sinä maksat naapurin toiminnasta, mutta saat pitää siitä tulevat rahat.</li>
+        <li><strong>Partioi.</strong> Vähennä yksikköön tai naapuriyksikköön kohdistuvan saboraasin vahnkotyyppiä yhdellä. Onnistuminen tuo 2 rahaa. Jos hyökkäystä ei tule, yksikkö turhautuu vuoron lopussa.</li>
+        <li><strong>Ryöstä.</strong> Ota ryöstöjonosta mikä tahansa näkyvä kortti tai jonon ensimmäinen kortti. Päihtynyt yksikkö ottaa aina ensimmäisen.</li>
+        <li><strong>Ylennä.</strong> Liitä haluamasi sopiva upseeri jonosta yksikköön. Ylennystä on juhlittava joten yksikkö päihtyy.</li>
+        <li><strong>Lepää.</strong> Poista päihtyneen yksikön päihtymismerkki tai selvin päin olevan yksikön väsymysmerkit.</li>
+        <li><strong>Suojatulta!</strong> Peruuta yksi paikka ja aiheuta vahinkotyypin kortin vahinko aktiiviseen vastarintaan.</li>
+        <li><strong>Tiedustele.</strong> Käännä enintään kortin verran kuvapuoli alaspäin olevia ryöstö-, moukarointi- tai vastarintakortteja ja aseta ne haluamaasi järjestykseen. Jos käännettyjä on vähemmän ja jonot ovat näkyvissä, katso loput pakasta ja valitse yksi jonoon. Paljastettu moukarointikortti antaa 1 rahan ja vastarintakortti 1 rahan.</li>
+        <li><strong>Etsi ryöstettävää.</strong> Käännä enintään kortin verran kuvapuoli alaspäin olevia ryöstökortteja ja aseta ne haluamaasi järjestykseen. Jos käännettyjä on vähemmän ja jono on näkyvissä, katso loput pakasta ja valitse yksi jonoon.</li>
+        <li><strong>Huolla.</strong> Poista 1 väsymys väsyneeltä naapurilta ja saa 1 raha.</li>
+        <li><strong>Signaalitiedustelu.</strong> Käännä enintään kortin verran kuvapuoli alaspäin olevia moukarointikortteja ja aseta ne haluamaasi järjestykseen. Jos käännettyjä on vähemmän ja jono on näkyvissä, katso loput pakasta ja valitse yksi jonoon. Jokainen paljastettu kortti antaa 1 rahan.</li>
+        <li><strong>Röökitauko.</strong> Odota toimintakierros, ja toimi uudella kortilla kun saattueen muut toiminnot käyty läpi.</li>
+        <li><strong>Juomatauko.</strong> Odota toimintakierros, ja toimi uudella kortilla kun saattueen muut toiminnot käyty läpi.</li>
+      </ul>
+    </aside>
   </section>
 
   <main id="game" class="hidden">
     <div class="status-bar">
-      <span id="message"></span>
+      <span id="message" class="hidden"></span>
       <button id="shareBtn" type="button" class="share-btn">Jaa peli</button>
     </div>
 
     <aside id="continuePanel" class="continue-panel" aria-live="polite">
       <div id="roundInfo" class="side-round"></div>
+      <div id="playerPrompt" class="player-prompt hidden">
+        <h2 id="playerPromptTitle"></h2>
+        <p id="playerPromptBody"></p>
+      </div>
+      <div id="sideChoice" class="side-choice"></div>
       <label class="pause-toggle side-pause">
         <input type="checkbox" id="pauseToggle" checked />
         Pysäytä lokin jälkeen
@@ -91,6 +166,10 @@
       <div id="deckRows" class="deck-rows"></div>
     </section>
 
+    <section class="hit-strip" aria-label="Vahinkopakat">
+      <div id="hitDecks" class="hit-decks"></div>
+    </section>
+
     <section>
       <h2>Saattue</h2>
       <div class="convoy-field">
@@ -100,8 +179,8 @@
     </section>
 
     <section id="choicePanel" class="choice-panel hidden">
-      <h2 id="choiceTitle">Valintasi</h2>
-      <p id="choiceDesc"></p>
+      <h2 id="choiceTitle" class="moved-prompt">Valintasi</h2>
+      <p id="choiceDesc" class="moved-prompt"></p>
       <div id="choiceOptions" class="options"></div>
     </section>
 
@@ -121,6 +200,6 @@
     </section>
   </main>
 
-  <script src="/static/app.js?v=pillage-columns"></script>
+  <script src="/static/app.js?v=formation-spin"></script>
 </body>
 </html>

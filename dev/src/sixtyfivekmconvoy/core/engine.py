@@ -15,7 +15,7 @@ from sixtyfivekmconvoy.rl.events import EVENT_WINDOW, event_from_detail
 from . import actions as action_mod
 from .cards import (
     ACTION_CATALOG,
-    HIT_CATALOG,
+    HIT_DECKS,
     MAULING_CATALOG,
     OFFICER_CATALOG,
     PILLAGE_CATALOG,
@@ -35,7 +35,7 @@ from .constants import (
 )
 from .i18n import t, unit_type_label
 from .models import Convoy, Player, Resistance, Unit, UnitType
-from .setup_layouts import pick_setup_pattern, slots_for_player
+from .setup_layouts import pattern_for_players, slots_for_player
 from .stats import EpisodeStats
 from .view import player_view
 
@@ -155,7 +155,11 @@ class GameEngine:
         self.pillage_deck: CardDeck
         self.mauling_deck: CardDeck
         self.officer_deck: CardDeck
-        self.hit_deck: CardDeck
+        self.hit_decks: dict[int, CardDeck]
+        self.hit_draws: list[dict[str, int]] = []
+        self.struck_units: list[Unit] = []
+        self.resistance_struck = False
+        self._consolidating: set[int] = set()
         self.officer_id_mapping: dict[int, int] = {}
         self.resistance_queue: CardQueue
         self.mauling_queue: CardQueue
@@ -182,6 +186,9 @@ class GameEngine:
         # True after ≥2 players hit PROMOTION_POINTS_TO_WIN on the same round.
         self.sudden_death_pp = False
         self.messages = []
+        self.hit_draws = []
+        self.struck_units = []
+        self.resistance_struck = False
         self.event_log = []
         self.event_rows = deque(maxlen=EVENT_WINDOW)
         self.round_action_summaries = []
@@ -193,21 +200,13 @@ class GameEngine:
             pl.engine = self
         self._init_decks()
         self.convoy = Convoy(self.players, engine=self)
-        self.setup_pattern: tuple[int, ...] = pick_setup_pattern(num_players, self.rng)
         self.setup_complete = False
+        self._table_open = False
         # Keep created units aside until players place them into the pattern.
         self._unit_pool: list[Unit] = list(self.convoy.units)
         self.convoy.units = []
-
-        # Fixed starting resistance, then fill the queue from the sampled deck.
-        self.resistance_queue.put_card(self._resistance_starter_id, visible=True)
-        for _ in range(2):
-            if self.resistance_deck.deck:
-                self.resistance_queue.put_card(self.resistance_deck.get_card())
-        for _ in range(3):
-            self.mauling_queue.put_card(self.mauling_deck.get_card())
-        self.mauling_queue.reveal_card(0)
-        self.resistance = Resistance(self.resistance_queue.describe(0), self)
+        # Queues open after placement: the order card is shown first.
+        self.resistance = Resistance(None, self)
         self.rounds = Rounds(count=0, stage=0)
 
         self._gen = self._run_game()
@@ -271,46 +270,60 @@ class GameEngine:
     def _init_decks(self) -> None:
         self.action_deck = CardDeck(
             list(ACTION_CATALOG.keys()),
+            shuffled=False,
             names_and_effects=ACTION_CATALOG,
             rng=self.rng,
         )
         for player in self.players:
             player.action_deck = CardDeck(
                 list(ACTION_CATALOG.keys()),
+                shuffled=False,
                 names_and_effects=ACTION_CATALOG,
                 rng=self.rng,
             )
 
-        starter_id, pool_ids = select_resistance_deck(len(self.players), self.rng)
+        # Mauling is drawn before anything else is shuffled. The order card
+        # stays out of the pile until placement finishes.
+        self.mauling_deck = CardDeck(
+            list(MAULING_CATALOG.keys()),
+            shuffled=False,
+            names_and_effects=MAULING_CATALOG,
+            rng=self.rng,
+        )
+        self._draw_setup_order_card()
+        starter_id, pool_ids = select_resistance_deck(
+            len(self.players), self.rng, shuffle=False
+        )
         self._resistance_starter_id = starter_id
         # Catalog stays full for lookups; only the sampled ids are in the draw pile.
         self.resistance_deck = CardDeck(
             pool_ids,
-            shuffled=False,  # already shuffled by select_resistance_deck
+            shuffled=False,
             names_and_effects=RESISTANCE_CATALOG,
             rng=self.rng,
         )
         self.pillage_deck = CardDeck(
             list(PILLAGE_CATALOG.keys()),
+            shuffled=False,
             names_and_effects=PILLAGE_CATALOG,
             rng=self.rng,
         )
-        self.mauling_deck = CardDeck(
-            list(MAULING_CATALOG.keys()),
-            names_and_effects=MAULING_CATALOG,
-            rng=self.rng,
-        )
-        self.hit_deck = CardDeck(
-            list(HIT_CATALOG.keys()),
-            names_and_effects=HIT_CATALOG,
-            rng=self.rng,
-        )
+        self.hit_decks = {
+            category: CardDeck(
+                list(cards.keys()),
+                shuffled=False,
+                names_and_effects=cards,
+                rng=self.rng,
+            )
+            for category, cards in HIT_DECKS.items()
+        }
 
         officer_ids = sorted(OFFICER_CATALOG.keys())
         sequential = {i: OFFICER_CATALOG[oid] for i, oid in enumerate(officer_ids)}
         self.officer_id_mapping = {i: oid for i, oid in enumerate(officer_ids)}
         self.officer_deck = CardDeck(
             list(sequential.keys()),
+            shuffled=False,
             names_and_effects=sequential,
             rng=self.rng,
         )
@@ -320,18 +333,253 @@ class GameEngine:
         self.pillage_queue = CardQueue(self.pillage_deck)
         self.officer_queue = CardQueue(self.officer_deck)
 
+    def _draw_setup_order_card(self) -> None:
+        """Pull one mauling card. Its formation is the convoy order."""
+        deck = self.mauling_deck
+        if not deck.deck:
+            raise RuntimeError("Mauling deck is empty before setup")
+        card_id = deck.deck.pop(self.rng.randrange(len(deck.deck)))
+        card = deck.names_and_effects[card_id]
+        self.setup_order_card_id = card_id
+        self.setup_pattern = pattern_for_players(
+            card.formations["5"], len(self.players)
+        )
+
+    def _shuffle_all_decks(self) -> None:
+        decks = [
+            self.action_deck,
+            self.resistance_deck,
+            self.pillage_deck,
+            self.mauling_deck,
+            self.officer_deck,
+            *self.hit_decks.values(),
+            *(player.action_deck for player in self.players),
+        ]
+        for deck in decks:
+            self.rng.shuffle(deck.deck)
+
+    def _open_table(self) -> None:
+        """Discard the order card, shuffle every deck, then deal the queues."""
+        if self._table_open:
+            return
+        self.mauling_deck.discard_card(self.setup_order_card_id)
+        self._shuffle_all_decks()
+        self.resistance_queue.put_card(self._resistance_starter_id, visible=True)
+        for _ in range(2):
+            if self.resistance_deck.deck:
+                self.resistance_queue.put_card(self.resistance_deck.get_card())
+        for _ in range(3):
+            self.mauling_queue.put_card(self.mauling_deck.get_card())
+        self.mauling_queue.reveal_card(0)
+        self.resistance = Resistance(self.resistance_queue.describe(0), self)
+        self._table_open = True
+
     def draw_hit_damage(self, category: int) -> int:
         """
-        Draw one hit-table card and return damage for attack `category` (1–4).
+        Draw one card from that category's deck and return its damage.
 
-        Drawn cards go to the hit discard pile (reshuffled when the deck empties).
+        The card stays out of the deck while it is a damage marker. Unclaimed
+        draws and markers on a destroyed unit or resistance go back to discard.
         """
-        if category not in (1, 2, 3, 4):
-            raise ValueError(f"Hit category must be 1–4, got {category}")
-        card_id = self.hit_deck.get_card()
-        damage = HIT_CATALOG[card_id].damage_for(category)
-        self.hit_deck.discard_card(card_id)
+        deck = self.hit_decks.get(category)
+        if deck is None:
+            raise ValueError(
+                f"Hit category must be one of {sorted(self.hit_decks)}, got {category}"
+            )
+        if not deck.deck and not deck.discard:
+            self.consolidate_empty_pile(category)
+        card_id = deck.get_card()
+        card = deck.names_and_effects[card_id]
+        damage = card.damage
+        self.hit_draws.append(
+            {
+                "category": category,
+                "id": card_id,
+                "damage": damage,
+                "cash": card.cash,
+                "claimed": False,
+            }
+        )
         return damage
+
+    def _claim_hit_card(self, category: int) -> int | None:
+        for entry in reversed(self.hit_draws):
+            if entry.get("category") == category and not entry.get("claimed"):
+                entry["claimed"] = True
+                return int(entry["id"])
+        return None
+
+    def discard_unclaimed_hits(self) -> None:
+        """Return drawn hit cards that were not stuck to a target."""
+        for entry in self.hit_draws:
+            if entry.get("claimed"):
+                continue
+            deck = self.hit_decks.get(int(entry["category"]))
+            if deck is not None:
+                deck.discard_card(int(entry["id"]))
+            entry["claimed"] = True
+
+    def _pile_empty(self, value: int) -> bool:
+        deck = self.hit_decks.get(value)
+        return deck is None or (not deck.deck and not deck.discard)
+
+    def _can_draw_many(self, values: list[int]) -> bool:
+        from collections import Counter
+
+        for value, count in Counter(values).items():
+            deck = self.hit_decks.get(value)
+            if deck is None or len(deck.deck) + len(deck.discard) < count:
+                return False
+        return True
+
+    def _exchange_counters(
+        self, pile: list[dict], take_value: int, take_n: int, give: list[int]
+    ) -> None:
+        """Trade ``take_n`` counters for larger chips, returning the small cards."""
+        while True:
+            held = [c for c in pile if int(c["value"]) == take_value]
+            if len(held) < take_n or not self._can_draw_many(give):
+                return
+            for _ in range(take_n):
+                index = next(
+                    i for i, counter in enumerate(pile) if int(counter["value"]) == take_value
+                )
+                self.release_money_counter(pile.pop(index))
+            for value in give:
+                card_id = self._draw_money_card(value)
+                if card_id is None:
+                    return
+                pile.append({"value": value, "id": card_id, "fresh": True})
+
+    def consolidate_empty_pile(self, value: int) -> None:
+        """
+        When a money/damage pile is empty, trade players' counters of that
+        value up to $5 and $10 so the small cards return to the pile.
+        """
+        if value not in (1, 3, 5) or not self._pile_empty(value):
+            return
+        if value in self._consolidating:
+            return
+        self._consolidating.add(value)
+        try:
+            exchanges = {
+                1: [(10, [10]), (5, [5])],
+                3: [(10, [10, 10, 10]), (5, [10, 5])],
+                5: [(2, [10])],
+            }
+            for player in self.players:
+                for pile in (player.round_counters, player.bank_counters):
+                    for take_n, give in exchanges[value]:
+                        self._exchange_counters(pile, value, take_n, give)
+        finally:
+            self._consolidating.discard(value)
+
+    def _draw_money_card(self, value: int) -> int | None:
+        deck = self.hit_decks.get(value)
+        if deck is None:
+            return None
+        if not deck.deck and not deck.discard:
+            self.consolidate_empty_pile(value)
+        if not deck.deck and not deck.discard:
+            return None
+        return deck.get_card()
+
+    def draw_money(self, amount: int) -> list[dict]:
+        """Take 10/5/3/1 counters from the money decks that sum to ``amount``."""
+        if amount <= 0:
+            return []
+        drawn: list[dict] = []
+        remaining = amount
+        for value in (10, 5, 3, 1):
+            while remaining >= value:
+                card_id = self._draw_money_card(value)
+                if card_id is None:
+                    break
+                drawn.append({"value": value, "id": card_id, "fresh": True})
+                remaining -= value
+        return drawn
+
+    def release_money_counter(self, counter: dict) -> None:
+        deck = self.hit_decks.get(int(counter["value"]))
+        if deck is not None:
+            deck.discard_card(int(counter["id"]))
+
+    def pay_counters(self, pile: list[dict], amount: int) -> int:
+        """Remove counters worth up to ``amount``. Break one larger chip if needed."""
+        if amount <= 0:
+            return 0
+        paid = 0
+        for value in (10, 5, 3, 1):
+            index = 0
+            while paid + value <= amount and index < len(pile):
+                if int(pile[index]["value"]) == value:
+                    counter = pile.pop(index)
+                    self.release_money_counter(counter)
+                    paid += value
+                else:
+                    index += 1
+        if paid < amount:
+            bigger = [c for c in pile if int(c["value"]) > amount - paid]
+            if bigger:
+                chip = min(bigger, key=lambda c: int(c["value"]))
+                pile.remove(chip)
+                change = int(chip["value"]) - (amount - paid)
+                self.release_money_counter(chip)
+                pile.extend(self.draw_money(change))
+                paid = amount
+        return paid
+
+    def attach_damage_marker(
+        self, target: Any, damage: int, category: int | None = None
+    ) -> None:
+        """Stick the dealt damage card on a unit or the resistance."""
+        if damage <= 0:
+            return
+        card_id = self._claim_hit_card(category) if category is not None else None
+        target.damage_markers.append(
+            {
+                "damage": int(damage),
+                "category": category,
+                "id": card_id,
+                "fresh": True,
+            }
+        )
+
+    def recycle_damage_markers(self, target: Any) -> None:
+        """Return damage cards to their decks when the target is destroyed."""
+        for marker in target.damage_markers:
+            card_id = marker.get("id")
+            category = marker.get("category")
+            deck = self.hit_decks.get(category) if category is not None else None
+            if card_id is not None and deck is not None:
+                deck.discard_card(int(card_id))
+                marker["id"] = None
+        target.damage_markers.clear()
+
+    def _settle_damage_markers(self) -> None:
+        targets: list[Any] = []
+        if self.convoy is not None:
+            targets.extend(self.convoy.units)
+        targets.extend(getattr(self, "_unit_pool", []) or [])
+        if self.resistance is not None:
+            targets.append(self.resistance)
+        for target in targets:
+            for marker in getattr(target, "damage_markers", []):
+                marker["fresh"] = False
+        for player in getattr(self, "players", []) or []:
+            for pile in (player.round_counters, player.bank_counters):
+                for counter in pile:
+                    counter["fresh"] = False
+
+    def note_struck_unit(self, unit: Unit) -> None:
+        if unit not in self.struck_units:
+            self.struck_units.append(unit)
+
+    def clear_hit_draws(self) -> None:
+        self._settle_damage_markers()
+        self.hit_draws.clear()
+        self.struck_units.clear()
+        self.resistance_struck = False
 
     def _prime(self) -> None:
         assert self._gen is not None
@@ -385,8 +633,12 @@ class GameEngine:
 
         # ---- Setup: place units into a balanced ownership pattern ----
         self._broadcast("—— Asento: sijoita joukot saattueeseen ——")
+        order_name = self.mauling_deck.get_name(self.setup_order_card_id) or str(
+            self.setup_order_card_id
+        )
         self._broadcast(
-            f"Muodostelma: {''.join(str(p + 1) for p in self.setup_pattern)}"
+            f"Muodostelma kortista {order_name}: "
+            f"{''.join(str(p + 1) for p in self.setup_pattern)}"
         )
         placements: dict[int, list[int]] = {}
         troop_meta = [
@@ -429,6 +681,7 @@ class GameEngine:
             )
 
         self._apply_unit_placements(placements)
+        self._open_table()
         self._broadcast("Saattue muodostettu.")
 
         initial_units = len(self.convoy.units)
@@ -439,7 +692,7 @@ class GameEngine:
             self.round_resistance_damage = 0
             self.round_unit_damage = []
             for pl in self.players:
-                pl.this_round_cash = 0
+                pl.bank_round_cash()
 
             self._broadcast(f"—— Kierros {self.rounds.count} alkaa ——")
 
@@ -560,6 +813,15 @@ class GameEngine:
                         action_choices = []
                         for opt_i, (face_i, desc) in enumerate(possible):
                             face = format_face(desc)
+                            clues = []
+                            from .card_display import passive_clues_for
+
+                            if not desc.get("is_officer_discard"):
+                                clues = passive_clues_for(
+                                    unit.officers, desc.get("action_name")
+                                )
+                            if clues:
+                                face = {**face, "passive_clues": clues}
                             action_choices.append(
                                 {
                                     "option": opt_i,

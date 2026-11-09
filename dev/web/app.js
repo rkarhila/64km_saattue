@@ -387,33 +387,31 @@
     const name = data.name || "?";
     const ambushName = data.ambush_attack_name || data.effect?.ambush_attack || "-";
     const ambushDmg = data.ambush_damage ?? data.effect?.ambush_damage ?? "?";
-    const ambushTarget = data.ambush_target || data.effect?.ambush_target || "";
+    const ambushTarget =
+      data.ambush_target_label ||
+      data.effect?.ambush_target_label ||
+      data.ambush_target ||
+      data.effect?.ambush_target ||
+      "";
     const counterName =
       data.resistance_attack_name || data.effect?.resistance_attack || "-";
     const counterDmg =
       data.resistance_damage ?? data.effect?.resistance_damage ?? "?";
-    const counterTarget =
-      data.resistance_target || data.effect?.resistance_target || "";
     const durability = data.durability ?? data.effect?.durability ?? "?";
     const loot = data.loot ?? data.effect?.loot ?? 0;
 
     const ambushBox = fancyBox(
       t("resistance.ambush"),
       `<span><strong>${escapeHtml(String(ambushName))}</strong></span>` +
-        `<span>${escapeHtml(t("resistance.damage"))}: <strong>${escapeHtml(String(ambushDmg))}</strong>` +
+        `<span>${escapeHtml(t("resistance.damage"))}: <strong>${escapeHtml(String(ambushDmg))}</strong></span>` +
         (ambushTarget
-          ? ` → <strong>${escapeHtml(String(ambushTarget))}</strong>`
-          : "") +
-        `</span>`
+          ? `<span>${escapeHtml(t("mauling.target"))}: <strong>${escapeHtml(String(ambushTarget))}</strong></span>`
+          : "")
     );
     const counterBox = fancyBox(
       t("resistance.counterattack"),
       `<span><strong>${escapeHtml(String(counterName))}</strong></span>` +
-        `<span>${escapeHtml(t("resistance.damage"))}: <strong>${escapeHtml(String(counterDmg))}</strong>` +
-        (counterTarget
-          ? ` → <strong>${escapeHtml(String(counterTarget))}</strong>`
-          : "") +
-        `</span>`
+        `<span>${escapeHtml(t("resistance.damage"))}: <strong>${escapeHtml(String(counterDmg))}</strong></span>`
     );
     const destroyCash = Number(
       data.cash_for_destroying ?? data.effect?.cash_for_destroying ?? 0
@@ -443,13 +441,33 @@
     );
   }
 
+  function formationMarginHtml(order) {
+    const digits = String(order || "");
+    if (!digits) return "";
+    const players = 5;
+    const cells = [...digits].map((ch, i) => {
+      const seat = Number(ch) - 1;
+      const third = i > 0 && i % players === 0 ? " formation-third" : "";
+      return (
+        `<span class="formation-cell player-color-${seat}${third}">` +
+        `<span class="formation-digit">${escapeHtml(ch)}</span></span>`
+      );
+    }).join("");
+    return (
+      `<div class="formation-margin formation-left formation-full" aria-label="Lähtöjärjestys alhaalta ylös, ${escapeHtml(digits)}">` +
+      cells +
+      `</div>`
+    );
+  }
+
   function renderMaulingFancyHtml(card) {
     const effect = card.effect || {};
-    const target = effect.target || "?";
+    const target = effect.target_label || effect.target || "?";
     const atype = effect.attack_type || "G";
     const hitCat = Number(effect.hit_category || 0);
     const discardN = Number(effect.discard || 0);
     const failHit = Number(effect.fail_hit_category || 0);
+    const forms = card.formations || {};
 
     const targetBox = fancyBox(
       t("mauling.target_type"),
@@ -474,9 +492,14 @@
     }
 
     return (
+      `<div class="formation-mid">` +
+      formationMarginHtml(forms["5"]) +
+      `<div class="formation-core">` +
       `<div class="fancy-eyebrow">${escapeHtml(t("deck.mauling"))}</div>` +
       `<div class="fancy-title">${escapeHtml(card.name || "?")}</div>` +
-      `<div class="fancy-body">${targetBox}${effectBox}</div>`
+      `<div class="fancy-body">${targetBox}${effectBox}</div>` +
+      `</div>` +
+      `</div>`
     );
   }
 
@@ -562,42 +585,51 @@
     return raw.split("").join("/");
   }
 
+  function officerFaceHtml(card) {
+    const face = card.display || {};
+    const troop = face.troop_label || officerTroopLabel(card.troop_type);
+    const zone = face.zone || card.zone || "";
+    const title = face.title || card.name || "Upseeri";
+    const cost = face.cost || "";
+    const effects = face.effects || (face.mode === "passive" ? "✦" : "");
+    const detail = face.detail || "";
+    const mark =
+      face.mode === "passive"
+        ? `<span class="passive-clue" title="Muokkaa toista toimintoa">✦</span>`
+        : "";
+    return (
+      `<div class="face officer-face troop-${escapeHtml(face.troop_key || "any")}">` +
+      `<div class="face-head"><span>${escapeHtml(troop)}</span><span>${escapeHtml(zone)}</span></div>` +
+      `<div class="face-title">${escapeHtml(title)}${mark}</div>` +
+      `<div class="face-meta">` +
+      `<span class="cost">${escapeHtml(cost)}</span>` +
+      `<span class="effects">${escapeHtml(effects)}</span>` +
+      `</div>` +
+      (detail ? `<div class="officer-detail">${escapeHtml(detail)}</div>` : "") +
+      `</div>`
+    );
+  }
+
   function renderOfficerFancyHtml(card) {
-    const mode = officerMode(card);
-    const modeLabel =
-      mode === "discard" ? t("officer.discard") : t("officer.always_on");
-    const desc = officerActionDescription(card);
-    const troop = officerTroopLabel(card.troop_type);
-    const zone = card.zone ? String(card.zone) : "—";
-    const limitsBox = fancyBox(
-      "",
-      `<span>${escapeHtml(t("officer.troop"))}: <strong>${escapeHtml(troop)}</strong>` +
-        ` · ${escapeHtml(t("officer.zone"))}: <strong>${escapeHtml(zone)}</strong></span>` +
-        (mode === "discard" && card.cost != null && String(card.cost) !== ""
-          ? `<span>${escapeHtml(t("officer.cost"))}: <strong>${escapeHtml(String(card.cost))}</strong></span>`
-          : "")
-    );
-    const actionBox = fancyBox(
-      modeLabel,
-      `<span>${escapeHtml(String(desc))}</span>`
-    );
     return (
       `<div class="fancy-eyebrow">${escapeHtml(t("deck.officer"))}</div>` +
-      `<div class="fancy-title">${escapeHtml(card.name || "?")}</div>` +
-      `<div class="fancy-body">${limitsBox}${actionBox}</div>`
+      officerFaceHtml(card)
     );
   }
 
   function renderOfficerTuckHtml(card) {
-    const mode = officerMode(card);
-    const modeLabel =
-      mode === "discard" ? t("officer.discard") : t("officer.always_on");
-    const desc = officerActionDescription(card);
+    const face = card.display || {};
+    const title = face.title || card.name || "Upseeri";
+    const cost = face.cost || "";
+    const effects = face.effects || (officerMode(card) === "always_on" ? "✦" : "");
+    const detail = face.detail || officerActionDescription(card);
     return (
-      `<div class="officer-tuck-name">${escapeHtml(card.name || "Upseeri")}</div>` +
-      `<div class="officer-tuck-action">${escapeHtml(modeLabel)} · ${escapeHtml(
-        String(desc)
-      )}</div>`
+      `<div class="officer-tuck-name">${escapeHtml(title)}</div>` +
+      `<div class="face-meta officer-tuck-meta">` +
+      `<span class="cost">${escapeHtml(cost)}</span>` +
+      `<span class="effects">${escapeHtml(effects)}</span>` +
+      `</div>` +
+      (detail ? `<div class="officer-tuck-action">${escapeHtml(detail)}</div>` : "")
     );
   }
 
@@ -606,6 +638,7 @@
     if (deckKey === "resistance" && (card.effect || card.ambush_attack_name != null)) {
       el.innerHTML = renderResistanceFancyHtml(card);
     } else if (deckKey === "mauling" && card.effect) {
+      if (card.formations) el.classList.add("has-formation");
       el.innerHTML = renderMaulingFancyHtml(card);
     } else if (deckKey === "pillage" && card.reward) {
       el.innerHTML = renderPillageFancyHtml(card);
@@ -682,6 +715,16 @@
     } else {
       title.textContent = face.title;
     }
+    const clues = Array.isArray(face.passive_clues) ? face.passive_clues : [];
+    if (clues.length) {
+      const clue = document.createElement("span");
+      clue.className = "passive-clue";
+      clue.textContent = "✦";
+      clue.title = clues
+        .map((c) => c.name || c.effect || "Upseeri")
+        .join(", ");
+      title.appendChild(clue);
+    }
 
     const meta = document.createElement("div");
     meta.className = "face-meta";
@@ -693,7 +736,54 @@
     faceEl.appendChild(title);
     faceEl.appendChild(meta);
     if (onClick && clickable) faceEl.addEventListener("click", onClick);
+    bindActionTip(faceEl, face.help);
     return faceEl;
+  }
+
+  const actionTipHover = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+  let actionTipEl = null;
+
+  function actionTip() {
+    if (actionTipEl) return actionTipEl;
+    actionTipEl = document.createElement("div");
+    actionTipEl.id = "actionTip";
+    actionTipEl.className = "action-tip hidden";
+    actionTipEl.setAttribute("role", "tooltip");
+    document.body.appendChild(actionTipEl);
+    return actionTipEl;
+  }
+
+  function hideActionTip() {
+    const tip = actionTip();
+    tip.classList.add("hidden");
+    tip.innerHTML = "";
+  }
+
+  function showActionTip(anchor, help) {
+    const tip = actionTip();
+    tip.innerHTML =
+      `<div class="tip-fi-title">${escapeHtml(help.finnish_title || "")}</div>` +
+      `<p class="tip-fi">${escapeHtml(help.finnish_explanation || "")}</p>`;
+    tip.classList.remove("hidden");
+    const rect = anchor.getBoundingClientRect();
+    const width = tip.offsetWidth;
+    const height = tip.offsetHeight;
+    let left = rect.right + 10;
+    if (left + width > window.innerWidth - 8) left = rect.left - width - 10;
+    if (left < 8) left = 8;
+    let top = rect.top;
+    if (top + height > window.innerHeight - 8) top = window.innerHeight - height - 8;
+    if (top < 8) top = 8;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  }
+
+  function bindActionTip(faceEl, help) {
+    if (!actionTipHover || !help) return;
+    if (!help.finnish_explanation) return;
+    faceEl.classList.add("has-action-tip");
+    faceEl.addEventListener("mouseenter", () => showActionTip(faceEl, help));
+    faceEl.addEventListener("mouseleave", hideActionTip);
   }
 
   function buildCardBack(playerNum) {
@@ -760,9 +850,25 @@
     const contrastMode = choosing || Boolean(legalSet) || resolved || frustrated;
 
     const facesList = cardData.faces || [];
-    const isSingleActionCard = facesList.length === 1;
+    const troopSlots = facesInTroopSlots(facesList);
+    const faceEntries = troopSlots
+      ? troopSlots.map((slot, slotIndex) =>
+          slot
+            ? { face: slot.face, faceIndex: slot.faceIndex }
+            : { emptyKey: TROOP_SLOT_ORDER[slotIndex] }
+        )
+      : facesList.map((face, faceIndex) => ({ face, faceIndex }));
 
-    facesList.forEach((face, faceIndex) => {
+    faceEntries.forEach((entry) => {
+      if (entry.emptyKey) {
+        const emptyFaceEl = document.createElement("div");
+        emptyFaceEl.className = `face empty-face troop-${entry.emptyKey}`;
+        emptyFaceEl.setAttribute("aria-hidden", "true");
+        el.appendChild(emptyFaceEl);
+        return;
+      }
+      const face = entry.face;
+      const faceIndex = entry.faceIndex;
       let clickable = false;
       let strike = false;
       let chosen = false;
@@ -801,20 +907,12 @@
         onClick: handler,
       });
 
-      if (isSingleActionCard) {
+      if (!troopSlots && facesList.length === 1) {
         faceEl.classList.add("single-action-face");
       }
 
       el.appendChild(faceEl);
     });
-
-    if (facesList.length === 3) {
-      // Append a 4th empty face block
-      const emptyFaceEl = document.createElement("div");
-      emptyFaceEl.className = "face empty-face";
-      emptyFaceEl.innerHTML = `<div class="face-title" style="visibility: hidden; font-size: 0.92rem;">&nbsp;</div>`;
-      el.appendChild(emptyFaceEl);
-    }
 
     if (choosing && highlightOptions) {
       highlightOptions
@@ -850,8 +948,22 @@
       p &&
       p.choicetype === CT.CHOOSE_CARD &&
       (p.assign_units || []).length === p.num_choice &&
-      p.num_choice >= 2
+      p.num_choice >= 1
     );
+  }
+
+  const TROOP_SLOT_ORDER = ["panzer", "infantry", "logistics", "any"];
+
+  function facesInTroopSlots(faces) {
+    if (!Array.isArray(faces) || faces.length !== 3) return null;
+    const slots = TROOP_SLOT_ORDER.map(() => null);
+    for (let faceIndex = 0; faceIndex < faces.length; faceIndex++) {
+      const face = faces[faceIndex];
+      const slot = TROOP_SLOT_ORDER.indexOf(face.troop_key || "");
+      if (slot < 0 || slots[slot]) return null;
+      slots[slot] = { face, faceIndex };
+    }
+    return slots;
   }
 
   function isActionSelect(snap) {
@@ -1110,52 +1222,26 @@
     return token.repeat(count);
   }
 
-  function unitDamageCount(u) {
-    const carry = Array.isArray(u.carry) ? u.carry.length : 0;
-    return Math.max(0, 3 - carry);
-  }
-
   function statusCountsForUnit(u) {
     return {
       tired: Math.max(0, Number(u.tiredness) || 0),
       influence: Number(u.under_influence) > 0 ? 1 : 0,
-      damage: unitDamageCount(u),
       atrocity: Math.max(0, Number(u.atrocities) || 0),
     };
   }
 
-  function statusCountsForResistance(res) {
-    if (!res || !res.active) {
-      return { tired: 0, influence: 0, damage: 0, atrocity: 0 };
-    }
-    const key = `res:${res.name}`;
-    const dur = Number(res.durability);
-    if (!Number.isFinite(dur)) {
-      return { tired: 0, influence: 0, damage: 0, atrocity: 0 };
-    }
-    // Track baseline max durability per resistance name for damage chips.
-    if (prevStatus[key] == null) {
-      prevStatus[`${key}:maxDur`] = { tired: 0, influence: 0, damage: dur, atrocity: 0 };
-    }
-    const maxDur = Math.max(
-      Number(prevStatus[`${key}:maxDur`]?.damage) || dur,
-      dur
-    );
-    prevStatus[`${key}:maxDur`] = { tired: 0, influence: 0, damage: maxDur, atrocity: 0 };
-    return {
-      tired: 0,
-      influence: 0,
-      damage: Math.max(0, maxDur - dur),
-      atrocity: 0,
-    };
+  function statusCountsForResistance(_res) {
+    return { tired: 0, influence: 0, atrocity: 0 };
   }
 
-  function chipsHtml(counts, { haloKinds, blinkKinds, removedCounts } = {}) {
+  function chipsHtml(
+    counts,
+    { haloKinds, blinkKinds, removedCounts, damageMarkers, blinkDamage } = {}
+  ) {
     const parts = [];
     const order = [
       ["tired", counts.tired],
       ["influence", counts.influence],
-      ["damage", counts.damage],
       ["atrocity", counts.atrocity],
     ];
     order.forEach(([kind, n]) => {
@@ -1170,7 +1256,7 @@
     });
     // Ghost chips with blinking red X only while this pause is awaiting continue.
     if (removedCounts) {
-      ["tired", "influence", "damage", "atrocity"].forEach((kind) => {
+      ["tired", "influence", "atrocity"].forEach((kind) => {
         const n = removedCounts[kind] || 0;
         for (let i = 0; i < n; i++) {
           parts.push(
@@ -1180,13 +1266,46 @@
         }
       });
     }
-    return parts.length
-      ? `<div class="status-overlay">${parts.join("")}</div>`
+    const cards = damageCardsHtml(damageMarkers, {
+      blinkFresh: Boolean(blinkDamage),
+    });
+    const body = parts.join("") + cards;
+    return body
+      ? `<div class="status-overlay">${body}</div>`
       : `<div class="status-overlay"><span class="muted">—</span></div>`;
   }
 
+  function moneyCardsHtml(counters, blink) {
+    return (counters || [])
+      .map((counter) => {
+        const value = Number(counter.value);
+        const shown = Number.isFinite(value) ? value : "";
+        const fresh = blink && counter.fresh ? " blink" : "";
+        return `<span class="money-card money-${shown}${fresh}">${shown}$</span>`;
+      })
+      .join("");
+  }
+
+  function damageCardsHtml(markers, { blinkFresh } = {}) {
+    return (markers || [])
+      .map((marker) => {
+        const damage = Number(marker.damage);
+        const blink = blinkFresh && marker.fresh ? " blink" : "";
+        const shown = Number.isFinite(damage) ? damage : "";
+        return (
+          `<span class="dmg-card${blink}" title="vahinko">` +
+          `<span class="dmg-boom" aria-hidden="true">💥</span>` +
+          `<span class="dmg-num">${shown}</span></span>`
+        );
+      })
+      .join("");
+  }
+
   function unitTokenHtml(u, opts) {
-    return chipsHtml(statusCountsForUnit(u), opts);
+    return chipsHtml(statusCountsForUnit(u), {
+      ...opts,
+      damageMarkers: u.damage_markers || [],
+    });
   }
 
   function pileOrigin(kind) {
@@ -1239,8 +1358,8 @@
     }
     const prev = prevStatus[key];
     const addedKinds = new Set();
-    const removedCounts = { tired: 0, influence: 0, damage: 0, atrocity: 0 };
-    ["tired", "influence", "damage", "atrocity"].forEach((kind) => {
+    const removedCounts = { tired: 0, influence: 0, atrocity: 0 };
+    ["tired", "influence", "atrocity"].forEach((kind) => {
       const delta = (nextCounts[kind] || 0) - (prev[kind] || 0);
       if (delta > 0) {
         addedKinds.add(kind);
@@ -1335,8 +1454,9 @@
     if (!el) return;
     el.innerHTML = "";
     const res = (snap.state && snap.state.resistance) || {};
+    const struck = Boolean(snap.awaiting_continue && snap.state && snap.state.resistance_struck);
     const card = document.createElement("div");
-    if (!res.active || !res.name) {
+    if ((!res.active || !res.name) && !struck) {
       card.className = "resistance-card inactive";
       card.innerHTML =
         `<div class="resistance-eyebrow">Vastarinta</div>` +
@@ -1344,7 +1464,11 @@
       el.appendChild(card);
       return;
     }
-    card.className = "resistance-card fancy-queue-card fancy-resistance";
+    const destroyed = struck && !res.active;
+    card.className =
+      "resistance-card fancy-queue-card fancy-resistance" +
+      (struck ? " hit-halo" : "") +
+      (destroyed ? " destroyed-wait" : "");
     card.dataset.statusTarget = "resistance";
     card.innerHTML = renderResistanceFancyHtml(res, {
       eyebrow: `${t("deck.resistance")} · este`,
@@ -1359,8 +1483,19 @@
       trackHalo: Boolean(snap.pause_after_actions),
     });
     const overlay = document.createElement("div");
-    overlay.innerHTML = chipsHtml(counts, deltaOpts);
+    overlay.innerHTML = chipsHtml(counts, {
+      ...deltaOpts,
+      damageMarkers: res.damage_markers || [],
+      blinkDamage: pauseActive,
+    });
     card.appendChild(overlay.firstChild);
+    if (destroyed) {
+      const cross = document.createElement("div");
+      cross.className = "resistance-cross";
+      cross.setAttribute("aria-hidden", "true");
+      cross.textContent = "✕";
+      card.appendChild(cross);
+    }
   }
 
   function renderConvoy(snap) {
@@ -1378,6 +1513,9 @@
     const assignSet = new Set((snap.pending && snap.pending.assign_units || []).map((u) => u.index));
     const convoy = snap.state.convoy || [];
     const numPlayers = (snap.state.players || []).length || 3;
+    const struckUnits = new Set(
+      snap.awaiting_continue ? (snap.state.struck_units || []) : []
+    );
 
     const items = convoy.map((u, i) => ({
       zone: u.zone || zoneAtIndex(i, convoy.length, numPlayers),
@@ -1396,7 +1534,8 @@
       unit.className =
         "unit" +
         (u.player === seatNum ? " yours" : "") +
-        ` ${playerColorClass(u.player)}`;
+        ` ${playerColorClass(u.player)}` +
+        (struckUnits.has(i) ? " unit-hit" : "");
       const typeLabel = u.unit_type_label || u.unit_type;
       unit.dataset.statusTarget = `unit-${i}`;
       const counts = statusCountsForUnit(u);
@@ -1413,7 +1552,10 @@
         pauseActive,
         trackHalo: Boolean(snap.pause_after_actions),
       });
-      unit.querySelector(".unit-tokens").innerHTML = unitTokenHtml(u, deltaOpts);
+      unit.querySelector(".unit-tokens").innerHTML = unitTokenHtml(u, {
+        ...deltaOpts,
+        blinkDamage: pauseActive,
+      });
 
       const slot = document.createElement("div");
       slot.className = "card-slot";
@@ -1555,8 +1697,10 @@
     const cats = catalog(snap);
     const used = assignedCardIds();
     const payMode = isPayCost(snap) || isDiscardPick(snap);
+    const singlePick = isSingleCardPick(snap);
     const need = snap.pending ? snap.pending.num_choice : 0;
     const payOpts = new Set((snap.pending && snap.pending.options) || []);
+    const singleOpts = singlePick ? new Set(snap.pending.options) : null;
 
     Object.keys(snap.hand_cards || {})
       .map(Number)
@@ -1564,11 +1708,12 @@
       .forEach((cid) => {
         if (used.has(cid)) return; // shown under a unit slot
         const selected = payPicks.includes(cid);
+        const canSingle = Boolean(singleOpts && singleOpts.has(cid));
         const card = buildActionCard(cats[String(cid)] || snap.hand_cards[String(cid)], {
           draggable: isAssignFlow(snap),
-          selectable: payMode,
+          selectable: payMode || canSingle,
           selected,
-          disabled: payMode && !payOpts.has(cid),
+          disabled: (payMode && !payOpts.has(cid)) || (singlePick && !canSingle),
           onClick: payMode
             ? () => {
                 if (!payOpts.has(cid)) return;
@@ -1579,7 +1724,9 @@
                 }
                 render(lastSnap);
               }
-            : null,
+            : canSingle
+              ? () => sendChoice([cid])
+              : null,
         });
         handEl.appendChild(card);
       });
@@ -1717,11 +1864,50 @@
     }
   }
 
+  function syncPlayerPrompt() {
+    const box = $("playerPrompt");
+    const panel = $("choicePanel");
+    if (!box || !panel) return;
+    if (panel.classList.contains("hidden")) {
+      box.classList.add("hidden");
+      $("playerPromptTitle").textContent = "";
+      $("playerPromptBody").textContent = "";
+      return;
+    }
+    const title = ($("choiceTitle").textContent || "").trim();
+    const desc = ($("choiceDesc").textContent || "").trim();
+    const hints = [...panel.querySelectorAll(".hint")]
+      .map((el) => (el.textContent || "").trim())
+      .filter(Boolean);
+    const body = hints.length ? hints.join("\n\n") : desc;
+    $("playerPromptTitle").textContent = title;
+    $("playerPromptBody").textContent = body;
+    box.classList.toggle("hidden", !title && !body);
+    panel.querySelectorAll(".hint").forEach((el) => el.classList.add("hidden"));
+    const opts = $("choiceOptions");
+    const hasControls = opts
+      ? [...opts.children].some((el) => !el.classList.contains("hidden"))
+      : false;
+    panel.classList.toggle("hidden", !hasControls);
+  }
+
+  function clearSideChoice() {
+    const el = $("sideChoice");
+    if (el) el.innerHTML = "";
+  }
+
+  function mountSide(node) {
+    const el = $("sideChoice");
+    if (el) el.appendChild(node);
+    else $("choiceOptions").appendChild(node);
+  }
+
   function renderChoicePanel(snap) {
     const panel = $("choicePanel");
     const opts = $("choiceOptions");
     const title = $("choiceTitle");
     opts.innerHTML = "";
+    clearSideChoice();
 
     if (snap.awaiting_continue || !snap.pending || snap.terminal) {
       panel.classList.add("hidden");
@@ -1751,7 +1937,7 @@
           buildTroopChip(t.unit_type, t.unit_type_label, true)
         );
       });
-      opts.appendChild(tray);
+      mountSide(tray);
 
       const allFilled = slots.every((s) => placementMap[s] != null);
       const actions = document.createElement("div");
@@ -1774,7 +1960,7 @@
       });
       actions.appendChild(clearBtn);
       actions.appendChild(okBtn);
-      opts.appendChild(actions);
+      mountSide(actions);
       return;
     }
 
@@ -1802,11 +1988,14 @@
       });
       actions.appendChild(clearBtn);
       actions.appendChild(okBtn);
+      mountSide(actions);
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent = "Vedä kortteja kädestä yksiköiden alle.";
+      hint.textContent =
+        units.length === 1
+          ? "Vedä kortti kädestä yksikön alle."
+          : "Vedä kortteja kädestä yksiköiden alle.";
       opts.appendChild(hint);
-      opts.appendChild(actions);
       return;
     }
 
@@ -1841,7 +2030,7 @@
       hint.className = "hint";
       hint.textContent = deckPick
         ? `Napsauta yksi nostetuista korteista — se menee ${queueKey}-jonoon kuvapuoli ylöspäin; muut poistetaan.`
-        : "Kortit ovat myös ryöstöjonossa. Napsauta yksi ryöstääksesi sen.";
+        : "Napsauta jonon ensimmäistä korttia tai mitä tahansa paljastettua korttia.";
       opts.appendChild(hint);
       const row = document.createElement("div");
       row.className = "card-row pillage-choices";
@@ -1882,7 +2071,7 @@
         btn.addEventListener("click", () => sendChoice([q.option]));
         actions.appendChild(btn);
       });
-      opts.appendChild(actions);
+      mountSide(actions);
       return;
     }
 
@@ -1897,8 +2086,9 @@
         : `Valitse ${need} korttia.`;
       opts.appendChild(hint);
       const status = document.createElement("p");
+      status.className = "pick-status";
       status.textContent = `Valittu: ${payPicks.length} / ${need}`;
-      opts.appendChild(status);
+      mountSide(status);
       const actions = document.createElement("div");
       actions.className = "choice-actions";
       const clearBtn = document.createElement("button");
@@ -1918,7 +2108,7 @@
       });
       actions.appendChild(clearBtn);
       actions.appendChild(okBtn);
-      opts.appendChild(actions);
+      mountSide(actions);
       return;
     }
 
@@ -1932,10 +2122,9 @@
       opts.appendChild(hint);
 
       const status = document.createElement("p");
-      status.style.fontSize = "1.1rem";
-      status.style.fontWeight = "bold";
+      status.className = "pick-status";
       status.textContent = `Selected: ${payPicks.length} / ${need}`;
-      opts.appendChild(status);
+      mountSide(status);
 
       const actions = document.createElement("div");
       actions.className = "choice-actions";
@@ -1963,7 +2152,7 @@
 
       actions.appendChild(clearBtn);
       actions.appendChild(okBtn);
-      opts.appendChild(actions);
+      mountSide(actions);
       return;
     }
 
@@ -1978,10 +2167,9 @@
       opts.appendChild(hint);
 
       const status = document.createElement("p");
-      status.style.fontSize = "1.1rem";
-      status.style.fontWeight = "bold";
+      status.className = "pick-status";
       status.textContent = `Current Order Configured (Drag cards in the queue to rearrange)`;
-      opts.appendChild(status);
+      mountSide(status);
 
       const actions = document.createElement("div");
       actions.className = "choice-actions";
@@ -2009,7 +2197,7 @@
 
       actions.appendChild(clearBtn);
       actions.appendChild(okBtn);
-      opts.appendChild(actions);
+      mountSide(actions);
       return;
     }
 
@@ -2033,7 +2221,7 @@
       contBtn.addEventListener("click", () => sendChoice([0]));
 
       actions.appendChild(contBtn);
-      opts.appendChild(actions);
+      mountSide(actions);
       return;
     }
 
@@ -2060,26 +2248,23 @@
 
       actions.appendChild(yesBtn);
       actions.appendChild(noBtn);
-      opts.appendChild(actions);
+      mountSide(actions);
       return;
     }
 
     if (isSingleCardPick(snap)) {
-      title.textContent = "Valitse kortti";
-      const row = document.createElement("div");
-      row.className = "card-row";
-      const cats = catalog(snap);
-      snap.pending.options.forEach((cid) => {
-        const card = cats[String(cid)];
-        if (!card) return;
-        row.appendChild(
-          buildActionCard(card, {
-            selectable: true,
-            onClick: () => sendChoice([cid]),
-          })
-        );
-      });
-      opts.appendChild(row);
+      const reason = (snap.pending.payload || {}).reason;
+      const waiting = /WAIT/i.test(snap.pending.description || "");
+      title.textContent = reason === "order_assign_card" ? "Käskytä" : "Valitse kortti";
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent =
+        reason === "order_assign_card"
+          ? "Napsauta kädestä kortti, joka annetaan odottavalle naapurille."
+          : waiting
+            ? "Napsauta kädestä kortti, joka lisätään tälle yksikölle."
+            : "Napsauta korttia kädestä.";
+      opts.appendChild(hint);
       return;
     }
 
@@ -2092,6 +2277,42 @@
       btn.textContent = `[${idx}] ${JSON.stringify(vec)}`;
       btn.addEventListener("click", () => sendChoice(vec));
       opts.appendChild(btn);
+    });
+  }
+
+  function renderHitDecks(snap) {
+    const el = $("hitDecks");
+    if (!el) return;
+    el.innerHTML = "";
+    const decks = (snap.state && snap.state.hit_decks) || [];
+    const showDrawn = Boolean(snap.awaiting_continue);
+    decks.forEach((deck) => {
+      const pair = document.createElement("div");
+      pair.className = `hit-pair hit-cat-${deck.category}`;
+
+      const pile = document.createElement("div");
+      pile.className = "pile-box draw hit-pile";
+      pile.innerHTML =
+        `<span class="pile-kind">Vahinko</span>` +
+        `<span class="pile-name">${escapeHtml(deck.label || "")}</span>` +
+        `<span class="pile-count">${Number(deck.deck) || 0}</span>`;
+      pair.appendChild(pile);
+
+      const slot = document.createElement("div");
+      slot.className = "hit-drawn-slot";
+      if (showDrawn) {
+        (deck.drawn || []).forEach((card) => {
+          const face = document.createElement("div");
+          face.className = "hit-drawn blink";
+          const damage = Number(card.damage);
+          face.innerHTML =
+            `<div class="hit-drawn-damage"><span class="hit-boom" aria-hidden="true">💥</span>${Number.isFinite(damage) ? damage : ""}</div>` +
+            `<div class="hit-drawn-caption">vahinko</div>`;
+          slot.appendChild(face);
+        });
+      }
+      pair.appendChild(slot);
+      el.appendChild(pair);
     });
   }
 
@@ -2146,7 +2367,12 @@
       else if (row.key === "mauling") queueCode = 1;
       else if (row.key === "resistance") queueCode = 2;
 
-      if (!queue.length) {
+      const setupOrder =
+        row.key === "mauling" && snap.state && snap.state.setup_order_card
+          ? snap.state.setup_order_card
+          : null;
+
+      if (!queue.length && !setupOrder) {
         const empty = document.createElement("div");
         empty.className = "queue-empty";
         empty.textContent = "—";
@@ -2195,6 +2421,21 @@
             cardEl.className =
               "queue-card face-down" + (isFront ? " is-front" : "");
             cardEl.innerHTML = `<div class="queue-card-mark">🂠</div>`;
+          }
+
+          if (
+            isPillagePick(snap) &&
+            row.key === "pillage" &&
+            (snap.pending.payload || {}).reason === "pillage"
+          ) {
+            const offered = (snap.pending.payload || {}).pillage_cards || [];
+            const match = offered.find((c) => c.index === i);
+            if (match) {
+              cardEl.classList.add("scout-selectable");
+              cardEl.setAttribute("role", "button");
+              cardEl.tabIndex = 0;
+              cardEl.addEventListener("click", () => sendChoice([match.id]));
+            }
           }
 
           // --- 0. OFFICER PROMOTE: click queue card (option = queue index) ---
@@ -2290,6 +2531,12 @@
 
           track.appendChild(cardEl);
         }
+        if (setupOrder) {
+          const orderEl = document.createElement("div");
+          orderEl.className = "queue-card face-up setup-order-halo";
+          fillFancyQueueCard(orderEl, setupOrder, "mauling");
+          track.appendChild(orderEl);
+        }
       }
       rowEl.appendChild(track);
       el.appendChild(rowEl);
@@ -2339,6 +2586,7 @@
   }
 
   function render(snap) {
+    hideActionTip();
     noteQueueReveals(snap);
     lastSnap = snap;
     const state = snap.state || {};
@@ -2365,6 +2613,7 @@
     renderHand(snap);
     renderContinuePanel(snap);
     renderChoicePanel(snap);
+    syncPlayerPrompt();
 
     const playersEl = $("players");
     playersEl.innerHTML = "";
@@ -2375,15 +2624,28 @@
         (p.number === seatNum ? " you" : "") +
         ` ${playerColorClass(p.number)}`;
       const cards = p.cards ? p.cards.join(", ") : `(${p.card_count})`;
+      const bank = Math.max(0, Number(p.total_cash) - Number(p.cash_this_round || 0));
+      const blink = Boolean(snap.awaiting_continue);
       div.innerHTML =
         `<strong>Pelaaja ${p.number}</strong>` +
         (p.number === seatNum ? " (sinä)" : "") +
-        `<br/>PP ${p.promotion_points} · cash ${p.total_cash} (+${p.cash_this_round})` +
-        `<br/>kortit: ${cards}`;
+        `<div class="pp-line">PP ${p.promotion_points}</div>` +
+        `<div class="cash-piles">` +
+        `<div class="cash-pile">` +
+        `<span class="cash-label">Kierros ${Number(p.cash_this_round) || 0}</span>` +
+        `<div class="cash-cards">${moneyCardsHtml(p.round_counters, blink)}</div>` +
+        `</div>` +
+        `<div class="cash-pile cash-bank">` +
+        `<span class="cash-label">Kassa ${bank}</span>` +
+        `<div class="cash-cards">${moneyCardsHtml(p.bank_counters, blink)}</div>` +
+        `</div>` +
+        `</div>` +
+        `<div class="hand-line">kortit: ${escapeHtml(cards)}</div>`;
       playersEl.appendChild(div);
     });
 
     renderDeckRows(snap);
+    renderHitDecks(snap);
     renderLog(snap);
 
     if (snap.terminal) {

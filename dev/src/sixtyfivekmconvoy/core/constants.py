@@ -65,7 +65,9 @@ class AttackType:
     G (ground)     | defend                  | Defend
     S (sabotage)   | patrol                  | Patrol
 
-    Soak: unit.defending == attack_type. Rewards from config (SOAK_*_CASH / SOAK_*_ATROCITIES).
+    A matching defence lowers this category one step on ATTACK_CATEGORIES
+    (10→5→3→1→0) for the defender and for a neighbour in the same stance.
+    Rewards come from config (SOAK_*_CASH / SOAK_*_ATROCITIES).
     """
 
     AIR = "A"
@@ -75,7 +77,22 @@ class AttackType:
     ALL = frozenset({AIR, GROUND, SABOTAGE, RESISTANCE})
 
 
-# Defence action → attack letter it soaks.
+# Hit-table ranks. Each rank is its own deck; the card's reverse is that many dollars.
+ATTACK_CATEGORIES = (1, 3, 5, 10)
+
+
+def lower_attack_category(category: int, steps: int) -> int:
+    """Step down the 10 → 5 → 3 → 1 ladder. Zero means the attack draws nothing."""
+    if steps <= 0:
+        return category
+    ladder = (0,) + ATTACK_CATEGORIES
+    if category not in ladder:
+        raise ValueError(f"Attack category must be one of {ladder}, got {category}")
+    index = ladder.index(category)
+    return ladder[max(0, index - steps)]
+
+
+# Defence action → attack letter it lowers.
 ATTACK_TYPE_BY_DEFENCE_ACTION = {
     ActionName.HUMAN_SHIELDS: AttackType.AIR,
     ActionName.DEFEND: AttackType.GROUND,

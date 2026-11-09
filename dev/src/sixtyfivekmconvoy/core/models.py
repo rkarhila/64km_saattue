@@ -24,6 +24,8 @@ class Player:
         self.name = name or f"player_{number}"
         self.this_round_cash = 0
         self.total_cash = 0
+        self.round_counters: list[dict] = []
+        self.bank_counters: list[dict] = []
         self.promotion_points = 0
         self.action_cards: list[int] = []
         self.action_deck: CardDeck | None = None
@@ -38,11 +40,35 @@ class Player:
         before = self.total_cash
         self.this_round_cash += cash
         self.total_cash += cash
+        if self.engine is not None and cash > 0:
+            self.round_counters.extend(self.engine.draw_money(cash))
         ledger = getattr(self.engine, "cash_sources", None) if self.engine is not None else None
         if ledger is not None and source and cash > 0:
             ledger[self.number][source] += int(cash)
         if self.engine is not None and cash > 0:
             self.engine._on_cash_gained(self, before)
+
+    def bank_round_cash(self) -> None:
+        """Move this round's counters into the player's total pool."""
+        self.bank_counters.extend(self.round_counters)
+        self.round_counters = []
+        self.this_round_cash = 0
+
+    def pay_cash(self, amount: int) -> int:
+        """Spend counters, bank first. Returns how much total cash fell."""
+        if amount <= 0:
+            return 0
+        owed = min(amount, self.total_cash)
+        if self.engine is None:
+            self.total_cash -= owed
+            return owed
+        paid = self.engine.pay_counters(self.bank_counters, owed)
+        if paid < owed:
+            from_round = self.engine.pay_counters(self.round_counters, owed - paid)
+            self.this_round_cash = max(0, self.this_round_cash - from_round)
+            paid += from_round
+        self.total_cash -= owed
+        return owed
 
     def can_discard(self, count: int) -> bool:
         return len(self.action_cards) >= count
@@ -68,6 +94,8 @@ class Player:
             "name": self.name,
             "cash_this_round": self.this_round_cash,
             "total_cash": self.total_cash,
+            "round_counters": [dict(counter) for counter in self.round_counters],
+            "bank_counters": [dict(counter) for counter in self.bank_counters],
             "promotion_points": self.promotion_points,
             "card_count": len(self.action_cards),
         }
@@ -98,6 +126,7 @@ class Unit:
         self.had_defended = False
         self.current_action_type: str | None = None
         self.officers: list[OfficerCard] = []
+        self.damage_markers: list[dict] = []
 
     def clear_state(self) -> None:
         self.actioncard = []
@@ -266,6 +295,7 @@ class Unit:
             "under_influence": self.under_influence,
             "atrocities": self.atrocities,
             "carry": list(self.carry),
+            "damage_markers": [dict(marker) for marker in self.damage_markers],
             "action": self._action_json(playerview),
             "officers": [o.describe() for o in self.officers],
             "zone": self.zone() if self.convoy else None,
@@ -450,23 +480,6 @@ class Convoy:
         if not isinstance(unit, Unit):
             raise ValueError(f"Target unit needs to be int or Unit, got {type(unit)}")
 
-        defend_soak = 0
-        for u in [unit] + unit.get_neighbours():
-            if u is not None and u.defending is not None and u.defending == attack_type:
-                defend_soak += 1
-                u.reward_defending()
-
-        if defend_soak > 0:
-            if damage + cards <= defend_soak:
-                return "Defense soaks up all damage."
-            while damage > 0 and defend_soak > 0:
-                damage -= 1
-                defend_soak -= 1
-            while cards > 0 and defend_soak > 0:
-                cards -= 1
-                defend_soak -= 1
-            msg += f"Defense soaks some damage; "
-
         if self.engine is not None and damage > 0:
             self.engine.round_unit_damage.append((unit.index(), damage))
 
@@ -479,10 +492,33 @@ class Convoy:
         msg += f"Unit at position {pos_1based} ({color} {troop}, index {u_idx}) takes {damage} damage"
         if status < 0:
             msg += " and is removed from convoy"
+            if self.engine is not None:
+                self.engine.recycle_damage_markers(unit)
             self.units.pop(unit.index())
         else:
             msg += f" and is left with {status} capacity"
         return msg
+
+    def category_after_defence(
+        self, unit: Unit, category: int, attack_type: str | None
+    ) -> int:
+        """
+        Each matching defence (this unit or a neighbour) lowers the category
+        one step: 10→5→3→1→0. Defenders are paid when they do so.
+        """
+        from .constants import lower_attack_category
+
+        if category <= 0 or not attack_type:
+            return category
+        steps = 0
+        for u in [unit, *unit.get_neighbours()]:
+            if u is not None and u.defending == attack_type:
+                steps += 1
+                u.reward_defending()
+                u.had_defended = True
+        if steps <= 0:
+            return category
+        return lower_attack_category(category, steps)
 
     def move_unit(self, position: int, move: int) -> int:
         new_position = position - move
@@ -493,6 +529,9 @@ class Convoy:
     def move_resting_and_damaged_units(self) -> None:
         # Drop trailing destroyed/damaged (empty carry) off the back
         while self.units and self.units[-1].is_damaged():
+            gone = self.units[-1]
+            if self.engine is not None:
+                self.engine.recycle_damage_markers(gone)
             self.units.pop()
 
         damaged: list[Unit] = []
@@ -539,6 +578,7 @@ class Resistance:
         self.durability = 0
         self.cash_for_destroying = 0
         self.damage_from_convoy: dict[str, int] = {}
+        self.damage_markers: list[dict] = []
         self.status = "inactive"
 
         if description is not None:
@@ -550,7 +590,8 @@ class Resistance:
             self.resistance_attack = effect.get("resistance_attack") or ""
             res_dmg = effect.get("resistance_damage") or "0"
             self.resistance_damage = int(res_dmg) if str(res_dmg).isdigit() else 0
-            self.resistance_target = effect.get("resistance_target") or ""
+            # Counterattack target lives on the mauling card. This column is ignored.
+            self.resistance_target = ""
 
             # Mapping for compatibility:
             if str(self.ambush_damage).isdigit():
@@ -587,12 +628,17 @@ class Resistance:
 
         if damage <= 0:
             return 0, "No damage dealt"
+        if self.engine is not None:
+            self.engine.resistance_struck = True
+            self.engine.attach_damage_marker(self, damage)
         self.durability -= damage
         if self.engine is not None:
             self.engine.round_resistance_damage += damage
         if self.durability <= 0:
             self.status = "destroyed"
             self.active = False
+            if self.engine is not None:
+                self.engine.recycle_damage_markers(self)
             self.distribute_loot()
             cash = int(self.cash_for_destroying or 0)
             if player is not None and cash > 0:
@@ -610,7 +656,8 @@ class Resistance:
         Ambush the convoy. Can be "reorder" or hit category damage.
         """
         assert self.engine is not None
-        
+        self.engine.clear_hit_draws()
+
         # 1. "reorder" ambush
         if self.ambush_damage == "reorder":
             in_target_zones: list[Unit] = []
@@ -632,22 +679,21 @@ class Resistance:
         
         damage = self.engine.draw_hit_damage(self.attack_category)
         if damage <= 0:
+            self.engine.discard_unclaimed_hits()
             return f"{self.name} attacks (cat {self.attack_category}) for 0 damage"
 
         from .actions import mauling_target_units
         try:
             targets = mauling_target_units(self.engine.convoy, self.ambush_target)
         except ValueError:
+            # Multi-zone ambush strings such as "AB" are not a single selector.
             targets = []
             for char in self.ambush_target:
                 if char in "ABCE":
                     targets.extend(self.engine.convoy.get_units_in_zone(char))
 
-        # Backward compatibility for legacy tests that don't specify target or expect target unit=1
         if not targets:
-            targets = [self.engine.convoy.units[0]] if self.engine.convoy.units else []
-
-        if not targets:
+            self.engine.discard_unclaimed_hits()
             return f"{self.name} attacks (cat {self.attack_category}) for {damage}: no units to hit"
 
         msgs = []
@@ -655,13 +701,19 @@ class Resistance:
             if unit not in self.engine.convoy.units:
                 continue
             dmg_msg = self.engine.convoy.apply_damage(damage, unit=unit)
+            if damage > 0 and unit in self.engine.convoy.units:
+                self.engine.attach_damage_marker(
+                    unit, damage, category=self.attack_category
+                )
             msgs.append(dmg_msg)
         
         # If there's only one message and it's a single-unit attack (or legacy), match old message format:
         if len(targets) == 1 and not self.ambush_attack:
+            self.engine.discard_unclaimed_hits()
             return f"{self.name} attacks (cat {self.attack_category}) for {damage}: " + msgs[0]
 
         prefix = f"{self.name} ambush ({self.ambush_attack}) " if self.ambush_attack else f"{self.name} attacks "
+        self.engine.discard_unclaimed_hits()
         return prefix + f"cat {self.attack_category} (damage {damage}): " + "; ".join(msgs)
 
     def distribute_loot(self) -> None:
@@ -670,6 +722,11 @@ class Resistance:
         for _ in range(self.loot):
             if self.engine.pillage_deck.deck:
                 self.engine.pillage_queue.put_card(self.engine.pillage_deck.get_card())
+
+    def _ambush_target_label(self) -> str:
+        from .i18n import format_mauling_target
+
+        return format_mauling_target(self.ambush_target)
 
     def to_json(self) -> dict:
         if not self.name:
@@ -688,12 +745,13 @@ class Resistance:
             "ambush_attack_name": self.ambush_attack,
             "ambush_damage": self.ambush_damage,
             "ambush_target": self.ambush_target,
+            "ambush_target_label": self._ambush_target_label(),
             "resistance_attack": self.resistance_attack_category,
             "resistance_attack_name": self.resistance_attack,
             "resistance_damage": self.resistance_damage,
-            "resistance_target": self.resistance_target,
             "target": self.target,
             "loot": self.loot,
             "cash_for_destroying": self.cash_for_destroying,
             "damage": dict(self.damage_from_convoy),
+            "damage_markers": [dict(marker) for marker in self.damage_markers],
         }

@@ -120,7 +120,8 @@ def test_mauling_resistance_attack():
     assert engine.resistance.attack_category == 1
     assert engine.resistance.ambush_target == "A1"
     assert engine.resistance.resistance_attack_category == 3
-    assert engine.resistance.resistance_target == "A1"
+    assert engine.resistance.resistance_target == ""
+    assert "resistance_target" not in engine.resistance.to_json()
 
     # Now let's run the R-type mauling card. The hit_category in the card description (e.g. 1)
     # should be overridden to 3 (the resistance_attack_category value).
@@ -149,14 +150,13 @@ def test_mauling_resistance_attack():
     
     assert "takes 4 damage" in msg2
 
-    # 3. Defensive soaking as "G".
-    # A unit defending against "G" should soak this R-type attack (since it counts as G).
-    # Let's re-seat custom convoy so we have a fresh unit with full capacity
+    # 3. Ground defence lowers the resistance category one step (3 → 1).
     _seat_custom_convoy(engine, [UnitType.INFANTRY])
     unit = engine.convoy.units[0]
-    # Let's set unit to defend as "G".
     unit.resolve_defend(AttackType.GROUND)
     assert unit.defending == "G"
+    drawn = []
+    engine.draw_hit_damage = lambda cat: drawn.append(cat) or (4 if cat == 3 else 0)
 
     gen3 = resolve_mauling(
         engine,
@@ -164,7 +164,7 @@ def test_mauling_resistance_attack():
             "name": "Resistance Ambush",
             "effect": {
                 "target": "A1",
-                "hit_category": 1, # Should be overridden to 3
+                "hit_category": 1, # Should be overridden to 3, then lowered to 1
                 "discard": 0,
                 "fail_hit_category": 0,
                 "attack_type": "R",
@@ -175,11 +175,68 @@ def test_mauling_resistance_attack():
         next(gen3)
     except StopIteration as stop:
         msg3 = stop.value
-    
-    assert "Defense soaks" in msg3 or "Defense soaks up all damage." in msg3
+
+    assert drawn == [1]
+    assert "lowers cat 3 to 1" in msg3
+    assert unit.player.total_cash > 0
 
     # Restore draw_hit_damage
     engine.draw_hit_damage = original_draw
+
+
+def test_resistance_counterattack_uses_mauling_target():
+    """The mauling card's target hits; the resistance card's old target does not."""
+    from sixtyfivekmconvoy.core.actions import resolve_mauling
+    from sixtyfivekmconvoy.core.models import Resistance
+
+    engine = GameEngine()
+    engine.reset(num_players=3, seed=7)
+    _seat_custom_convoy(
+        engine,
+        [UnitType.INFANTRY, UnitType.INFANTRY, UnitType.INFANTRY, UnitType.INFANTRY],
+    )
+    front, second = engine.convoy.units[0], engine.convoy.units[1]
+    assert front.zone() == "A" and second.zone() == "A"
+
+    engine.resistance = Resistance(
+        {
+            "name": "Sissit",
+            "effect": {
+                "ambush_attack": "Miina",
+                "ambush_damage": "1",
+                "ambush_target": "A1",
+                "resistance_attack": "Tarkk’ampujia",
+                "resistance_damage": "3",
+                "resistance_target": "A1",
+                "loot": 0,
+                "durability": 3,
+            },
+        },
+        engine,
+    )
+    engine.draw_hit_damage = lambda cat: 4 if cat == 3 else 0
+    gen = resolve_mauling(
+        engine,
+        {
+            "name": "Vastarinta hyökkää!",
+            "effect": {
+                "target": "A2",
+                "hit_category": 1,
+                "discard": 0,
+                "fail_hit_category": 0,
+                "attack_type": "R",
+            },
+        },
+    )
+    try:
+        next(gen)
+    except StopIteration as stop:
+        msg = stop.value
+    assert front in engine.convoy.units
+    assert not front.damage_markers
+    assert second not in engine.convoy.units
+    assert "position 2" in msg
+    assert "takes 4 damage" in msg
 
 
 def test_reorder_ambush():

@@ -8,6 +8,7 @@ from sixtyfivekmconvoy.core.models import UnitType
 
 
 def _seat_logistics_in_zone_ab(engine: GameEngine):
+    engine._open_table()
     if engine._unit_pool:
         engine.convoy.units = list(engine._unit_pool)
         engine._unit_pool = []
@@ -103,6 +104,42 @@ def test_resolve_sigint_only_offers_mauling_options():
         f"mauling:{engine.mauling_queue.deck.get_name(engine.mauling_queue.cards_and_visibilities[mauling_hidden[0]][0])}"
     ]
     assert engine.mauling_queue.cards_and_visibilities[mauling_hidden[0]][1] is True
+
+
+def test_sigint_flips_the_last_hidden_card_then_peeks_two():
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=12)
+    engine.pause_after_actions = False
+    logi = _seat_logistics_in_zone_ab(engine)
+    hidden = [
+        idx
+        for idx, (_, vis) in enumerate(engine.mauling_queue.cards_and_visibilities)
+        if not vis
+    ]
+    assert len(hidden) >= 2
+    for idx in hidden[1:]:
+        engine.mauling_queue.reveal_card(idx)
+    kept_down = hidden[0]
+
+    gen = action_mod.resolve_scout(
+        engine,
+        logi,
+        count=3,
+        allowed_queue_codes={action_mod.SCOUT_QUEUE_MAULING},
+        verb="sigint",
+    )
+    req = next(gen)
+    assert req.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
+    assert req.payload.get("queue") == "mauling"
+    assert len(req.options) == 2
+    assert engine.mauling_queue.cards_and_visibilities[kept_down][1] is True
+    keep = req.options[0]
+    try:
+        gen.send([keep])
+        raise AssertionError("expected StopIteration")
+    except StopIteration:
+        pass
+    assert engine.mauling_queue.cards_and_visibilities[-1] == [keep, True]
 
 
 def test_resolve_sigint_draws_from_mauling_deck_when_known():

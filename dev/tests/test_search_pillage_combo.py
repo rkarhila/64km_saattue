@@ -61,12 +61,7 @@ def test_resolve_search_pillage_combo_searches_then_pillages():
     assert req.payload.get("queue") == "pillage"
     keep = req.options[0]
 
-    # 2) After search places one card, pillage offers it.
-    req2 = gen.send([keep])
-    assert req2.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
-    assert req2.payload.get("reason") == "pillage"
-    assert keep in req2.options
-
+    # 2) The kept card is the only pillage choice, so a sober unit takes it.
     try:
         gen.send([keep])
         raise AssertionError("expected StopIteration")

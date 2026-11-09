@@ -35,6 +35,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "deck.mauling": "Moukarointi",
         "deck.officer": "Upseerit",
         "deck.hit": "Osuma",
+        "deck.hit_1": "1 $",
+        "deck.hit_3": "3 $",
+        "deck.hit_5": "5 $",
+        "deck.hit_10": "10 $",
         "ui.deck": "pakka",
         "ui.discard": "poistopino",
         "ui.queues": "Pakat ja jonot",
@@ -90,6 +94,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "deck.mauling": "Mauling",
         "deck.officer": "Officers",
         "deck.hit": "Hit",
+        "deck.hit_1": "1 $",
+        "deck.hit_3": "3 $",
+        "deck.hit_5": "5 $",
+        "deck.hit_10": "10 $",
         "ui.deck": "deck",
         "ui.discard": "discard",
         "ui.queues": "Decks and queues",
@@ -159,3 +167,75 @@ def unit_type_label(unittype: int, lang: str | None = None) -> str:
 def troop_label(troop_letter: str, lang: str | None = None) -> str:
     key = TROOP_LETTER_I18N_KEY.get(troop_letter.upper(), "unit.any")
     return t(key, lang=lang)
+
+
+_ZONE_ORDINALS = {
+    1: "ensimmäinen",
+    2: "toinen",
+    3: "kolmas",
+    4: "neljäs",
+    5: "viides",
+    6: "kuudes",
+}
+
+# (plural heading, singular heading) for convoy-order troop selectors.
+_TROOP_WHICH = {
+    "first": ("Etummaiset", "Etummainen"),
+    "second": ("Toiset", "Toinen"),
+    "second_last": ("Toiset", "Toinen"),
+    "last": ("Perimmäiset", "Perimmäinen"),
+}
+_TROOP_NOUN = {
+    0: ("panssarit", True),
+    1: ("jalkaväki", False),
+    2: ("huolto", False),
+}
+_ATROCITY_LABEL = {
+    "first": "Eniten hirmutekoja, kärjestä",
+    "second": "Toinen eniten hirmutekoja, kärjestä",
+    "second_last": "Toinen eniten hirmutekoja, perältä",
+    "last": "Eniten hirmutekoja, perältä",
+}
+
+
+def format_mauling_target(target: str) -> str:
+    """Finnish Kohde line for a mauling or ambush target code."""
+    text = (target or "").strip()
+    if not text or text == "-":
+        return ""
+    if all(ch in "ABCE" for ch in text):
+        if len(text) == 1:
+            return f"Kaikki vyöhykkeellä {text}"
+        if len(text) == 2:
+            return f"Vyöhykkeet {text[0]} ja {text[1]}"
+        return "Vyöhykkeet " + ", ".join(text[:-1]) + f" ja {text[-1]}"
+
+    from .cards import parse_mauling_target
+
+    try:
+        sel = parse_mauling_target(text)
+    except ValueError:
+        return text
+
+    kind = sel["kind"]
+    if kind == "none":
+        return ""
+    if kind == "zone":
+        return f"Kaikki vyöhykkeellä {sel['zone']}"
+    if kind == "zone_rel":
+        rel = int(sel["rel"])
+        n = abs(rel)
+        word = _ZONE_ORDINALS.get(n, f"{n}.")
+        side = "kärjestä" if rel > 0 else "perältä"
+        return f"Vyöhykkeen {sel['zone']} {word} {side}"
+    if kind == "type":
+        noun, plural = _TROOP_NOUN[int(sel["unit_type"])]
+        head = _TROOP_WHICH[sel["which"]][0 if plural else 1]
+        if sel["which"] == "second":
+            return f"{head} {noun} kärjestä"
+        if sel["which"] == "second_last":
+            return f"{head} {noun} perältä"
+        return f"{head} {noun}"
+    if kind == "atrocity":
+        return _ATROCITY_LABEL[sel["which"]]
+    return text

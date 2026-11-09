@@ -44,6 +44,8 @@ def parse_mauling_target(target: str) -> dict[str, Any]:
     text = (target or "").strip()
     if not text:
         raise ValueError("mauling target is empty")
+    if text == "-":
+        return {"kind": "none"}
 
     lower = text.lower()
     if lower.startswith("first:") or lower.startswith("last:") or lower.startswith("second:") or lower.startswith("second_last:"):
@@ -207,6 +209,8 @@ class CardQueue:
                 if isinstance(desc, dict):
                     if "effect" in desc:
                         entry["effect"] = desc["effect"]
+                    if desc.get("formations"):
+                        entry["formations"] = desc["formations"]
                     if "reward" in desc:
                         entry["reward"] = desc["reward"]
                     # Officer (and similar) structured describe() fields for fancy UI.
@@ -223,6 +227,7 @@ class CardQueue:
                         "cost",
                         "tire",
                         "intoxicate",
+                        "display",
                     ):
                         if key in desc and desc[key] is not None and desc[key] != "":
                             entry[key] = desc[key]
@@ -339,13 +344,42 @@ class OfficerCard:
             "cost": self.cost,
             "tire": self.tire,
             "intoxicate": self.intoxicate,
+            "display": self.display_face(),
+        }
+
+    def display_face(self) -> dict:
+        from .card_display import (
+            SYMBOL_PASSIVE,
+            format_face,
+            troop_label,
+        )
+
+        if self.discard_effect and self.action_type:
+            face = format_face(self.get_discard_action_description())
+            face["mode"] = "discard"
+            face["detail"] = self.discard_description
+            return face
+        troop = self.troop_type or "A"
+        return {
+            "mode": "passive",
+            "troop_label": troop_label(troop),
+            "troop_key": {"P": "panzer", "I": "infantry", "L": "logistics", "A": "any"}.get(
+                troop.upper()[:1], "any"
+            ),
+            "zone": self.zone or "",
+            "title": self.name,
+            "cost": "",
+            "effects": SYMBOL_PASSIVE,
+            "passive_mark": SYMBOL_PASSIVE,
+            "detail": self.passive_description or self.passive_effect or "",
         }
 
     def get_discard_action_description(self) -> dict | None:
         if not self.discard_effect or not self.action_type:
             return None
         return {
-            "name": self.action_type,
+            "name": self.name,
+            "officer_name": self.name,
             "action_name": ActionName.normalize(self.action_type),
             "action_modifier": self.action_modifier if self.action_modifier is not None else 0,
             "zone": self.zone or "",
@@ -378,7 +412,7 @@ class MaulingCard:
     """
     Mauling effect fields (CSV):
 
-      hit_category      — 1–4: draw hit-table damage for this category (0 = none)
+      hit_category      — 1, 3, 5, or 10: draw that category's damage deck (0 = none)
       discard           — force this many action-card discards from the target unit's
                           player (0 = none)
       fail_hit_category — if discard > 0 and the player cannot discard that many,
@@ -404,9 +438,14 @@ class MaulingCard:
     id: int
     name: str
     effect: dict
+    formations: dict = field(default_factory=dict)
 
     def describe(self) -> dict:
-        return {"name": self.name, "effect": self.effect}
+        return {
+            "name": self.name,
+            "effect": self.effect,
+            "formations": self.formations,
+        }
 
 
 @dataclass
@@ -429,25 +468,24 @@ class ResistanceCard:
 @dataclass
 class HitCard:
     """
-    One draw from the attack hit table.
+    One card in a single attack-category deck.
 
-    Categories (attack quality):
-      1 — logistics: damage 0–1
-      2 — infantry: damage 1–2
-      3 — superior infantry / normal panzer: damage 1–3
-      4 — heavy / superior panzer: damage 2–4
+    The face is the damage for that category. The reverse is a money counter
+    of ``cash`` dollars, which is the category itself: 1, 3, 5, or 10.
     """
 
     id: int
-    damage: dict[int, int]  # category -> damage
+    category: int
+    damage: int
+    cash: int
 
     def describe(self) -> dict:
-        return {"id": self.id, "damage": dict(self.damage)}
-
-    def damage_for(self, category: int) -> int:
-        if category not in self.damage:
-            raise KeyError(f"Hit card {self.id} has no category {category}")
-        return self.damage[category]
+        return {
+            "id": self.id,
+            "category": self.category,
+            "damage": self.damage,
+            "cash": self.cash,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +582,24 @@ def _int_or_zero(value: str | None) -> int:
     return int(text) if text else 0
 
 
+def _formation_column(card_id: int, num_players: int, raw: str | None) -> str:
+    """1-based seat string: three blocks, each a permutation of 1..n."""
+    text = (raw or "").strip()
+    expected = 3 * num_players
+    digits = "".join(str(n) for n in range(1, num_players + 1))
+    if len(text) != expected or any(ch not in digits for ch in text):
+        raise ValueError(
+            f"mauling {card_id}: pos_{num_players} must be {expected} digits in {digits}, got {text!r}"
+        )
+    for third in range(3):
+        block = text[third * num_players : (third + 1) * num_players]
+        if sorted(block) != sorted(digits):
+            raise ValueError(
+                f"mauling {card_id}: pos_{num_players} third {third + 1} must contain each of {digits} once, got {block!r}"
+            )
+    return text
+
+
 def load_mauling_deck() -> dict[int, MaulingCard]:
     deck: dict[int, MaulingCard] = {}
     with open(_cards_path("mauling.csv"), encoding="utf-8") as f:
@@ -553,25 +609,32 @@ def load_mauling_deck() -> dict[int, MaulingCard]:
             # S=sabotage (↔ patrol). First char of CSV value; see AttackType.
             from .constants import AttackType
 
+            raw_hit = (row.get("hit_category") or "").strip()
+            # R: category comes from the active resistance card, not a damage deck.
+            hit_from_resistance = raw_hit.upper() == "R"
+            hit_category = 1 if hit_from_resistance else _int_or_zero(raw_hit)
             attack_type = (row.get("attack_type") or row.get("type") or "G").strip() or "G"
             if len(attack_type) > 1:
                 attack_type = attack_type[0].upper()
             else:
                 attack_type = attack_type.upper()
+            if hit_from_resistance:
+                attack_type = AttackType.RESISTANCE
             if attack_type not in AttackType.ALL:
                 raise ValueError(
                     f"mauling {cid}: attack_type must be A/G/S/R, got {attack_type!r}"
                 )
-            hit_category = _int_or_zero(row.get("hit_category"))
             discard = _int_or_zero(row.get("discard"))
             fail_hit = _int_or_zero(row.get("fail_hit_category"))
-            if hit_category not in (0, 1, 2, 3, 4):
-                raise ValueError(f"mauling {cid}: hit_category must be 0–4")
-            if fail_hit not in (0, 1, 2, 3, 4):
-                raise ValueError(f"mauling {cid}: fail_hit_category must be 0–4")
+            if hit_category not in (0, 1, 3, 5, 10):
+                raise ValueError(f"mauling {cid}: hit_category must be 0, 1, 3, 5, or 10")
+            if fail_hit not in (0, 1, 3, 5, 10):
+                raise ValueError(
+                    f"mauling {cid}: fail_hit_category must be 0, 1, 3, 5, or 10"
+                )
             if discard > 0 and fail_hit <= 0:
                 raise ValueError(
-                    f"mauling {cid}: discard>0 requires fail_hit_category 1–4"
+                    f"mauling {cid}: discard>0 requires fail_hit_category 1, 3, 5, or 10"
                 )
             if hit_category <= 0 and discard <= 0:
                 raise ValueError(
@@ -582,16 +645,25 @@ def load_mauling_deck() -> dict[int, MaulingCard]:
                 parse_mauling_target(target)
             except ValueError as exc:
                 raise ValueError(f"mauling {cid}: {exc}") from exc
+            from .i18n import format_mauling_target
+
             deck[cid] = MaulingCard(
                 id=cid,
                 name=row["name"].strip(),
                 effect={
                     "target": target,
+                    "target_label": format_mauling_target(target),
                     "hit_category": hit_category,
                     "discard": discard,
                     "fail_hit_category": fail_hit,
                     "attack_type": attack_type,
                     "atrocity_threshold": _int_or_zero(row.get("atrocity_threshold")),
+                },
+                formations={
+                    "2": _formation_column(cid, 2, row.get("pos_2")),
+                    "3": _formation_column(cid, 3, row.get("pos_3")),
+                    "4": _formation_column(cid, 4, row.get("pos_4")),
+                    "5": _formation_column(cid, 5, row.get("pos_5")),
                 },
             )
     return deck
@@ -602,21 +674,36 @@ def load_resistance_deck() -> dict[int, ResistanceCard]:
     with open(_cards_path("resistance.csv"), encoding="utf-8") as f:
         for row in csv.DictReader(f):
             cid = int(row["card_id"].strip())
+            ambush_damage = row.get("ambush_damage", "").strip()
+            resistance_damage = row.get("resistance_damage", "").strip()
+            for field, value in (
+                ("ambush_damage", ambush_damage),
+                ("resistance_damage", resistance_damage),
+            ):
+                if value.isdigit() and int(value) not in (0, 1, 3, 5, 10):
+                    raise ValueError(
+                        f"resistance {cid}: {field} must be 0, 1, 3, 5, or 10"
+                    )
             min_players = int((row.get("min_players") or "2").strip() or 2)
             starting_raw = (row.get("starting") or "0").strip().lower()
             starting = starting_raw in ("1", "true", "yes", "y")
+            from .i18n import format_mauling_target
+
+            ambush_target = row.get("ambush_target", "").strip()
             deck[cid] = ResistanceCard(
                 id=cid,
                 name=row["name"].strip(),
                 effect={
                     "ambush_attack": row.get("ambush_attack", "").strip(),
-                    "ambush_damage": row.get("ambush_damage", "").strip(),
-                    "ambush_target": row.get("ambush_target", "").strip(),
+                    "ambush_damage": ambush_damage,
+                    "ambush_target": ambush_target,
+                    "ambush_target_label": format_mauling_target(ambush_target),
                     "resistance_attack": row.get("resistance_attack", "").strip(),
-                    "resistance_damage": row.get("resistance_damage", "").strip(),
-                    "resistance_target": row.get("resistance_target", "").strip(),
+                    "resistance_damage": resistance_damage,
+                    # resistance_target is ignored: a counterattack's target is
+                    # the mauling card that triggers it. Only ambush_target applies.
                     "attack": 0,
-                    "target": row.get("ambush_target", "").strip(),
+                    "target": ambush_target,
                     "loot": int(row["loot"].strip()) if row.get("loot") else 0,
                     "durability": int(row["durability"].strip()) if row.get("durability") else 0,
                     "cash_for_destroying": (
@@ -643,6 +730,7 @@ def select_resistance_deck(
     *,
     catalog: dict[int, ResistanceCard] | None = None,
     pool_size: int | None = None,
+    shuffle: bool = True,
 ) -> tuple[int, list[int]]:
     """
     Build the in-game resistance deck for `num_players`.
@@ -677,37 +765,41 @@ def select_resistance_deck(
     ]
     take = min(pool_size, len(eligible))
     chosen = rng.sample(eligible, take) if take else []
-    rng.shuffle(chosen)
+    if shuffle:
+        rng.shuffle(chosen)
     return starter.id, chosen
 
 
-def load_hit_deck() -> dict[int, HitCard]:
-    """Load the attack hit-table deck (category → damage per card)."""
-    deck: dict[int, HitCard] = {}
+def load_hit_decks() -> dict[int, dict[int, HitCard]]:
+    """One deck per attack category. Card backs are 1 $, 3 $, 5 $, and 10 $."""
+    from .constants import ATTACK_CATEGORIES
+
+    columns = {1: "damage_1", 3: "damage_3", 5: "damage_5", 10: "damage_10"}
     allowed = {
         1: {0, 1},
-        2: {1, 2},
-        3: {1, 2, 3},
-        4: {2, 3, 4},
+        3: {1, 2},
+        5: {1, 2, 3},
+        10: {2, 3, 4},
     }
+    decks: dict[int, dict[int, HitCard]] = {cat: {} for cat in ATTACK_CATEGORIES}
     with open(_cards_path("hit.csv"), encoding="utf-8") as f:
         for row in csv.DictReader(f):
             cid = int(row["card_id"].strip())
-            damage = {
-                1: int(row["damage_1"].strip()),
-                2: int(row["damage_2"].strip()),
-                3: int(row["damage_3"].strip()),
-                4: int(row["damage_4"].strip()),
-            }
-            for cat, value in damage.items():
+            for cat, column in columns.items():
+                value = int(row[column].strip())
                 if value not in allowed[cat]:
                     raise ValueError(
                         f"hit.csv card {cid} category {cat} has invalid damage {value}"
                     )
-            deck[cid] = HitCard(id=cid, damage=damage)
-    if len(deck) != 50:
-        raise ValueError(f"hit.csv must contain 50 cards, found {len(deck)}")
-    return deck
+                decks[cat][cid] = HitCard(
+                    id=cid, category=cat, damage=value, cash=cat
+                )
+    for cat, deck in decks.items():
+        if len(deck) != 50:
+            raise ValueError(
+                f"hit.csv category {cat} must contain 50 cards, found {len(deck)}"
+            )
+    return decks
 
 
 # Cached catalogs (immutable definitions)
@@ -716,4 +808,4 @@ OFFICER_CATALOG = load_officer_deck()
 PILLAGE_CATALOG = load_pillage_deck()
 MAULING_CATALOG = load_mauling_deck()
 RESISTANCE_CATALOG = load_resistance_deck()
-HIT_CATALOG = load_hit_deck()
+HIT_DECKS = load_hit_decks()

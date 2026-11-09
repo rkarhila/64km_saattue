@@ -42,17 +42,17 @@ def test_defend_soak_increments():
     ground.resolve_defend(AttackType.GROUND)
     cash_before = ground.player.total_cash
     atro_before = ground.atrocities
-    msg = convoy.apply_damage(1, unit=ground, attack_type=AttackType.GROUND)
-    assert "Defense" in msg
-    assert ground.player.total_cash == cash_before + SOAK_GROUND_CASH
-    assert ground.atrocities == atro_before + SOAK_GROUND_ATROCITIES
+    assert convoy.category_after_defence(ground, 10, AttackType.GROUND) == 5
+    assert convoy.category_after_defence(ground, 3, AttackType.GROUND) == 1
+    assert convoy.category_after_defence(ground, 1, AttackType.GROUND) == 0
+    assert ground.player.total_cash == cash_before + 3 * SOAK_GROUND_CASH
+    assert ground.atrocities == atro_before + 3 * SOAK_GROUND_ATROCITIES
 
     air = convoy.units[2]
     air.resolve_defend(AttackType.AIR)
     cash_before = air.player.total_cash
     atro_before = air.atrocities
-    msg = convoy.apply_damage(1, unit=air, attack_type=AttackType.AIR)
-    assert "Defense" in msg
+    assert convoy.category_after_defence(air, 5, AttackType.AIR) == 3
     assert air.player.total_cash == cash_before + SOAK_AIR_CASH
     assert air.atrocities == atro_before + SOAK_AIR_ATROCITIES
 
@@ -60,8 +60,7 @@ def test_defend_soak_increments():
     sabotage.resolve_defend(AttackType.SABOTAGE)
     cash_before = sabotage.player.total_cash
     atro_before = sabotage.atrocities
-    msg = convoy.apply_damage(1, unit=sabotage, attack_type=AttackType.SABOTAGE)
-    assert "Defense" in msg
+    assert convoy.category_after_defence(sabotage, 3, AttackType.SABOTAGE) == 1
     assert sabotage.player.total_cash == cash_before + SOAK_SABOTAGE_CASH
     assert sabotage.atrocities == atro_before + SOAK_SABOTAGE_ATROCITIES
 
@@ -178,6 +177,10 @@ def test_format_cost_follows_csv_formula():
     face = format_face(scout_faces[0])
     assert face["cost"] == scout
     assert face["reward"]["label"].startswith("(+")
+    assert face["action_name"] == "scout"
+    assert "{reveal_mauling_cash}" not in face["help"]["finnish_explanation"]
+    assert "1 rahan" in face["help"]["finnish_explanation"]
+    assert face["help"]["finnish_title"] == "Tiedustele"
 
     shields = format_face(
         {
@@ -200,6 +203,73 @@ def test_format_cost_follows_csv_formula():
     ]
     assert attack_faces
     assert all(a.cost == "1/T+1/U" for a in attack_faces)
+
+
+def test_import_replays_through_continue_pause():
+    from sixtyfivekmconvoy.api.session import SessionManager
+
+    manager = SessionManager()
+    session = manager.create(num_players=2, seed=1, pause_after_actions=True)
+    human = next(iter(session.human_seats))
+    session.apply_human_choice(human, [0, 1, 2])
+    reason = session.continue_block_reason(human)
+    assert reason
+    assert "Jatka" in reason
+    assert "Last log line:" in reason
+    imported = manager.create_from_state_string(session.get_shareable_state_string())
+    assert imported.continue_block_reason(human)
+
+
+def test_officer_face_matches_action_cost_row():
+    from sixtyfivekmconvoy.core.card_display import (
+        SYMBOL_OFFICER_DISCARD,
+        SYMBOL_PASSIVE,
+        SYMBOL_TIREDNESS,
+        passive_clues_for,
+    )
+    from sixtyfivekmconvoy.core.cards import OFFICER_CATALOG
+
+    hatka = OFFICER_CATALOG[9]
+    face = hatka.display_face()
+    assert face["mode"] == "discard"
+    assert face["title"] == hatka.name
+    assert face["cost"] == f"2🂠 + {SYMBOL_OFFICER_DISCARD}"
+    assert face["effects"] == ""
+
+    spent = OFFICER_CATALOG[6].display_face()
+    assert spent["cost"] == SYMBOL_OFFICER_DISCARD
+    assert SYMBOL_TIREDNESS in spent["effects"]
+
+    huikka = OFFICER_CATALOG[0].display_face()
+    assert huikka["mode"] == "passive"
+    assert huikka["effects"] == SYMBOL_PASSIVE
+    clues = passive_clues_for([OFFICER_CATALOG[0], OFFICER_CATALOG[1]], "pillage")
+    assert [c["name"] for c in clues] == [OFFICER_CATALOG[0].name]
+    assert passive_clues_for([OFFICER_CATALOG[1]], "attack")
+
+
+def test_action_help_covers_every_printed_action():
+    from sixtyfivekmconvoy.core.card_display import action_help_for, format_face
+    from sixtyfivekmconvoy.core.cards import ACTION_CATALOG
+
+    seen = set()
+    for card in ACTION_CATALOG.values():
+        for action in card.actions:
+            seen.add(action.action_name)
+            face = format_face(action)
+            assert face["help"]["finnish_explanation"]
+            assert face["help"]["english_explanation"]
+    assert "human shields" in seen
+    smoke = action_help_for("wait", "Röökitauko")
+    drink = action_help_for("wait", "Juomatauko")
+    assert smoke["finnish_title"] == "Röökitauko"
+    assert drink["finnish_title"] == "Juomatauko"
+    suggested = action_help_for("attack", "Tietokone ehdottaa: Hyökkää!")
+    assert suggested["finnish_title"] == "Hyökkää"
+    assert "{attack_cash}" not in suggested["finnish_explanation"]
+    assert "2 rahaa" in suggested["finnish_explanation"]
+    renamed = action_help_for("rest", "Uusi: Lepää")
+    assert renamed["finnish_title"] == "Lepää"
 
 
 def test_unit_log_label_uses_color_and_type():
@@ -250,35 +320,66 @@ def test_stale_index_loop_double_tires_first_unit():
     assert original_second.tired == 0
 
 
-def test_pillage_keeps_queue_populated_during_choice():
+def test_pillage_sober_chooses_front_or_revealed():
     from sixtyfivekmconvoy.core.constants import ChoiceType
 
     engine = GameEngine()
     engine.reset(num_players=2, seed=1)
     engine.pillage_queue = CardQueue(engine.pillage_deck)
-    for _ in range(3):
-        engine.pillage_queue.put_card(engine.pillage_deck.get_card(), visible=False)
+    hidden = engine.pillage_deck.get_card()
+    revealed = engine.pillage_deck.get_card()
+    hidden_back = engine.pillage_deck.get_card()
+    engine.pillage_queue.put_card(hidden, visible=False)
+    engine.pillage_queue.put_card(revealed, visible=True)
+    engine.pillage_queue.put_card(hidden_back, visible=False)
 
     unit = engine._unit_pool[0]
     unit.convoy = engine.convoy
     unit.engine = engine
+    unit.under_influence = 0
     engine.convoy.units = [unit]
-    assert unit.index() == 0
+
+    gen = action_mod._resolve_pillage(engine, unit, modifier=3)
+    req = next(gen)
+    assert req.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
+    assert req.options == [hidden, revealed]
+    assert len(engine.pillage_queue) == 3
+
+    try:
+        gen.send([revealed])
+        raise AssertionError("expected StopIteration")
+    except StopIteration as stop:
+        taken = stop.value
+    assert taken == [engine.pillage_deck.describe(revealed)]
+    assert [cid for cid, _ in engine.pillage_queue.cards_and_visibilities] == [
+        hidden,
+        hidden_back,
+    ]
+
+
+def test_pillage_drunk_takes_front_card():
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=1)
+    engine.pillage_queue = CardQueue(engine.pillage_deck)
+    front = engine.pillage_deck.get_card()
+    revealed = engine.pillage_deck.get_card()
+    engine.pillage_queue.put_card(front, visible=False)
+    engine.pillage_queue.put_card(revealed, visible=True)
+
+    unit = engine._unit_pool[0]
+    unit.convoy = engine.convoy
+    unit.engine = engine
+    unit.under_influence = 1
+    engine.convoy.units = [unit]
 
     gen = action_mod._resolve_pillage(engine, unit, modifier=0)
     try:
-        req = next(gen)
-    except StopIteration as e:
-        raise AssertionError("expected a pillage choice") from e
-
-    assert req.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
-    assert len(req.options) >= 1
-    # Cards must still sit in the queue (face-down) while the player chooses
-    assert len(engine.pillage_queue) >= len(req.options)
-    assert all(
-        not vis for _, vis in engine.pillage_queue.cards_and_visibilities[: len(req.options)]
-    )
-    assert req.payload and req.payload.get("pillage_cards")
+        next(gen)
+        raise AssertionError("drunk pillage should not ask")
+    except StopIteration as stop:
+        taken = stop.value
+    assert taken == [engine.pillage_deck.describe(front)]
+    assert engine.pillage_queue.cards_and_visibilities[0][0] == revealed
 
 
 def test_seeded_random_episode_terminates():

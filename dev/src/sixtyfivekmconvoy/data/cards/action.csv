@@ -25,7 +25,7 @@ card_id,action_index,troop_type,zone,action_type,action_modifier,cost,tire,intox
 7,2,L,ABCE,Rest,10,0,0,0,Lepää
 8,0,P,ABC,Assault,3,1/T+1/U,1,0,Rynnäkkö!
 8,1,I,A,Attack,2,1/T+1/U,1,0,Hyökkää
-8,2,L,ABCE,Pillage,2,1/T,1,0,Ryöstä
+8,2,L,ABCE,Pillage,3,1/T,1,0,Ryöstä
 9,0,P,ABCE,Search,2,1/T+1/U+1/A,1,0,Etsi ryöstettävää
 9,1,I,AB,Assault,2,1/T+1/U,1,0,Rynnäkkö!
 9,2,L,ABCE,Bypass,2,1/T+1/U,1,0,Ohita
@@ -37,13 +37,13 @@ card_id,action_index,troop_type,zone,action_type,action_modifier,cost,tire,intox
 11,2,L,E,Exit,0,1/T+1/U+1/A,0,0,"Sayonara, suckers!"
 12,0,P,ABCE,Promote,0,0,0,1,Ylennä
 12,1,I,A,Attack,1,1/T+1/U,1,0,Hyökkää
-12,2,A,ABCE,Pillage,2,1/T,1,0,Ryöstä
+12,2,A,ABCE,Pillage,1,1/T,1,0,Ryöstä
 13,0,P,ABCE,Order,0,1/T+1/U+1/A,1,0,Käskytä
 13,1,I,ABCE,Promote,0,0,0,1,Ylennä
-13,2,A,ABCE,Pillage,2,1/T,1,0,Ryöstä
+13,2,A,ABCE,Pillage,1,1/T,1,0,Ryöstä
 14,0,P,AB,Attack,2,1/T+1/U,1,0,Tietokone ehdottaa: Hyökkää!
 14,1,I,E,Exit,0,1/T+1/U+1/A,0,0,"Sayonara, suckers!"
-14,2,A,ABCE,Pillage,2,1/T,1,0,Ryöstä
+14,2,A,ABCE,Pillage,1,1/T,1,0,Ryöstä
 15,0,A,ABCE,Wait,0,0,1,0,Röökitauko
 16,0,A,ABCE,Wait,0,0,0,1,Juomatauko
 17,0,A,ABCE,Rest,10,0,0,0,Lepää

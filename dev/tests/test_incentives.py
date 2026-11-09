@@ -15,6 +15,7 @@ from sixtyfivekmconvoy.core.config import (
 def _setup_custom_game():
     engine = GameEngine()
     engine.reset(num_players=2, seed=42)
+    engine._open_table()
     engine.setup_complete = True
     engine.convoy.units = []
 
@@ -73,7 +74,6 @@ def test_incentive_reveal_pays_per_card():
         if not vis
     ]
     assert len(hidden) >= 2
-    opts = [100 + hidden[0], 100 + hidden[1]]
 
     gen = action_mod.resolve_scout(
         engine,
@@ -82,9 +82,10 @@ def test_incentive_reveal_pays_per_card():
         allowed_queue_codes={action_mod.SCOUT_QUEUE_MAULING},
         verb="sigint",
     )
-    next(gen)
-    reorder = gen.send(opts)
+    # Both hidden mauling cards must be turned, so the first choice is their order.
+    reorder = next(gen)
     assert reorder.choicetype == ChoiceType.REORDER_SCOUTED_CARDS
+    assert set(reorder.options) == set(hidden[:2])
     assert p0.total_cash == initial_cash + 2 * REVEAL_MAULING_CASH
     try:
         gen.send(list(reorder.options))

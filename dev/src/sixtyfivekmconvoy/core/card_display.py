@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import csv
+import os
 import unicodedata
+from functools import lru_cache
 from typing import Any
 
+from .constants import ActionName
 from .cost import cost_rates_for_display
 from .i18n import troop_label
 
@@ -13,9 +17,110 @@ SYMBOL_TIREDNESS = "🟢"  # tiredness token
 SYMBOL_INFLUENCE = "🟡"  # under-influence token
 SYMBOL_ATROCITY = "⚪"  # atrocity token (white circle; matches unit UI)
 SYMBOL_PLAYING_CARD = "🂠"  # one action card paid
+SYMBOL_OFFICER_DISCARD = "🂠↓"  # this officer card leaves play
+SYMBOL_PASSIVE = "✦"  # always-on officer that changes another action
+
+# Passive officer effect → action names it changes.
+PASSIVE_TOUCHES: dict[str, frozenset[str]] = {
+    "no_boozing_while_pillaging": frozenset({"pillage"}),
+    "extra_damage_in_zone_A": frozenset({"attack", "assault", "retreat"}),
+    "extra_pillage_search_card": frozenset({"search"}),
+    "atrocity_conversion": frozenset({"pillage"}),
+}
 
 # Default ASCII card inner width for left/right meta alignment.
 DEFAULT_META_WIDTH = 40
+
+
+def _help_title_key(title: str | None) -> str:
+    text = (title or "").strip().lower()
+    for prefix in ("tietokone ehdottaa:", "uusi:"):
+        if text.startswith(prefix):
+            text = text[len(prefix) :].strip()
+    return text.rstrip("!").strip()
+
+
+@lru_cache(maxsize=1)
+def load_action_help() -> tuple[dict[str, tuple[dict[str, str], ...]], dict[tuple[str, str], dict[str, str]]]:
+    """Rows from ``action_help.csv``, keyed by action name and by Finnish title."""
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "data",
+        "cards",
+        "action_help.csv",
+    )
+    by_action: dict[str, list[dict[str, str]]] = {}
+    by_title: dict[tuple[str, str], dict[str, str]] = {}
+    with open(path, encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            action_name = ActionName.normalize(row.get("action_name")) or ""
+            if not action_name:
+                continue
+            entry = {
+                "action_name": action_name,
+                "english_title": (row.get("English_title") or "").strip(),
+                "english_explanation": (row.get("English_explanation") or "").strip(),
+                "finnish_title": (row.get("Finnish_title") or "").strip(),
+                "finnish_explanation": (row.get("Finnish_explanation") or "").strip(),
+            }
+            by_action.setdefault(action_name, []).append(entry)
+            by_title[(action_name, _help_title_key(entry["finnish_title"]))] = entry
+    return (
+        {key: tuple(rows) for key, rows in by_action.items()},
+        by_title,
+    )
+
+
+def _help_reward_values() -> dict[str, int]:
+    """Cash and atrocity amounts a face tip may mention. Names match ``{placeholders}``."""
+    from . import config
+
+    def amount(name: str) -> int:
+        return int(getattr(config, name, 0) or 0)
+
+    return {
+        "attack_cash": amount("ATTACK_CASH"),
+        "service_cash": amount("SERVICE_CASH"),
+        "soak_air_cash": amount("SOAK_AIR_CASH"),
+        "soak_air_atrocities": amount("SOAK_AIR_ATROCITIES"),
+        "soak_ground_cash": amount("SOAK_GROUND_CASH"),
+        "soak_sabotage_cash": amount("SOAK_SABOTAGE_CASH"),
+        "reveal_mauling_cash": amount("REVEAL_MAULING_CASH"),
+        "reveal_resistance_cash": amount("REVEAL_RESISTANCE_CASH"),
+    }
+
+
+def _fill_help_amounts(entry: dict[str, str]) -> dict[str, str]:
+    values = _help_reward_values()
+    filled = dict(entry)
+    for key in ("english_explanation", "finnish_explanation"):
+        text = filled.get(key) or ""
+        for name, value in values.items():
+            text = text.replace("{" + name + "}", str(value))
+        filled[key] = text
+    return filled
+
+
+def action_help_for(action_name: str | None, finnish_name: str | None = None) -> dict[str, str]:
+    """Help text for one action face. Empty strings when the action is unknown."""
+    empty = {
+        "action_name": ActionName.normalize(action_name) or "",
+        "english_title": "",
+        "english_explanation": "",
+        "finnish_title": "",
+        "finnish_explanation": "",
+    }
+    key = empty["action_name"]
+    if not key:
+        return empty
+    by_action, by_title = load_action_help()
+    titled = by_title.get((key, _help_title_key(finnish_name)))
+    if titled is None:
+        rows = by_action.get(key) or ()
+        titled = rows[0] if rows else None
+    if titled is None:
+        return empty
+    return _fill_help_amounts(titled)
 
 
 def face_title(name: str, modifier: int | None) -> str:
@@ -141,6 +246,30 @@ def format_cost(
     return " + ".join(parts)
 
 
+def officer_spent_cost(cost_label: str, raw_cost: str | int | None) -> str:
+    """Hand-card cost, plus a mark that the officer card itself is discarded."""
+    if raw_cost in (0, "0", None, ""):
+        return SYMBOL_OFFICER_DISCARD
+    return f"{cost_label} + {SYMBOL_OFFICER_DISCARD}"
+
+
+def passive_clues_for(officers: list[Any], action_name: str | None) -> list[dict[str, str]]:
+    """Officers whose always-on effect changes this action."""
+    key = ActionName.normalize(action_name) or ""
+    clues: list[dict[str, str]] = []
+    for officer in officers:
+        effect = getattr(officer, "passive_effect", None) or ""
+        if key and key in PASSIVE_TOUCHES.get(effect, frozenset()):
+            clues.append(
+                {
+                    "mark": SYMBOL_PASSIVE,
+                    "name": getattr(officer, "name", "") or "",
+                    "effect": effect,
+                }
+            )
+    return clues
+
+
 def format_effects(tire: int = 0, intoxicate: int = 0) -> str:
     """
     Side-effect markers (influence does not cascade — always +1 token):
@@ -251,13 +380,24 @@ def format_face(action: Any, *, meta_width: int = DEFAULT_META_WIDTH) -> dict[st
     rates = cost_rates_for_display(cost)
     cost_s = format_cost(cost)
     effects_s = format_effects(tire, intoxicate)
+    officer_discard = bool(action.get("is_officer_discard")) if isinstance(action, dict) else bool(
+        getattr(action, "is_officer_discard", False)
+    )
+    if officer_discard:
+        cost_s = officer_spent_cost(cost_s, cost)
+        officer_name = action.get("officer_name") if isinstance(action, dict) else None
+        if officer_name:
+            name = officer_name
     reward = action_reward_bits(action_name or name)
     troop_key = {"P": "panzer", "I": "infantry", "L": "logistics", "A": "any"}.get(
         str(troop).upper()[:1] if troop else "A",
         "any",
     )
     t_r, u_r, a_r = rates if rates else (0, 0, 0)
+    resolved_name = ActionName.normalize(action_name) or ActionName.normalize(name) or ""
     return {
+        "action_name": resolved_name,
+        "help": action_help_for(resolved_name, name),
         "troop_label": troop_label(troop),
         "troop_key": troop_key,
         "zone": zone,

@@ -93,27 +93,6 @@ def hidden_queue_summary(engine: GameEngine) -> str:
     return " ".join(parts)
 
 
-def pillage_has_face_down(engine: GameEngine) -> bool:
-    return any(not vis for _, vis in engine.pillage_queue.cards_and_visibilities)
-
-
-def search_is_useful(engine: GameEngine) -> bool:
-    """
-    Search is only useful when:
-    - the pillage queue has face-down cards to reveal, or
-    - the pillage queue is empty (draw N from the deck, keep one face-up).
-
-    If the queue already has only face-up cards, search must not pad it
-    from the deck — that made Search spam every turn.
-    """
-    if pillage_has_face_down(engine):
-        return True
-    if len(engine.pillage_queue) > 0:
-        return False
-    deck = engine.pillage_deck
-    return bool(deck.deck or deck.discard)
-
-
 def why_action_impossible(
     engine: GameEngine, actor_idx: int, action: dict
 ) -> list[str]:
@@ -211,21 +190,13 @@ def why_action_impossible(
     elif name in (
         ActionName.SCOUT,
         ActionName.SIGINT,
-    ):
-        # Always available (zone/cost already checked): reveal face-down queue
-        # cards when any exist; otherwise draw from the matching deck(s).
-        pass
-    elif name in (
         ActionName.SEARCH,
         ActionName.SEARCH_PILLAGE_COMBO,
     ):
-        # Face-down pillage → reveal; empty queue → draw N / keep 1 face-up.
-        # Not legal when the queue already has only known (face-up) cards.
-        if not search_is_useful(engine):
-            if len(engine.pillage_queue) > 0:
-                reasons.append("pillage queue already fully revealed")
-            else:
-                reasons.append("pillage deck empty")
+        # Legal whenever the unit is in the zone and the cost can be paid.
+        # Resolution flips face-down queue cards, then peeks the deck for
+        # any flips that did not fit in the queue.
+        pass
     elif name == ActionName.PROMOTE:
         if not matching_officer_queue_indices(engine, unit):
             letter = UNIT_TYPE_LETTER[unit.unittype]
@@ -675,6 +646,8 @@ def resolve_action(
         loot_cash = sum(unit.carry)
         if loot_cash:
             player.get_cash(loot_cash, source="exit loot")
+        if engine is not None:
+            engine.recycle_damage_markers(unit)
         convoy.units.pop(unit.index())
         parts.append(f"exited with loot worth {loot_cash}")
 
@@ -853,15 +826,15 @@ def resolve_action(
 
     elif name == ActionName.EXIT_FROM_C_WITH_COST:
         cost_cash = modifier or 5
-        before_cash = player.total_cash
-        player.total_cash = max(0, player.total_cash - cost_cash)
-        spent = before_cash - player.total_cash
+        spent = player.pay_cash(cost_cash)
         spent_ledger = getattr(engine, "cash_spent", None)
         if spent_ledger is not None and spent:
             spent_ledger[player.number] += int(spent)
         loot_cash = sum(unit.carry)
         if loot_cash:
             player.get_cash(loot_cash, source="exit loot")
+        if engine is not None:
+            engine.recycle_damage_markers(unit)
         convoy.units.pop(unit.index())
         parts.append(f"paid {cost_cash} and exited from C")
 
@@ -988,41 +961,62 @@ def format_pillage_effect(
     return f"{label} pillaged {name}: " + "; ".join(bits)
 
 
+def _pillage_offer(engine: GameEngine, index: int) -> dict:
+    from .cards import queue_card_detail
+
+    card_id, visible = engine.pillage_queue.cards_and_visibilities[index]
+    if visible:
+        detail = engine.pillage_deck.describe(card_id)
+        return {
+            "id": card_id,
+            "index": index,
+            "name": detail.get("name", str(card_id)),
+            "detail": queue_card_detail(detail),
+            "reward": detail.get("reward"),
+            "visible": True,
+        }
+    return {
+        "id": card_id,
+        "index": index,
+        "name": "Jonon ensimmäinen kortti" if index == 0 else f"Face-down card {index + 1}",
+        "detail": "Kortti on kuvapuoli alaspäin.",
+        "visible": False,
+    }
+
+
+def _pillage_choice_indices(engine: GameEngine, unit: Unit) -> list[int]:
+    """Front card always. A sober unit may also take any other revealed card."""
+    queue = engine.pillage_queue.cards_and_visibilities
+    if not queue:
+        return []
+    if unit.under_influence > 0:
+        return [0]
+    indices = [0]
+    for i, (_, visible) in enumerate(queue):
+        if i != 0 and visible:
+            indices.append(i)
+    return indices
+
+
+def _take_pillage_at(engine: GameEngine, index: int) -> dict:
+    card_id, _visible = engine.pillage_queue.remove_card(index)
+    engine.pillage_deck.discard_card(card_id)
+    return engine.pillage_deck.describe(card_id)
+
+
 def _resolve_pillage(
     engine: GameEngine, unit: Unit, modifier: int
 ) -> Generator[ChoiceRequest, list[int], list[dict]]:
     from .engine import ChoiceRequest
-    from .cards import queue_card_detail
 
-    count = min(2 + modifier, len(engine.pillage_queue))
-    if count <= 0:
+    del modifier  # the printed number no longer limits which cards can be taken
+    indices = _pillage_choice_indices(engine, unit)
+    if not indices:
         return []
 
-    # Reveal offered cards only if they are already visible (scouted).
-    # Unscouted cards are kept face-down for blind pick.
-    offered: list[dict] = []
-    for i in range(count):
-        pc, vis = engine.pillage_queue.cards_and_visibilities[i]
-        if vis:
-            detail = engine.pillage_deck.describe(pc)
-            offered.append(
-                {
-                    "id": pc,
-                    "name": detail.get("name", str(pc)),
-                    "detail": queue_card_detail(detail),
-                    "reward": detail.get("reward"),
-                    "visible": True,
-                }
-            )
-        else:
-            offered.append(
-                {
-                    "id": pc,
-                    "name": f"Face-down Card (Slot {i+1})",
-                    "detail": "Must be scouted/revealed to see contents.",
-                    "visible": False,
-                }
-            )
+    offered = [_pillage_offer(engine, i) for i in indices]
+    if len(offered) == 1:
+        return [_take_pillage_at(engine, offered[0]["index"])]
 
     options = [o["id"] for o in offered]
     desc = "Choose one pillage card:"
@@ -1041,16 +1035,14 @@ def _resolve_pillage(
         },
     )
     pick = chosen[0]
-
-    drawn = [engine.pillage_queue.remove_card(0) for _ in range(count)]
-    results = []
-    for pc, vis in drawn:
-        if pc == pick:
-            results.append(engine.pillage_deck.describe(pc))
-            engine.pillage_deck.discard_card(pc)
-        else:
-            engine.pillage_queue.return_card(pc, visible=vis)
-    return results
+    match = next((o for o in offered if o["id"] == pick), None)
+    if match is None:
+        raise ValueError(f"pillage card {pick} is not a legal choice")
+    queue = engine.pillage_queue.cards_and_visibilities
+    index = match["index"]
+    if index >= len(queue) or queue[index][0] != pick:
+        index = next(i for i, (cid, _) in enumerate(queue) if cid == pick)
+    return [_take_pillage_at(engine, index)]
 
 
 def _resolve_service(
@@ -1319,42 +1311,16 @@ def _resolve_scout_from_deck(
 def resolve_search(
     engine: GameEngine, unit: Unit, count: int
 ) -> Generator[ChoiceRequest, list[int], list[str]]:
-    """
-    Search (pillage only):
-
-    - Face-down cards in the pillage queue → reveal up to ``count`` of them
-      (same reveal/reorder flow as scout).
-    - Empty pillage queue → draw ``count`` from the pillage deck, place one
-      face-up in the queue, discard the rest.
-    - Queue already fully face-up → no-op (and normally illegal via
-      ``search_is_useful``).
-    """
-    if pillage_has_face_down(engine):
-        return (
-            yield from resolve_scout(
-                engine,
-                unit,
-                count,
-                allowed_queue_codes={SCOUT_QUEUE_PILLAGE},
-                verb="search",
-            )
+    """Search is scout limited to the pillage queue and deck."""
+    return (
+        yield from resolve_scout(
+            engine,
+            unit,
+            count,
+            allowed_queue_codes={SCOUT_QUEUE_PILLAGE},
+            verb="search",
         )
-    if len(engine.pillage_queue) == 0:
-        return (
-            yield from _resolve_scout_from_deck(
-                engine,
-                unit,
-                count,
-                allowed_queue_codes={SCOUT_QUEUE_PILLAGE},
-                verb="search",
-            )
-        )
-    label = unit_log_label(unit)
-    engine._broadcast(
-        f"{label} search: pillage queue already fully revealed "
-        f"({hidden_queue_summary(engine)})"
     )
-    return []
 
 
 def resolve_scout(
@@ -1366,12 +1332,15 @@ def resolve_scout(
     verb: str = "scout",
 ) -> Generator[ChoiceRequest, list[int], list[str]]:
     """
-    Scout / sigint / search:
+    Scout / sigint / search. Modifier ``count`` is N.
 
-    - If any allowed queue still has face-down cards: reveal up to ``count``
-      of them (and reorder when several from the same queue).
-    - Otherwise: choose an allowed deck, draw ``count`` cards, place one
-      face-up into that queue and discard the rest.
+    Turn M = min(N, face-down cards in the allowed queues). Every one of
+    those M cards is turned face up; the player does not turn fewer. When
+    more than N cards are face down, the player chooses which N. The turned
+    cards go back face up in an order the player chooses.
+
+    If M < N and every allowed queue is then face up, look at N-M cards from
+    an allowed deck and place one of them face up in that queue.
     """
     from .engine import ChoiceRequest
 
@@ -1385,61 +1354,53 @@ def resolve_scout(
             if not vis:
                 face_down_cards.append((code, qname, idx, card_id))
 
-    num_to_scout = min(count, len(face_down_cards))
-    if num_to_scout <= 0:
-        return (
-            yield from _resolve_scout_from_deck(
-                engine,
-                unit,
-                count,
-                allowed_queue_codes=allowed_queue_codes,
-                verb=verb,
-            )
+    # M flips, all of them. No subset smaller than the cards that fit.
+    flips = min(count, len(face_down_cards))
+    if flips <= 0:
+        pick = []
+    elif flips == len(face_down_cards):
+        pick = [code * 100 + idx for code, qname, idx, cid in face_down_cards]
+    else:
+        queue_hint = (
+            "any queues"
+            if allowed_queue_codes is None
+            else ", ".join(SCOUT_QUEUE_NAMES[c] for c in sorted(allowed_queue_codes))
         )
-
-    queue_hint = (
-        "any queues"
-        if allowed_queue_codes is None
-        else ", ".join(SCOUT_QUEUE_NAMES[c] for c in sorted(allowed_queue_codes))
-    )
-    options = [code * 100 + idx for code, qname, idx, cid in face_down_cards]
-    desc = (
-        f"{label} {verb}: Choose {num_to_scout} face-down card(s) "
-        f"to reveal ({queue_hint})."
-    )
-
-    queues_payload = []
-    for code, qname, idx, cid in face_down_cards:
-        queues_payload.append({
-            "option": code * 100 + idx,
-            "queue": qname,
-            "index": idx
-        })
-
-    pick = yield ChoiceRequest(
-        player_id=unit.player.agent_id(),
-        choicetype=ChoiceType.CHOOSE_CARDS_TO_SCOUT,
-        options=options,
-        num_choices=num_to_scout,
-        description=desc,
-        payload={
-            "reason": f"{verb}_selection",
-            "verb": verb,
-            "cards": queues_payload,
-            "count": num_to_scout,
-            "allowed_queues": [
-                SCOUT_QUEUE_NAMES[c]
-                for c in (
-                    sorted(allowed_queue_codes)
-                    if allowed_queue_codes is not None
-                    else sorted(SCOUT_QUEUE_NAMES)
-                )
-            ],
-        }
-    )
-
-    if not pick:
-        pick = options[:num_to_scout]
+        options = [code * 100 + idx for code, qname, idx, cid in face_down_cards]
+        desc = (
+            f"{label} {verb}: Turn {flips} face-down card(s) "
+            f"({queue_hint}). All {flips} flips are used."
+        )
+        queues_payload = []
+        for code, qname, idx, cid in face_down_cards:
+            queues_payload.append({
+                "option": code * 100 + idx,
+                "queue": qname,
+                "index": idx,
+            })
+        pick = yield ChoiceRequest(
+            player_id=unit.player.agent_id(),
+            choicetype=ChoiceType.CHOOSE_CARDS_TO_SCOUT,
+            options=options,
+            num_choices=flips,
+            description=desc,
+            payload={
+                "reason": f"{verb}_selection",
+                "verb": verb,
+                "cards": queues_payload,
+                "count": flips,
+                "allowed_queues": [
+                    SCOUT_QUEUE_NAMES[c]
+                    for c in (
+                        sorted(allowed_queue_codes)
+                        if allowed_queue_codes is not None
+                        else sorted(SCOUT_QUEUE_NAMES)
+                    )
+                ],
+            },
+        )
+        if not pick:
+            pick = options[:flips]
 
     chosen_by_queue: dict[int, list[int]] = {}
     for opt in pick:
@@ -1520,6 +1481,19 @@ def resolve_scout(
                 f"{label} reordered {verb} {qname} cards: {', '.join(names)}"
             )
 
+    queues_face_up = all(
+        not queue.contains_hidden_cards() for _, _, queue in queue_mapping
+    )
+    if flips < count and queues_face_up:
+        from_deck = yield from _resolve_scout_from_deck(
+            engine,
+            unit,
+            count - flips,
+            allowed_queue_codes=allowed_queue_codes,
+            verb=verb,
+        )
+        revealed.extend(from_deck)
+
     return revealed
 
 
@@ -1531,6 +1505,8 @@ def mauling_target_units(convoy: Convoy, target: str) -> list[Unit]:
         return []
 
     kind = sel["kind"]
+    if kind == "none":
+        return []
     if kind == "zone":
         return list(convoy.get_units_in_zone(sel["zone"]))
 
@@ -1580,18 +1556,45 @@ def mauling_target_units(convoy: Convoy, target: str) -> list[Unit]:
     raise ValueError(f"unhandled mauling target kind {kind}")
 
 
+def _apply_category_hit(engine: GameEngine, unit: Unit, category: int, attack_type: str) -> str:
+    """Lower the category for matching defence, then draw that deck."""
+    convoy = engine.convoy
+    assert convoy is not None
+    label = unit_log_label(unit)
+    engine.note_struck_unit(unit)
+    cat = convoy.category_after_defence(unit, category, attack_type)
+    note = ""
+    if cat != category:
+        note = f"{label} defence lowers cat {category} to {cat}"
+    if cat <= 0:
+        return note or f"{label} hit cat {category} for 0"
+    damage = engine.draw_hit_damage(cat)
+    if damage <= 0:
+        line = f"{label} hit cat {cat} for 0"
+    else:
+        line = convoy.apply_damage(damage, unit=unit, attack_type=attack_type)
+        if unit in convoy.units:
+            engine.attach_damage_marker(unit, damage, category=cat)
+    engine.discard_unclaimed_hits()
+    if note:
+        return f"{note}; {line}"
+    return line
+
+
 def resolve_mauling(
     engine: GameEngine, mauling: dict
 ) -> Generator[ChoiceRequest, list[int], str]:
     """
     Apply one mauling card.
 
-    Hit-category damage uses the shared hit table. Forced discard yields a
-    CHOOSE_CARDS_TO_DISCARD; if the player cannot pay, fail_hit_category damage
-    is drawn instead.
+    Hit-category damage draws that category's deck (1, 3, 5, or 10). A matching
+    defence lowers the category one step per defender before the draw.
+    Forced discard yields a CHOOSE_CARDS_TO_DISCARD; if the player cannot pay,
+    fail_hit_category damage is drawn instead.
     """
     from .engine import ChoiceRequest
 
+    engine.clear_hit_draws()
     effect = mauling["effect"]
     target = effect["target"]
     hit_cat = int(effect.get("hit_category") or 0)
@@ -1604,6 +1607,9 @@ def resolve_mauling(
     atype = str(atype)[0].upper() if atype else AttackType.GROUND
 
     if atype == AttackType.RESISTANCE:
+        # Category comes from the active resistance card. The target stays the
+        # one printed on this mauling card; the resistance card's counterattack
+        # target is not used.
         atype = AttackType.GROUND
         if engine.resistance.active:
             if hit_cat > 0:
@@ -1623,13 +1629,7 @@ def resolve_mauling(
             # Unit may have been removed by an earlier hit in this card.
             if unit not in convoy.units:
                 continue
-            damage = engine.draw_hit_damage(hit_cat)
-            if damage <= 0:
-                parts.append(f"{unit_log_label(unit)} hit cat {hit_cat} for 0")
-            else:
-                parts.append(
-                    convoy.apply_damage(damage, unit=unit, attack_type=atype)
-                )
+            parts.append(_apply_category_hit(engine, unit, hit_cat, atype))
 
     if discard_n > 0:
         for unit in mauling_target_units(convoy, target):
@@ -1660,20 +1660,11 @@ def resolve_mauling(
                     f"({player.agent_id()})"
                 )
             elif fail_hit > 0:
-                damage = engine.draw_hit_damage(fail_hit)
-                if damage <= 0:
-                    parts.append(
-                        f"{unit_log_label(unit)} cannot discard {discard_n}; "
-                        f"fail hit cat {fail_hit} for 0"
-                    )
-                else:
-                    msg = convoy.apply_damage(
-                        damage, unit=unit, attack_type=atype
-                    )
-                    parts.append(
-                        f"{unit_log_label(unit)} cannot discard {discard_n}; "
-                        f"fail hit: {msg}"
-                    )
+                msg = _apply_category_hit(engine, unit, fail_hit, atype)
+                parts.append(
+                    f"{unit_log_label(unit)} cannot discard {discard_n}; "
+                    f"fail hit: {msg}"
+                )
             else:
                 parts.append(
                     f"{unit_log_label(unit)} cannot discard {discard_n}; no fail hit"
