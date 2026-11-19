@@ -42,7 +42,14 @@ class ConvoyEnv(AECEnv):
     ``win`` (default)
         Primary target: finish 1st (game ranking). Proxies each step:
         +``pp_reward`` per promotion point gained, +``cash_reward`` per cash
-        gained. At terminal: +``win_reward`` if 1st else ``lose_reward``.
+        gained. One cash is worth more than a rest, a dodge, a frustration,
+        or a category-10 mauling hit. A promotion point is worth more than
+        one cash. A frustrated unit pays ``frustration_penalty``. Resting
+        while tired + under_influence is at least 3 pays
+        ``rest_relief_reward``. A mauling hit costs ``mauling_damage_penalty``
+        per point of damage drawn. Assault, retreat, or bypass that leaves
+        the face-up front mauling's target pays ``mauling_dodge_reward``.
+        At terminal: +``win_reward`` if 1st else ``lose_reward``.
     ``rank``
         Sparse terminal only: 1st = +1 … last = −1 (linear).
     ``points``
@@ -63,7 +70,14 @@ class ConvoyEnv(AECEnv):
         cash_reward: float = 0.05,
         win_reward: float = 1.0,
         lose_reward: float = 0.0,
+        action_reward: float = 0.0,
+        frustration_penalty: float = 0.01,
+        rest_relief_reward: float = 0.01,
+        mauling_damage_penalty: float = 0.002,
+        mauling_dodge_reward: float = 0.01,
         fast: bool = False,
+        balance_trace: bool = False,
+        max_rounds: int = 200,
     ):
         super().__init__()
         self.num_players = num_players
@@ -73,9 +87,16 @@ class ConvoyEnv(AECEnv):
         self.cash_reward = float(cash_reward)
         self.win_reward = float(win_reward)
         self.lose_reward = float(lose_reward)
+        self.action_reward = float(action_reward)
+        self.frustration_penalty = float(frustration_penalty)
+        self.rest_relief_reward = float(rest_relief_reward)
+        self.mauling_damage_penalty = float(mauling_damage_penalty)
+        self.mauling_dodge_reward = float(mauling_dodge_reward)
         self.max_cycles = max_cycles
+        self.max_rounds = int(max_rounds)
         self.render_mode = render_mode
         self.fast = bool(fast)
+        self.balance_trace = bool(balance_trace)
         self.engine = GameEngine()
         # RL / bot self-play must not pause for human "continue" prompts.
         self.engine.pause_after_actions = False
@@ -99,11 +120,22 @@ class ConvoyEnv(AECEnv):
     def reset(self, seed: int | None = None, options: dict | None = None):
         if seed is None:
             seed = self._seed
+        if options and options.get("num_players"):
+            n = int(options["num_players"])
+            if n != self.num_players:
+                self.num_players = n
+                self.possible_agents = [f"player_{i}" for i in range(n)]
+                self._obs_size = observation_size(n)
+        if options and options.get("max_rounds"):
+            self.max_rounds = int(options["max_rounds"])
         self.engine.record_text_log = not self.fast
         self.engine.pause_after_actions = False
-        self.engine.reset(num_players=self.num_players, seed=seed)
+        self.engine.reset(
+            num_players=self.num_players, seed=seed, max_rounds=self.max_rounds
+        )
         self.engine.pause_after_actions = False
         self.engine.record_text_log = not self.fast
+        self.engine.balance_trace = self.balance_trace
         self.agents = self.possible_agents[:]
         self.rewards = {a: 0.0 for a in self.agents}
         self._cumulative_rewards = {a: 0.0 for a in self.agents}
@@ -174,12 +206,14 @@ class ConvoyEnv(AECEnv):
 
         if self.reward_mode == "win":
             self._assign_win_mode_rewards(terminal=bool(result.terminal))
-        elif result.terminal:
-            ranking = result.ranking or []
-            order = [f"player_{r['number']}" for r in ranking]
-            for a in self.agents:
-                self.rewards[a] = self._terminal_reward(a, order)
-                self._cumulative_rewards[a] += self.rewards[a]
+        else:
+            self.engine.take_shaping_events()
+            if result.terminal:
+                ranking = result.ranking or []
+                order = [f"player_{r['number']}" for r in ranking]
+                for a in self.agents:
+                    self.rewards[a] = self._terminal_reward(a, order)
+                    self._cumulative_rewards[a] += self.rewards[a]
 
         if result.terminal:
             for a in self.agents:
@@ -240,8 +274,28 @@ class ConvoyEnv(AECEnv):
                     self.win_reward if won else self.lose_reward
                 )
 
+        for event in self.engine.take_shaping_events():
+            agent = f"player_{int(event['player'])}"
+            if agent not in self.rewards:
+                continue
+            self.rewards[agent] += self._shaping_bonus(event)
+
         for a in self.agents:
             self._cumulative_rewards[a] += self.rewards[a]
+
+    def _shaping_bonus(self, event: dict) -> float:
+        kind = event.get("kind")
+        if kind == "action_ok":
+            return self.action_reward
+        if kind == "frustrated":
+            return -self.frustration_penalty
+        if kind == "rest_relief":
+            return self.rest_relief_reward
+        if kind == "mauling_damage":
+            return -self.mauling_damage_penalty * int(event.get("damage") or 0)
+        if kind == "mauling_dodge":
+            return self.mauling_dodge_reward
+        return 0.0
 
     def _terminal_reward(self, agent: str, order: list[str]) -> float:
         if agent not in order:

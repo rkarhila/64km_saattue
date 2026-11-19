@@ -8,6 +8,12 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from sixtyfivekmconvoy.env.spaces import flatten_observation, observation_size
+from sixtyfivekmconvoy.env.table_features import (
+    FORMATION_SEATS,
+    HIT_PILES,
+    PLAYER_FEAT,
+    RESISTANCE_FEAT,
+)
 from sixtyfivekmconvoy.rl.events import EVENT_PILLAGE, EVENT_WINDOW, make_event
 from sixtyfivekmconvoy.rl.policy import MaskedActorCritic
 
@@ -50,7 +56,7 @@ def test_bot_observes_itself_as_first_player():
         card_id=4,
         amount=1,
     )
-    cash_at = MAX_PLAYERS + 3 + 2 + 1
+    cash_at = MAX_PLAYERS + 3 + RESISTANCE_FEAT + HIT_PILES + FORMATION_SEATS + 1
     for seat, own, nxt, last in (
         (0, 10, 20, 30),
         (1, 20, 30, 10),
@@ -62,8 +68,8 @@ def test_bot_observes_itself_as_first_player():
         assert vec[0] == 1.0
         assert vec[1:MAX_PLAYERS].sum() == 0.0
         assert abs(vec[cash_at] - own / 50.0) < 1e-6
-        assert abs(vec[cash_at + 4] - nxt / 50.0) < 1e-6
-        assert abs(vec[cash_at + 8] - last / 50.0) < 1e-6
+        assert abs(vec[cash_at + PLAYER_FEAT] - nxt / 50.0) < 1e-6
+        assert abs(vec[cash_at + 2 * PLAYER_FEAT] - last / 50.0) < 1e-6
         # Newest event: actor 2 and target 1, rotated into the viewer's frame.
         actor = (2 - seat) % 3
         target = (1 - seat) % 3
@@ -115,6 +121,30 @@ def test_observation_appends_event_window():
     vec = flatten_observation(obs, 0, 3)
     assert vec.shape == (observation_size(3),)
     assert vec.shape[0] > EVENT_WINDOW
+
+
+def test_log_position_changes_the_decision():
+    from sixtyfivekmconvoy.env.spaces import token_layout
+    from sixtyfivekmconvoy.rl.events import EVENT_FIELDS
+
+    dim = observation_size(3)
+    model = MaskedActorCritic(
+        obs_dim=dim, hidden=32, n_layers=1, width=32, d_model=32, nhead=4, tf_layers=1
+    )
+    model.eval()
+    ev_start, ev_end = token_layout(dim)[-1]
+    assert ev_end - ev_start == EVENT_WINDOW * EVENT_FIELDS
+    row = np.array([0.5, 0.1, 0.2, 0.3, 0.4, 0.1, 0.2, 0.3, 1.0], dtype=np.float32)
+    oldest = np.zeros(dim, dtype=np.float32)
+    newest = np.zeros(dim, dtype=np.float32)
+    oldest[ev_start : ev_start + EVENT_FIELDS] = row
+    newest[ev_end - EVENT_FIELDS : ev_end] = row
+    with torch.no_grad():
+        old_h = model._encode(torch.tensor(oldest))
+        new_h = model._encode(torch.tensor(newest))
+    assert old_h.shape == new_h.shape
+    assert not torch.allclose(old_h, new_h)
+    assert model.event_pos.weight.shape == (EVENT_WINDOW, model.d_model)
 
 
 def test_transformer_act_runs():

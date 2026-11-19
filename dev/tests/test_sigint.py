@@ -100,9 +100,11 @@ def test_resolve_sigint_only_offers_mauling_options():
     except StopIteration as stop:
         revealed = stop.value
 
-    assert revealed == [
-        f"mauling:{engine.mauling_queue.deck.get_name(engine.mauling_queue.cards_and_visibilities[mauling_hidden[0]][0])}"
-    ]
+    card_name = engine.mauling_queue.deck.get_name(
+        engine.mauling_queue.cards_and_visibilities[mauling_hidden[0]][0]
+    )
+    assert f"*{card_name}* moukarointijonosta" in revealed
+    assert any(line.startswith("pelaaja saa") for line in revealed)
     assert engine.mauling_queue.cards_and_visibilities[mauling_hidden[0]][1] is True
 
 
@@ -172,8 +174,8 @@ def test_resolve_sigint_draws_from_mauling_deck_when_known():
     except StopIteration as stop:
         revealed = stop.value
 
-    assert len(revealed) == 1
-    assert revealed[0].startswith("mauling:")
+    assert any("moukarointijonoon" in line for line in revealed)
+    assert any(line.startswith("pelaaja saa") for line in revealed)
     assert len(engine.mauling_queue) == before + 1
     assert engine.mauling_queue.cards_and_visibilities[-1][0] == keep
     assert engine.mauling_queue.cards_and_visibilities[-1][1] is True

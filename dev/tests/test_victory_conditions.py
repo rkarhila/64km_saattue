@@ -13,7 +13,7 @@ def _engine(seed: int = 0) -> GameEngine:
 
 def test_config_defaults():
     assert PROMOTION_POINTS_TO_WIN == 6
-    assert CASH_TO_WIN == 50
+    assert CASH_TO_WIN == 25
 
 
 def test_cash_to_win_immediate():
@@ -26,7 +26,7 @@ def test_cash_to_win_immediate():
     p0.get_cash(1)
     assert engine.terminal
     assert engine.ranking[0]["number"] == p0.number
-    assert "cash" in (engine._end_message or "").lower()
+    assert "rahalla" in (engine._end_message or "").lower()
 
 
 def test_cash_to_win_does_not_fire_for_second_player_after_game_over():
@@ -67,4 +67,66 @@ def test_promotion_tie_enters_sudden_death_then_sole_lead_wins():
     result = engine._check_promotion_victory()
     assert result is not None and result.terminal
     assert engine.ranking[0]["number"] == p0.number
-    assert "sudden death" in (engine._end_message or "").lower()
+    assert "äkkikuoleman" in (engine._end_message or "").lower()
+
+
+def test_promotion_point_goes_only_to_the_sole_cash_leader():
+    from sixtyfivekmconvoy.core.configs import get_config
+
+    engine = _engine()
+    p0, p1 = engine.players
+    cfg = get_config()
+    previous = cfg.SOLE_CASH_LEAD_FOR_PROMOTION
+    try:
+        cfg.SOLE_CASH_LEAD_FOR_PROMOTION = True
+        p0.this_round_cash = 4
+        p1.this_round_cash = 4
+        assert engine._players_earning_promotion() == []
+
+        p0.this_round_cash = 5
+        assert engine._players_earning_promotion() == [p0]
+
+        p0.this_round_cash = 0
+        p1.this_round_cash = 0
+        assert engine._players_earning_promotion() == []
+
+        cfg.SOLE_CASH_LEAD_FOR_PROMOTION = False
+        p0.this_round_cash = 4
+        p1.this_round_cash = 4
+        assert engine._players_earning_promotion() == [p0, p1]
+    finally:
+        cfg.SOLE_CASH_LEAD_FOR_PROMOTION = previous
+
+
+def test_action_log_wording_comes_from_the_language_table():
+    from sixtyfivekmconvoy.core.i18n import get_language, set_language
+    from sixtyfivekmconvoy.core.log_text import format_action_log
+
+    previous = get_language()
+    try:
+        set_language("fi")
+        finnish = format_action_log("Foo punaiset panssarit", "Hyökkää", ["Vastarinta tuhoutui"], [])
+        assert "suorittaa" in finnish
+        assert "ratkaisee" not in finnish
+        set_language("en")
+        english = format_action_log("Foo red panzers", "Attack", ["Resistance is destroyed"], [])
+        assert "resolves" in english
+        assert "suorittaa" not in english
+    finally:
+        set_language(previous)
+
+
+def test_scout_ui_copy_comes_from_the_language_table():
+    from sixtyfivekmconvoy.core.i18n import get_language, set_language, tf
+
+    previous = get_language()
+    try:
+        set_language("fi")
+        finnish = tf("ui.scout.confirm_order")
+        assert finnish == "Vahvista järjestys"
+        assert "Tiedustelu" in tf("ui.scout.reorder_title", verb=tf("ui.verb.scout"), queue="ryöstö")
+        set_language("en")
+        assert tf("ui.scout.confirm_order") == "Confirm order"
+        assert "Scout" in tf("ui.scout.select_title", verb=tf("ui.verb.scout"))
+    finally:
+        set_language(previous)

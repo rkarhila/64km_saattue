@@ -63,7 +63,13 @@ def _worker(conn: Any, env_kwargs: dict[str, Any]) -> None:
                 break
             try:
                 if cmd == "reset":
-                    env.reset(seed=data)
+                    if isinstance(data, dict):
+                        options = {"num_players": data.get("num_players")}
+                        if data.get("max_rounds"):
+                            options["max_rounds"] = data["max_rounds"]
+                        env.reset(seed=data.get("seed"), options=options)
+                    else:
+                        env.reset(seed=data)
                 elif cmd == "step":
                     env.step(data)
                 else:
@@ -89,8 +95,16 @@ class RemoteEnv:
         self.agent_selection: str | None = None
         self.possible_agents: list[str] = []
 
-    def begin_reset(self, seed: int) -> None:
-        self.conn.send(("reset", int(seed)))
+    def begin_reset(
+        self,
+        seed: int,
+        num_players: int | None = None,
+        max_rounds: int | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {"seed": int(seed), "num_players": num_players}
+        if max_rounds:
+            payload["max_rounds"] = int(max_rounds)
+        self.conn.send(("reset", payload))
 
     def finish_reset(self) -> None:
         self._apply(self.conn.recv())

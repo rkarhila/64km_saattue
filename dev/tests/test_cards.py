@@ -295,7 +295,7 @@ def test_resistance_attack_zero_does_not_damage_convoy():
         engine=engine,
     )
     msg = res.attack()
-    assert "does not attack" in msg
+    assert "ei hyökkää" in msg
     assert list(front.carry) == carry_before
 
 
@@ -323,15 +323,15 @@ def test_resistance_attack_uses_hit_category():
         engine=engine,
     )
     msg = res.attack()
-    assert "cat 3" in msg
-    assert "does not attack" not in msg
+    assert "hyökkää" in msg
+    assert "ei hyökkää" not in msg
     assert len(engine.hit_decks[3].deck) == hit_before - 1
     assert front.damage_markers
     assert front.damage_markers[-1]["id"] is not None
     assert engine.hit_decks[3].discard == []
     lost = carry_before - len(front.carry)
     assert lost in (1, 2)
-    assert f"for {lost}" in msg
+    assert f"saa {lost} vahinkoa" in msg
 
 
 def test_mauling_catalog_hit_and_discard_modes():
@@ -492,7 +492,7 @@ def test_mauling_hit_category_draws_hit_table():
     assert player_view(engine, engine.players[0])["resistance_struck"] is True
     lost = carry_before - len(unit.carry)
     assert lost in (2, 3, 4)
-    assert "takes" in msg
+    assert "saa" in msg and "vahinkoa" in msg
 
 
 def test_mauling_forced_discard_when_able():
@@ -533,7 +533,7 @@ def test_mauling_forced_discard_when_able():
     except StopIteration as stop:
         msg = stop.value
 
-    assert "discards 2" in msg
+    assert "hylkää 2 korttia" in msg
     assert len(player.action_cards) == len(hand_before) - 2
     assert list(unit.carry) == carry_before
     assert len(engine.hit_decks[3].deck) == hit_before  # no fail hit drawn
@@ -572,7 +572,7 @@ def test_mauling_fail_hit_when_cannot_discard():
     except StopIteration as stop:
         msg = stop.value
 
-    assert "cannot discard" in msg
+    assert "ei voi hylätä" in msg
     assert len(engine.hit_decks[3].deck) == hit_before - 1
     lost = carry_before - len(unit.carry)
     assert lost in (1, 2)

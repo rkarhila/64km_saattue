@@ -123,6 +123,7 @@ def make_seat_bots(
     agent_ids: list[str],
     *,
     human_id: str,
+    human_ids: set[str] | None = None,
     seed: int | None = None,
     bot_kind: str = "random",
     league_path: str | Path | None = None,
@@ -134,6 +135,7 @@ def make_seat_bots(
     Build bots for every non-human seat.
 
     Returns (bots, meta) where meta describes what was loaded for the UI/snapshot.
+    ``human_ids`` excludes every joined human; ``human_id`` is always excluded too.
     """
     meta: dict[str, Any] = {
         "bot_kind": bot_kind,
@@ -141,7 +143,9 @@ def make_seat_bots(
         "bot_name": None,
         "league": None,
     }
-    other_ids = [pid for pid in agent_ids if pid != human_id]
+    humans = set(human_ids or ())
+    humans.add(human_id)
+    other_ids = [pid for pid in agent_ids if pid not in humans]
 
     if bot_kind == "random" or not bot_id:
         bots: dict[str, SeatBot] = {

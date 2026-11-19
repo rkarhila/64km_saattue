@@ -104,6 +104,8 @@ class CardDeck:
             card_ids = list(self.names_and_effects.keys())
         self.deck = list(card_ids)
         self.discard: list[int] = []
+        # Cards taken out of the game (cash-in retire). Never reshuffled.
+        self.removed: list[int] = []
         if shuffled:
             self.rng.shuffle(self.deck)
 
@@ -120,6 +122,10 @@ class CardDeck:
     def discard_card(self, card: int) -> None:
         self.discard.append(card)
 
+    def remove_from_play(self, card: int) -> None:
+        """Take a card out of the game. It is not added to the discard."""
+        self.removed.append(card)
+
     def reshuffle(self) -> None:
         self.deck = self.discard
         self.rng.shuffle(self.deck)
@@ -130,6 +136,27 @@ class CardDeck:
 
     def to_json(self) -> dict:
         return {"deck": len(self.deck), "discard": len(self.discard)}
+
+    def label(self, card: int) -> str:
+        """Short name for logs and balance statistics."""
+        named = self.get_name(card)
+        if named:
+            return named
+        try:
+            desc = self.describe(card)
+        except KeyError:
+            return str(card)
+        if isinstance(desc, list):
+            names = [
+                str(face.get("name"))
+                for face in desc
+                if isinstance(face, dict) and face.get("name")
+            ]
+            if names:
+                return " / ".join(names)
+        if isinstance(desc, dict) and desc.get("name"):
+            return str(desc["name"])
+        return str(card)
 
     def get_name(self, card: int) -> str | None:
         data = self.names_and_effects.get(card)

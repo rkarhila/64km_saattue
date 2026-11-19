@@ -58,8 +58,9 @@ Default RL reward (`reward_mode="win"`): +1 for finishing 1st, plus step proxies
 ## Web UI (human vs bots)
 
 ```bash
-convoy-web --host 127.0.0.1 --port 8000
+convoy-web --host 127.0.0.1 --port 8000 --password salasana
 # open http://127.0.0.1:8000/
+# --password defaults to 1234 when omitted
 ```
 
 API:

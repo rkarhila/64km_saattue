@@ -14,6 +14,7 @@
     CHOOSE_CARDS_TO_SCOUT: 10,
     REORDER_SCOUTED_CARDS: 11,
     LOG_PAUSE: 12,
+    DISCARD_UNITS: 13,
   };
 
   let gameId = null;
@@ -22,10 +23,15 @@
   let slotCards = {};
   /** @type {Record<number, number|null>} convoySlot -> unit_type */
   let placementMap = {};
+  let assignCommitted = false;
+  let assignFlushKey = "";
   /** @type {number[]} */
   let payPicks = [];
   /** @type {any} */
   let lastSnap = null;
+  let tableId = null;
+  let pollTimer = null;
+  let isHost = false;
   /** @type {Record<string, boolean[]>} deckKey -> visibility flags */
   let prevQueueVis = {};
   /** @type {Record<string, {tired:number,influence:number,damage:number,atrocity:number}>} */
@@ -140,15 +146,7 @@
           return;
         }
         const data = await res.json();
-        gameId = data.game_id;
-        seatNum = Number(data.human_seat.split("_")[1]);
-        $("lobby").classList.add("hidden");
-        $("game").classList.remove("hidden");
-        if ($("pauseToggle")) {
-          $("pauseToggle").checked = data.snapshot.pause_after_actions !== false;
-        }
-        resetLocal();
-        render(data.snapshot);
+        beginGame(data);
 
         // Clean query parameter from address bar
         const cleanUrl = new URL(window.location.href);
@@ -158,13 +156,45 @@
         alert("Virhe pelin latauksessa: " + err);
       }
     })();
+  } else {
+    bootLobby();
+  }
+
+  if ($("unlockBtn")) {
+    $("unlockBtn").addEventListener("click", unlockLobby);
+  }
+  if ($("lobbyPassword")) {
+    $("lobbyPassword").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") unlockLobby();
+    });
+  }
+
+  if ($("showCreate")) {
+    $("showCreate").addEventListener("click", () => {
+      if (!requireName()) return;
+      $("gate").classList.add("hidden");
+      $("createForm").classList.remove("hidden");
+      $("waitingRoom").classList.add("hidden");
+    });
+  }
+  if ($("cancelCreate")) {
+    $("cancelCreate").addEventListener("click", () => {
+      $("createForm").classList.add("hidden");
+      $("gate").classList.remove("hidden");
+      refreshLobby();
+    });
+  }
+  if ($("launchBtn")) {
+    $("launchBtn").addEventListener("click", launchTable);
   }
 
   $("startBtn").addEventListener("click", async () => {
+    const name = requireName();
+    if (!name) return;
     const botKind = $("botKind") ? $("botKind").value : "random";
     const body = {
       num_players: Number($("numPlayers").value),
-      human_seat: 0,
+      name,
       seed: Number($("seed").value),
       pause_after_actions: $("lobbyPauseToggle")
         ? $("lobbyPauseToggle").checked
@@ -179,9 +209,9 @@
       }
       body.bot_id = botId;
     }
-    const res = await fetch("/games", {
+    const res = await fetch("/tables", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: gateHeaders(true),
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -189,14 +219,374 @@
       return;
     }
     const data = await res.json();
+    showWaiting(data.table, data.seat, true);
+  });
+
+  function playerName() {
+    const el = $("playerName");
+    return el ? el.value.trim() : "";
+  }
+
+  function requireName() {
+    const name = playerName();
+    if (!name) {
+      alert("Anna nimi.");
+      const el = $("playerName");
+      if (el) el.focus();
+      return "";
+    }
+    return name;
+  }
+
+  function gateToken() {
+    try {
+      return sessionStorage.getItem("convoyGate") || "";
+    } catch (err) {
+      return "";
+    }
+  }
+
+  function gateHeaders(json) {
+    const headers = { "X-Convoy-Token": gateToken() };
+    if (json) headers["Content-Type"] = "application/json";
+    return headers;
+  }
+
+  function showPasswordGate(message) {
+    const gate = $("passwordGate");
+    if (gate) gate.classList.remove("hidden");
+    if ($("gate")) $("gate").classList.add("hidden");
+    const err = $("passwordError");
+    if (err) err.textContent = message || "";
+    stopPoll();
+  }
+
+  function revealLobby() {
+    const gate = $("passwordGate");
+    if (gate) gate.classList.add("hidden");
+    if ($("gate")) $("gate").classList.remove("hidden");
+    const err = $("passwordError");
+    if (err) err.textContent = "";
+    refreshLobby();
+    startPoll(() => {
+      if (gameId || tableId) return;
+      const open = $("gate");
+      if (open && !open.classList.contains("hidden")) refreshLobby();
+    }, 5000);
+  }
+
+  async function unlockLobby() {
+    const field = $("lobbyPassword");
+    const password = field ? field.value : "";
+    const err = $("passwordError");
+    if (err) err.textContent = "";
+    try {
+      const res = await fetch("/lobby/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      if (!res.ok) {
+        if (err) err.textContent = "Väärä salasana.";
+        if (field) field.focus();
+        return;
+      }
+      const data = await res.json();
+      sessionStorage.setItem("convoyGate", data.token || "");
+      if (field) field.value = "";
+      if (await restoreLive()) return;
+      revealLobby();
+    } catch (error) {
+      if (err) err.textContent = "Salasanaa ei voitu tarkistaa.";
+    }
+  }
+
+  async function bootLobby() {
+    if (!gateToken()) {
+      showPasswordGate();
+      return;
+    }
+    if (await restoreLive()) return;
+    const ok = await refreshLobby();
+    if (!ok) {
+      try {
+        sessionStorage.removeItem("convoyGate");
+      } catch (err) {
+        /* ignore */
+      }
+      showPasswordGate();
+      return;
+    }
+    revealLobby();
+  }
+
+  function rememberLive(payload) {
+    try {
+      sessionStorage.setItem("convoyLive", JSON.stringify(payload));
+    } catch (err) {
+      /* ignore */
+    }
+  }
+
+  function stopPoll() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function startPoll(fn, intervalMs) {
+    stopPoll();
+    pollTimer = setInterval(fn, intervalMs || 1200);
+  }
+
+  async function refreshLobby() {
+    const box = $("openGames");
+    const status = $("lobbyStatus");
+    if (!box) return false;
+    try {
+      const res = await fetch("/lobby", { headers: gateHeaders(false) });
+      if (res.status === 401) return false;
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      if (status) {
+        status.textContent = `Pelejä käynnissä ${data.games_in_use}/${data.max_games}.`;
+      }
+      box.innerHTML = "";
+      const tables = data.tables || [];
+      if (!tables.length) {
+        const empty = document.createElement("p");
+        empty.className = "hint muted";
+        empty.textContent = "Ei avoimia pelejä.";
+        box.appendChild(empty);
+        return true;
+      }
+      tables.forEach((table) => {
+        const card = document.createElement("div");
+        card.className = "table-card";
+        const names = (table.seats || [])
+          .filter((s) => s.name)
+          .map((s) => s.name)
+          .join(", ");
+        card.innerHTML =
+          `<p><strong>${escapeHtml(names || "Pöytä")}</strong></p>` +
+          `<p>${table.num_players} paikkaa · vapaita ${table.open_count} · seed ${table.seed}</p>`;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = table.open_count ? "Liity" : "Täynnä";
+        btn.disabled = !table.open_count;
+        btn.addEventListener("click", () => joinTable(table.table_id));
+        card.appendChild(btn);
+        box.appendChild(card);
+      });
+    } catch (err) {
+      if (status) status.textContent = "Pöytälistaa ei saatu: " + err;
+      return false;
+    }
+    return true;
+  }
+
+  async function joinTable(id) {
+    const name = requireName();
+    if (!name) return;
+    const res = await fetch(`/tables/${id}/join`, {
+      method: "POST",
+      headers: gateHeaders(true),
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) {
+      alert(await res.text());
+      refreshLobby();
+      return;
+    }
+    const data = await res.json();
+    showWaiting(data.table, data.seat, false);
+  }
+
+  function showWaiting(table, seat, host) {
+    tableId = table.table_id;
+    seatNum = seat;
+    isHost = host;
+    gameId = null;
+    rememberLive({ kind: "table", tableId, seat, host });
+    $("gate").classList.add("hidden");
+    if ($("passwordGate")) $("passwordGate").classList.add("hidden");
+    $("createForm").classList.add("hidden");
+    $("waitingRoom").classList.remove("hidden");
+    $("lobby").classList.remove("hidden");
+    $("game").classList.add("hidden");
+    renderWaiting(table);
+    startPoll(pollTable);
+  }
+
+  function renderWaiting(table) {
+    const summary = $("waitSummary");
+    if (summary) {
+      summary.textContent =
+        `Pöytä ${table.table_id} · ${table.num_players} paikkaa · seed ${table.seed}`;
+    }
+    const box = $("waitSeats");
+    if (box) {
+      box.innerHTML = "";
+      (table.seats || []).forEach((s) => {
+        const chip = document.createElement("span");
+        chip.className = `seat-chip player-color-${s.seat}`;
+        chip.textContent = s.open
+          ? `${s.color}: vapaa`
+          : `${s.color}: ${s.name}`;
+        box.appendChild(chip);
+      });
+    }
+    const launch = $("launchBtn");
+    if (launch) {
+      launch.classList.toggle("hidden", !isHost);
+    }
+  }
+
+  async function pollTable() {
+    if (!tableId) return;
+    try {
+      const res = await fetch(`/tables/${tableId}`, { headers: gateHeaders(false) });
+      if (!res.ok) return;
+      const table = await res.json();
+      if (table.started_game_id) {
+        const gameRes = await fetch(
+          `/games/${table.started_game_id}?seat=${seatNum}`
+        );
+        if (!gameRes.ok) return;
+        beginGame({
+          game_id: table.started_game_id,
+          human_seat: `player_${seatNum}`,
+          snapshot: await gameRes.json(),
+        });
+        return;
+      }
+      renderWaiting(table);
+    } catch (err) {
+      /* next poll */
+    }
+  }
+
+  async function launchTable() {
+    if (!tableId) return;
+    const res = await fetch(`/tables/${tableId}/start?seat=${seatNum}`, {
+      method: "POST",
+      headers: gateHeaders(false),
+    });
+    if (!res.ok) {
+      alert(await res.text());
+      return;
+    }
+    beginGame(await res.json());
+  }
+
+  function beginGame(data) {
+    stopPoll();
     gameId = data.game_id;
-    seatNum = Number(data.human_seat.split("_")[1]);
+    seatNum = Number(String(data.human_seat).split("_")[1]);
+    tableId = null;
+    rememberLive({ kind: "game", gameId, seat: seatNum });
     $("lobby").classList.add("hidden");
     $("game").classList.remove("hidden");
-    if ($("pauseToggle")) $("pauseToggle").checked = data.snapshot.pause_after_actions !== false;
+    if ($("pauseToggle")) {
+      $("pauseToggle").checked = data.snapshot.pause_after_actions !== false;
+    }
     resetLocal();
     render(data.snapshot);
-  });
+    startPoll(pollGame);
+  }
+
+  async function pollGame() {
+    if (!gameId) return;
+    try {
+      const res = await fetch(`/games/${gameId}?seat=${seatNum}`);
+      if (!res.ok) return;
+      const snap = await res.json();
+      if (lastSnap && viewKey(snap) === viewKey(lastSnap)) return;
+      const keepPicks = choiceSig(lastSnap) !== "" && choiceSig(lastSnap) === choiceSig(snap);
+      if (!keepPicks) resetPicks();
+      render(snap, { keepPicks });
+    } catch (err) {
+      /* next poll */
+    }
+  }
+
+  function choiceSig(snap) {
+    if (!snap) return "";
+    const p = snap.pending;
+    const wait = snap.awaiting_continue ? "1" : "0";
+    if (!p) return `none|${wait}`;
+    return [p.choicetype, p.player_id || "", p.description || "", p.num_choice || "", wait].join("|");
+  }
+
+  function viewKey(snap) {
+    if (!snap) return "";
+    const log = (snap.state && snap.state.log) || [];
+    const units = (snap.state && snap.state.convoy) || [];
+    const acted = units.map((u) => {
+      const cards = (u && u.action && u.action.cards) || [];
+      return cards
+        .map((c) => (c && c.resolved ? (c.frustrated ? "f" : "r") : "."))
+        .join("");
+    }).join(",");
+    return [
+      snap.revision,
+      snap.log_cursor || 0,
+      log.length,
+      snap.waiting_for || "",
+      snap.awaiting_continue ? 1 : 0,
+      choiceSig(snap),
+      acted,
+    ].join("|");
+  }
+
+  async function restoreLive() {
+    let saved = null;
+    try {
+      saved = JSON.parse(sessionStorage.getItem("convoyLive") || "null");
+    } catch (err) {
+      saved = null;
+    }
+    if (!saved) return false;
+    if (saved.kind === "game" && saved.gameId != null) {
+      const res = await fetch(`/games/${saved.gameId}?seat=${saved.seat}`);
+      if (!res.ok) {
+        sessionStorage.removeItem("convoyLive");
+        return false;
+      }
+      beginGame({
+        game_id: saved.gameId,
+        human_seat: `player_${saved.seat}`,
+        snapshot: await res.json(),
+      });
+      return true;
+    }
+    if (saved.kind === "table" && saved.tableId) {
+      const res = await fetch(`/tables/${saved.tableId}`, {
+        headers: gateHeaders(false),
+      });
+      if (!res.ok) {
+        sessionStorage.removeItem("convoyLive");
+        return false;
+      }
+      const table = await res.json();
+      if (table.started_game_id) {
+        const gameRes = await fetch(
+          `/games/${table.started_game_id}?seat=${saved.seat}`
+        );
+        if (!gameRes.ok) return false;
+        beginGame({
+          game_id: table.started_game_id,
+          human_seat: `player_${saved.seat}`,
+          snapshot: await gameRes.json(),
+        });
+        return true;
+      }
+      showWaiting(table, saved.seat, Boolean(saved.host));
+      return true;
+    }
+    return false;
+  }
 
   $("continueBtn").addEventListener("click", () => sendContinue());
   $("randomChoiceBtn").addEventListener("click", () => sendRandomChoice());
@@ -258,8 +648,11 @@
     payPicks = [];
   }
 
+  let lastLogSig = "";
+
   function resetLocal() {
     resetPicks();
+    lastLogSig = "";
     prevQueueVis = {};
     prevStatus = {};
     prevActionSig = {};
@@ -268,18 +661,39 @@
     pendingReveals = new Set();
   }
 
-  async function sendChoice(choice) {
+  async function sendChoice(choice, options) {
+    const keepAssign = Boolean(options && options.keepAssign);
+    const savedCards = keepAssign ? { ...slotCards } : null;
     const res = await fetch(`/games/${gameId}/choice?seat=${seatNum}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ choice }),
     });
     if (!res.ok) {
+      assignCommitted = false;
+      assignFlushKey = "";
       alert(await res.text());
       return;
     }
     resetPicks();
+    if (savedCards) slotCards = savedCards;
     render(await res.json());
+  }
+
+  function flushPlannedAssign(snap) {
+    if (!assignCommitted || !isAssignFlow(snap)) return;
+    const current = (snap.pending.payload || {}).assign_unit;
+    if (!current) return;
+    const cid = slotCards[current.index];
+    const options = snap.pending.options || [];
+    if (!options.includes(cid)) {
+      assignCommitted = false;
+      return;
+    }
+    const key = `${current.index}:${cid}`;
+    if (key === assignFlushKey) return;
+    assignFlushKey = key;
+    sendChoice([cid], { keepAssign: true });
   }
 
   async function sendContinue() {
@@ -355,16 +769,104 @@
     "officer.zone": "Alue",
     "officer.cost": "Hinta",
     "resistance.destroy_cash": "Tuhoaminen",
+    "ui.verb.scout": "Tiedustelu",
+    "ui.verb.search": "Etsintä",
+    "ui.verb.sigint": "Signaalitiedustelu",
+    "ui.queue.pillage": "ryöstö",
+    "ui.queue.mauling": "moukarointi",
+    "ui.queue.resistance": "vastarinta",
+    "ui.scout.select_title": "{verb}: valitse paljastettavat kortit",
+    "ui.scout.select_hint": "Valitse täsmälleen {n} selällään olevaa korttia napsauttamalla niitä jonoissa. Valitut kortit saavat keltaisen reunuksen.",
+    "ui.scout.selected": "Valittu: {have} / {need}",
+    "ui.scout.clear": "Tyhjennä",
+    "ui.scout.confirm_selection": "Vahvista valinta",
+    "ui.scout.reorder_title": "{verb}: järjestä {queue}jonon kortit",
+    "ui.scout.reorder_hint": "Vedä kortteja jonossa toistensa päälle, jos haluat vaihtaa järjestystä. Voit myös vahvistaa nykyisen järjestyksen muuttamatta sitä. Vasemmanpuoleisin käännetty kortti tulee etummaiseen vapaaseen paikkaan.",
+    "ui.scout.reorder_status": "Nykyinen järjestys on valmis vahvistettavaksi.",
+    "ui.scout.reset_order": "Palauta järjestys",
+    "ui.scout.confirm_order": "Vahvista järjestys",
+    "ui.scout.choose_deck_title": "{verb}: valitse pakka",
+    "ui.scout.choose_deck_hint": "Kaikki jonokortit on jo paljastettu. Valitse pakka, josta nostetaan {n} korttia; yksi niistä menee jonoon kuvapuoli ylöspäin.",
+    "ui.scout.deck_button": "{queue} (pakka {deck}, poisto {discard})",
+    "ui.scout.deck_pick_title": "Valitse kortti jonoon ({queue})",
+    "ui.scout.deck_pick_hint": "Napsauta yksi nostetuista korteista. Se menee {queue}jonoon kuvapuoli ylöspäin; muut poistetaan.",
+    "ui.scout.unknown_card": "Tuntematon (paikka {n})",
+    "ui.cash_in.title": "Vaihda kortteja rahaksi?",
+    "ui.cash_in.discard_hint": "Hylkää {n} korttia ja saa {cash} MMk. Kortit menevät poistopakkaan.",
+    "ui.cash_in.remove_hint": "Poista {n} korttia pelistä ja saa {cash} MMk. Kortit eivät palaa pakkaan.",
+    "ui.cash_in.yes": "Kyllä",
+    "ui.cash_in.no": "Ei",
+    "ui.sell.discard_hint": "Valitse {n} korttia. Ne menevät poistopakkaan ja saat {cash} MMk.",
+    "ui.sell.remove_hint": "Valitse {n} korttia. Ne poistuvat pelistä ja saat {cash} MMk.",
+  };
+
+  // Active UI language. Add a sibling of `fi` to support another language.
+  const UI_LANG = "fi";
+  const UI_TABLES = {
+    fi: I18N,
+    en: {
+      "ui.verb.scout": "Scout",
+      "ui.verb.search": "Search",
+      "ui.verb.sigint": "Sigint",
+      "ui.queue.pillage": "pillage",
+      "ui.queue.mauling": "mauling",
+      "ui.queue.resistance": "resistance",
+      "ui.scout.select_title": "{verb}: choose cards to reveal",
+      "ui.scout.select_hint": "Select exactly {n} face-down cards by clicking them in the queues. Selected cards get a yellow border.",
+      "ui.scout.selected": "Selected: {have} / {need}",
+      "ui.scout.clear": "Clear",
+      "ui.scout.confirm_selection": "Confirm selection",
+      "ui.scout.reorder_title": "{verb}: order the {queue} cards",
+      "ui.scout.reorder_hint": "Drag the cards onto each other in the queue if you want a new order. You can also confirm the current order without moving anything. The leftmost turned card goes into the frontmost open slot.",
+      "ui.scout.reorder_status": "The current order is ready to confirm.",
+      "ui.scout.reset_order": "Reset order",
+      "ui.scout.confirm_order": "Confirm order",
+      "ui.scout.choose_deck_title": "{verb}: choose a deck",
+      "ui.scout.choose_deck_hint": "Every queued card is already face up. Choose a deck to draw {n} cards from; one of them goes into the queue face up.",
+      "ui.scout.deck_button": "{queue} (deck {deck}, discard {discard})",
+      "ui.scout.deck_pick_title": "Choose a card for the {queue} queue",
+      "ui.scout.deck_pick_hint": "Click one of the drawn cards. It goes into the {queue} queue face up; the rest are discarded.",
+      "ui.scout.unknown_card": "Unknown (slot {n})",
+      "ui.cash_in.title": "Cash cards in?",
+      "ui.cash_in.discard_hint": "Discard {n} cards and gain {cash} Me¥. The cards go to the discard pile.",
+      "ui.cash_in.remove_hint": "Remove {n} cards from the game and gain {cash} Me¥. They do not return to the deck.",
+      "ui.cash_in.yes": "Yes",
+      "ui.cash_in.no": "No",
+      "ui.sell.discard_hint": "Choose {n} cards. They go to the discard pile and you gain {cash} Me¥.",
+      "ui.sell.remove_hint": "Choose {n} cards. They leave the game and you gain {cash} Me¥.",
+    },
   };
 
   function t(key, vars) {
-    let s = I18N[key] || key;
+    const active = UI_TABLES[UI_LANG] || UI_TABLES.fi;
+    let s = (active && active[key]) || UI_TABLES.fi[key] || key;
     if (vars) {
       Object.keys(vars).forEach((k) => {
         s = s.replaceAll(`{${k}}`, String(vars[k]));
       });
     }
     return s;
+  }
+
+  function scoutVerbLabel(verb) {
+    const key = `ui.verb.${verb || "scout"}`;
+    const label = t(key);
+    return label === key ? t("ui.verb.scout") : label;
+  }
+
+  function queueLabel(key) {
+    const id = `ui.queue.${key || ""}`;
+    const label = t(id);
+    return label === id ? String(key || "") : label;
+  }
+
+  function ensureReorderPicks(snap) {
+    if (!snap || !snap.pending || snap.pending.choicetype !== CT.REORDER_SCOUTED_CARDS) return;
+    const optsList = snap.pending.options || [];
+    const same = Array.isArray(payPicks)
+      && payPicks.length === optsList.length
+      && optsList.every((o) => payPicks.includes(o));
+    if (!same) payPicks = [...optsList];
   }
 
   function attackTypeLabel(atype) {
@@ -942,13 +1444,18 @@
     return snap.pending && snap.pending.choicetype === CT.PLACE_UNITS;
   }
 
+  function isDiscardUnits(snap) {
+    const p = snap.pending;
+    return p && p.choicetype === CT.DISCARD_UNITS && (p.num_choice || 0) > 0;
+  }
+
   function isAssignFlow(snap) {
     const p = snap.pending;
     return (
       p &&
       p.choicetype === CT.CHOOSE_CARD &&
-      (p.assign_units || []).length === p.num_choice &&
-      p.num_choice >= 1
+      (p.payload || {}).reason === "assign" &&
+      (p.assign_units || []).length >= 1
     );
   }
 
@@ -1007,6 +1514,7 @@
     const p = snap.pending;
     return (
       p &&
+      !isAssignFlow(snap) &&
       p.choicetype === CT.CHOOSE_CARD &&
       p.num_choice === 1 &&
       Array.isArray(p.options) &&
@@ -1511,6 +2019,10 @@
     const cats = catalog(snap);
     const assign = isAssignFlow(snap);
     const assignSet = new Set((snap.pending && snap.pending.assign_units || []).map((u) => u.index));
+    const discardUnits = isDiscardUnits(snap);
+    const discardSet = new Set(
+      discardUnits ? (snap.pending.options || []) : []
+    );
     const convoy = snap.state.convoy || [];
     const numPlayers = (snap.state.players || []).length || 3;
     const struckUnits = new Set(
@@ -1537,13 +2049,28 @@
         ` ${playerColorClass(u.player)}` +
         (struckUnits.has(i) ? " unit-hit" : "");
       const typeLabel = u.unit_type_label || u.unit_type;
+      const discardMarked = discardUnits && payPicks.includes(i);
+      if (discardSet.has(i)) {
+        unit.classList.add("discard-target");
+        if (discardMarked) unit.classList.add("discard-marked");
+      }
       unit.dataset.statusTarget = `unit-${i}`;
       const counts = statusCountsForUnit(u);
       // Animate after element is in DOM (below).
       unit.innerHTML =
         `<strong>#${i}</strong> P${u.player} ${escapeHtml(typeLabel)}` +
+        (discardMarked ? `<div class="discard-flag">Hylätään</div>` : "") +
         `<div class="unit-tokens"></div>` +
         `<div class="unit-meta">carry ${escapeHtml(JSON.stringify(u.carry))}</div>`;
+      if (discardSet.has(i)) {
+        unit.addEventListener("click", () => {
+          const need = snap.pending.num_choice;
+          const at = payPicks.indexOf(i);
+          if (at >= 0) payPicks.splice(at, 1);
+          else if (payPicks.length < need) payPicks.push(i);
+          render(lastSnap);
+        });
+      }
       wrap.appendChild(unit);
       const pauseActive = Boolean(
         snap.pause_after_actions && snap.awaiting_continue
@@ -1733,101 +2260,10 @@
   }
 
   function prettifyLogLine(text) {
-    let displayText = text;
-    if (text.includes(" frustrated on card ")) {
-      // Example:
-      // "blue panssarit frustrated on card 10 (...): exit:zone ['A'] not in allowed 'E' for P; ..."
-      // Target: "blue panssarit frustrated on card 10: wrong zone for "sayonara suckers", ..."
-      const frustratedRegex =
-        /^(.+? frustrated on card \d+)(?:\s*\(.*?\))?:\s*(.+)$/i;
-      const match = text.match(frustratedRegex);
-      if (match) {
-        const header = match[1];
-        const rawReasons = match[2];
-        const reasons = rawReasons
-          .split(";")
-          .map((r) => r.trim())
-          .filter(Boolean);
-        const translatedReasons = [];
-        let wrongZoneActions = [];
-        let wrongTroopActions = [];
-        let tooExpensiveActions = [];
-        let otherBlockedActions = [];
-
-        const actionNames = {
-          exit: '"sayonara suckers" (Pakene)',
-          scout: "Tiedustele (Scout)",
-          sigint: "Signaalitiedustelu (Sigint)",
-          promote: "Ylennä (Promote)",
-          pillage: "Ryöstä (Pillage)",
-          attack: "Hyökkää (Attack)",
-          assault: "Assault",
-          bypass: "Ohita (Bypass)",
-          defend: "Puolusta (Defend)",
-          "human shields": "Ihmiskilvet (Human Shields)",
-          patrol: "Partioi (Patrol)",
-          rest: "Lepää (Rest)",
-          retreat: "Peräänny (Retreat)",
-          search: "Etsi (Search)",
-          service: "Huolla (Service)",
-          sober_up: "Sober Up",
-          wait: "Wait",
-          suicidal_attack: "Suicidal Attack",
-        };
-
-        reasons.forEach((reason) => {
-          const partMatch = reason.match(/^([^:]+):(.*)$/);
-          if (partMatch) {
-            const actionCode = partMatch[1].trim();
-            const actionDetail = partMatch[2].trim();
-            const actionName =
-              actionNames[actionCode.toLowerCase()] || actionCode;
-            if (actionDetail.includes("zone")) {
-              wrongZoneActions.push(actionName);
-            } else if (
-              actionDetail.includes("troop") ||
-              actionDetail.includes("limits")
-            ) {
-              wrongTroopActions.push(actionName);
-            } else if (
-              actionDetail.includes("cost") ||
-              actionDetail.includes("hand")
-            ) {
-              tooExpensiveActions.push(actionName);
-            } else {
-              otherBlockedActions.push(`${actionName} (${actionDetail})`);
-            }
-          } else {
-            otherBlockedActions.push(reason);
-          }
-        });
-
-        if (wrongZoneActions.length > 0) {
-          translatedReasons.push(
-            `wrong zone for ${wrongZoneActions.join(" or ")}`
-          );
-        }
-        if (wrongTroopActions.length > 0) {
-          translatedReasons.push(
-            `wrong troop type for ${wrongTroopActions.join(" or ")}`
-          );
-        }
-        if (tooExpensiveActions.length > 0) {
-          translatedReasons.push(
-            `too expensive for ${tooExpensiveActions.join(" or ")}`
-          );
-        }
-        if (otherBlockedActions.length > 0) {
-          translatedReasons.push(otherBlockedActions.join(", "));
-        }
-
-        displayText =
-          translatedReasons.length > 0
-            ? `${header}: ${translatedReasons.join(", ")}.`
-            : `${header}: no valid actions available.`;
-      }
-    }
-    return displayText;
+    return String(text || "")
+      .replace(/\s+/g, " ")
+      .replace(/\s*Jatka\.?\s*$/i, "")
+      .trim();
   }
 
   function renderContinuePanel(snap) {
@@ -1964,6 +2400,43 @@
       return;
     }
 
+    if (isDiscardUnits(snap)) {
+      const need = snap.pending.num_choice;
+      title.textContent = "Hylkää yksiköt";
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent =
+        need === 1
+          ? "Napsauta yksikkö, jolle ei riitä toimintokorttia."
+          : `Napsauta ${need} yksikköä, joille ei riitä toimintokorttia.`;
+      opts.appendChild(hint);
+      const status = document.createElement("p");
+      status.className = "pick-status";
+      status.textContent = `Valittu: ${payPicks.length} / ${need}`;
+      mountSide(status);
+      const actions = document.createElement("div");
+      actions.className = "choice-actions";
+      const clearBtn = document.createElement("button");
+      clearBtn.type = "button";
+      clearBtn.className = "secondary";
+      clearBtn.textContent = "Tyhjennä";
+      clearBtn.addEventListener("click", () => {
+        payPicks = [];
+        render(lastSnap);
+      });
+      const okBtn = document.createElement("button");
+      okBtn.type = "button";
+      okBtn.textContent = "Vahvista";
+      okBtn.disabled = payPicks.length !== need;
+      okBtn.addEventListener("click", () => {
+        if (payPicks.length === need) sendChoice([...payPicks]);
+      });
+      actions.appendChild(clearBtn);
+      actions.appendChild(okBtn);
+      mountSide(actions);
+      return;
+    }
+
     if (isAssignFlow(snap)) {
       title.textContent = "Jaa toimintakortit";
       const units = snap.pending.assign_units;
@@ -1983,8 +2456,11 @@
       okBtn.textContent = "Vahvista";
       okBtn.disabled = !allFilled;
       okBtn.addEventListener("click", () => {
-        const choice = units.map((u) => slotCards[u.index]);
-        sendChoice(choice);
+        const current = (snap.pending.payload || {}).assign_unit || units[0];
+        const cid = slotCards[current.index];
+        assignCommitted = true;
+        assignFlushKey = `${current.index}:${cid}`;
+        sendChoice([cid], { keepAssign: true });
       });
       actions.appendChild(clearBtn);
       actions.appendChild(okBtn);
@@ -1994,7 +2470,7 @@
       hint.textContent =
         units.length === 1
           ? "Vedä kortti kädestä yksikön alle."
-          : "Vedä kortteja kädestä yksiköiden alle.";
+          : "Vedä kortti jokaisen yksikön alle. Ne jaetaan edestä taakse.";
       opts.appendChild(hint);
       return;
     }
@@ -2023,13 +2499,14 @@
       const payload = snap.pending.payload || {};
       const deckPick = payload.reason === "scout_deck_pick";
       const queueKey = payload.queue || "pillage";
+      const queueName = queueLabel(queueKey);
       title.textContent = deckPick
-        ? `Valitse kortti jonoon (${queueKey})`
+        ? t("ui.scout.deck_pick_title", { queue: queueName })
         : "Valitse ryöstökortti";
       const hint = document.createElement("p");
       hint.className = "hint";
       hint.textContent = deckPick
-        ? `Napsauta yksi nostetuista korteista — se menee ${queueKey}-jonoon kuvapuoli ylöspäin; muut poistetaan.`
+        ? t("ui.scout.deck_pick_hint", { queue: queueName })
         : "Napsauta jonon ensimmäistä korttia tai mitä tahansa paljastettua korttia.";
       opts.appendChild(hint);
       const row = document.createElement("div");
@@ -2043,7 +2520,7 @@
           fillFancyQueueCard(el, c, queueKey);
         } else {
           el.className = "queue-card face-down pillage-choice";
-          el.innerHTML = `<div class="queue-card-mark">🂠</div><div class="queue-card-detail" style="margin-top: 5px; text-align: center;">Tuntematon (Slot ${idx + 1})</div>`;
+          el.innerHTML = `<div class="queue-card-mark">🂠</div><div class="queue-card-detail" style="margin-top: 5px; text-align: center;">${escapeHtml(t("ui.scout.unknown_card", { n: idx + 1 }))}</div>`;
         }
         el.addEventListener("click", () => sendChoice([c.id]));
         row.appendChild(el);
@@ -2054,20 +2531,23 @@
 
     if (snap.pending.choicetype === CT.CHOOSE_QUEUE_TO_SCOUT) {
       const payload = snap.pending.payload || {};
-      const verb = payload.verb || "scout";
+      const verb = scoutVerbLabel(payload.verb);
       const need = payload.count || 2;
-      title.textContent = `${verb}: Valitse pakka`;
+      title.textContent = t("ui.scout.choose_deck_title", { verb });
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent =
-        `Kaikki jonokortit on jo paljastettu. Valitse pakka, josta nostetaan ${need} korttia; yksi niistä menee jonoon kuvapuoli ylöspäin.`;
+      hint.textContent = t("ui.scout.choose_deck_hint", { n: need });
       opts.appendChild(hint);
       const actions = document.createElement("div");
       actions.className = "choice-actions";
       (payload.queues || []).forEach((q) => {
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.textContent = `${q.queue} (pakka ${q.deck}, poisto ${q.discard})`;
+        btn.textContent = t("ui.scout.deck_button", {
+          queue: queueLabel(q.queue),
+          deck: q.deck,
+          discard: q.discard,
+        });
         btn.addEventListener("click", () => sendChoice([q.option]));
         actions.appendChild(btn);
       });
@@ -2078,12 +2558,21 @@
     if (isPayCost(snap) || isDiscardPick(snap)) {
       const need = snap.pending.num_choice;
       const payload = snap.pending.payload || {};
-      title.textContent = isPayCost(snap) ? "Maksa hinta" : "Valitse kortit";
+      title.textContent = payload.sell
+        ? payload.action_name || "Myy varusteita"
+        : isPayCost(snap)
+          ? "Maksa hinta"
+          : "Valitse kortit";
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent = isPayCost(snap)
-        ? `Valitse ${need} korttia kädestä maksaaksesi: ${payload.action_name || ""}`
-        : `Valitse ${need} korttia.`;
+      hint.textContent = payload.sell
+        ? t(payload.removes ? "ui.sell.remove_hint" : "ui.sell.discard_hint", {
+            n: need,
+            cash: payload.reward || 0,
+          })
+        : isPayCost(snap)
+          ? `Valitse ${need} korttia kädestä maksaaksesi: ${payload.action_name || ""}`
+          : `Valitse ${need} korttia.`;
       opts.appendChild(hint);
       const status = document.createElement("p");
       status.className = "pick-status";
@@ -2113,17 +2602,20 @@
     }
 
     if (snap.pending.choicetype === CT.CHOOSE_CARDS_TO_SCOUT) {
-      title.textContent = "Scout: Select cards to reveal";
-      const need = snap.pending.payload.count;
+      const payload = snap.pending.payload || {};
+      title.textContent = t("ui.scout.select_title", {
+        verb: scoutVerbLabel(payload.verb),
+      });
+      const need = payload.count;
       
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent = `Please select exactly ${need} face-down card(s) by clicking on them directly in the queue tracks above. Selected cards will be highlighted with a yellow border.`;
+      hint.textContent = t("ui.scout.select_hint", { n: need });
       opts.appendChild(hint);
 
       const status = document.createElement("p");
       status.className = "pick-status";
-      status.textContent = `Selected: ${payPicks.length} / ${need}`;
+      status.textContent = t("ui.scout.selected", { have: payPicks.length, need });
       mountSide(status);
 
       const actions = document.createElement("div");
@@ -2132,7 +2624,7 @@
       const clearBtn = document.createElement("button");
       clearBtn.type = "button";
       clearBtn.className = "secondary";
-      clearBtn.textContent = "Clear";
+      clearBtn.textContent = t("ui.scout.clear");
       clearBtn.addEventListener("click", () => {
         payPicks = [];
         render(lastSnap);
@@ -2140,7 +2632,7 @@
 
       const okBtn = document.createElement("button");
       okBtn.type = "button";
-      okBtn.textContent = "Confirm Selection";
+      okBtn.textContent = t("ui.scout.confirm_selection");
       okBtn.disabled = payPicks.length !== need;
       okBtn.addEventListener("click", () => {
         if (payPicks.length === need) {
@@ -2157,18 +2649,23 @@
     }
 
     if (snap.pending.choicetype === CT.REORDER_SCOUTED_CARDS) {
-      title.textContent = `Scout: Reorder ${snap.pending.payload.queue} cards`;
-      const cards = snap.pending.payload.cards || [];
-      const need = cards.length;
+      ensureReorderPicks(snap);
+      const payload = snap.pending.payload || {};
+      const queueName = queueLabel(payload.queue);
+      title.textContent = t("ui.scout.reorder_title", {
+        verb: scoutVerbLabel(payload.verb),
+        queue: queueName,
+      });
+      const need = (snap.pending.options || []).length;
 
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent = `Drag and drop the cards directly over each other in the queue above to rearrange them. First card (leftmost of the scouted ones) will be placed in the frontmost available slot.`;
+      hint.textContent = t("ui.scout.reorder_hint");
       opts.appendChild(hint);
 
       const status = document.createElement("p");
       status.className = "pick-status";
-      status.textContent = `Current Order Configured (Drag cards in the queue to rearrange)`;
+      status.textContent = t("ui.scout.reorder_status");
       mountSide(status);
 
       const actions = document.createElement("div");
@@ -2177,7 +2674,7 @@
       const clearBtn = document.createElement("button");
       clearBtn.type = "button";
       clearBtn.className = "secondary";
-      clearBtn.textContent = "Reset Order";
+      clearBtn.textContent = t("ui.scout.reset_order");
       clearBtn.addEventListener("click", () => {
         payPicks = [...snap.pending.options];
         render(lastSnap);
@@ -2185,7 +2682,7 @@
 
       const okBtn = document.createElement("button");
       okBtn.type = "button";
-      okBtn.textContent = "Confirm Order";
+      okBtn.textContent = t("ui.scout.confirm_order");
       okBtn.disabled = payPicks.length !== need;
       okBtn.addEventListener("click", () => {
         if (payPicks.length === need) {
@@ -2226,10 +2723,16 @@
     }
 
     if (snap.pending.choicetype === CT.CASH_IN_CARDS) {
-      title.textContent = "Vaihda kortteja rahaksi?";
+      const payload = snap.pending.payload || {};
+      const count = payload.count || 4;
+      const reward = payload.reward || 1;
+      title.textContent = t("ui.cash_in.title");
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent = "Haluatko vaihtaa 4 toimintakorttia 1 PP/rahaan?";
+      hint.textContent = t(
+        payload.removes ? "ui.cash_in.remove_hint" : "ui.cash_in.discard_hint",
+        { n: count, cash: reward }
+      );
       opts.appendChild(hint);
 
       const actions = document.createElement("div");
@@ -2237,13 +2740,13 @@
 
       const yesBtn = document.createElement("button");
       yesBtn.type = "button";
-      yesBtn.textContent = "Kyllä (Yes)";
+      yesBtn.textContent = t("ui.cash_in.yes");
       yesBtn.addEventListener("click", () => sendChoice([1]));
 
       const noBtn = document.createElement("button");
       noBtn.type = "button";
       noBtn.className = "secondary";
-      noBtn.textContent = "Ei (No)";
+      noBtn.textContent = t("ui.cash_in.no");
       noBtn.addEventListener("click", () => sendChoice([0]));
 
       actions.appendChild(yesBtn);
@@ -2327,13 +2830,7 @@
     const isScoutingSelection = snap.pending && snap.pending.choicetype === CT.CHOOSE_CARDS_TO_SCOUT;
     const isScoutingReorder = snap.pending && snap.pending.choicetype === CT.REORDER_SCOUTED_CARDS;
 
-    // If reordering, ensure payPicks is initialized correctly
-    if (isScoutingReorder) {
-      const optsList = snap.pending.options || [];
-      if (!Array.isArray(payPicks) || payPicks.length !== optsList.length || !optsList.every(o => payPicks.includes(o))) {
-        payPicks = [...optsList];
-      }
-    }
+    ensureReorderPicks(snap);
 
     rows.forEach((row) => {
       const rowEl = document.createElement("div");
@@ -2547,6 +3044,9 @@
     const logEl = $("gameLog");
     if (!logEl) return;
     const lines = (snap.state && snap.state.log) || [];
+    const sig = lines.join("\n");
+    if (sig === lastLogSig && logEl.childElementCount === lines.length) return;
+    lastLogSig = sig;
     const atBottom =
       logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
     logEl.innerHTML = "";
@@ -2561,20 +3061,26 @@
 
       // Prettify player color keywords and Player X mentions using HTML
       let html = escapeHtml(displayText);
-      const colors = ["red", "green", "blue", "orange", "purple"];
-      colors.forEach((color, num) => {
-        // Match color word if followed by unit type, position info, or player keyword
-        const regex = new RegExp(`\\b(${color})(?=\\s+(?:player|panssarit|jalkaväki|huolto|unit|panssari|logistics|panzer|infantry))`, "gi");
-        html = html.replace(regex, `<span class="player-color-${num}" style="color: var(--pc); font-weight: bold;">$1</span>`);
-
-        // Match capitalized colors for score display "Red", "Green", etc.
-        const capColor = color.charAt(0).toUpperCase() + color.slice(1);
-        const capRegex = new RegExp(`\\b(${capColor})\\b`, "g");
-        html = html.replace(capRegex, `<span class="player-color-${num}" style="color: var(--pc); font-weight: bold;">$1</span>`);
-
-        // Also match Player X
-        const playerRegex = new RegExp(`\\b(Player\\s+${num})\\b`, "gi");
-        html = html.replace(playerRegex, `<span class="player-color-${num}" style="color: var(--pc); font-weight: bold;">$1</span>`);
+      const colorWords = [
+        ["punaiset", "punainen"],
+        ["vihreät", "vihreä"],
+        ["siniset", "sininen"],
+        ["oranssit", "oranssi"],
+        ["violetit", "violetti"],
+      ];
+      colorWords.forEach((words, num) => {
+        words.forEach((word) => {
+          const regex = new RegExp(`(^|\\s)(${word})(?=\\s|$)`, "gi");
+          html = html.replace(
+            regex,
+            `$1<span class="player-color-${num}" style="color: var(--pc); font-weight: bold;">$2</span>`
+          );
+        });
+        const playerRegex = new RegExp(`\\b(Pelaaja\\s+${num})\\b`, "g");
+        html = html.replace(
+          playerRegex,
+          `<span class="player-color-${num}" style="color: var(--pc); font-weight: bold;">$1</span>`
+        );
       });
 
       line.innerHTML = html;
@@ -2585,7 +3091,9 @@
     }
   }
 
-  function render(snap) {
+  function render(snap, options) {
+    const keepPicks = Boolean(options && options.keepPicks);
+    ensureReorderPicks(snap);
     hideActionTip();
     noteQueueReveals(snap);
     lastSnap = snap;
@@ -2600,6 +3108,9 @@
     $("roundInfo").textContent =
       `Kierros ${state.round ?? "?"} · vaihe ${state.stage ?? "?"}${botLine}`;
     $("message").textContent = state.message || "";
+    const waitText = snap.waiting_for || "";
+    if ($("waitingFor")) $("waitingFor").textContent = waitText;
+    if ($("sideWaiting")) $("sideWaiting").textContent = waitText;
 
     if ($("pauseToggle") && typeof snap.pause_after_actions === "boolean") {
       $("pauseToggle").checked = snap.pause_after_actions;
@@ -2609,10 +3120,17 @@
     // If pause ended without going through continueBtn (e.g. settings), stop blinks.
     if (!snap.awaiting_continue) demoteBlinkToHalo();
 
+    if (!isPlaceUnits(snap)) placementMap = {};
+    if (!isAssignFlow(snap)) {
+      assignCommitted = false;
+      assignFlushKey = "";
+      slotCards = {};
+    }
+
     renderConvoy(snap);
     renderHand(snap);
     renderContinuePanel(snap);
-    renderChoicePanel(snap);
+    if (!keepPicks) renderChoicePanel(snap);
     syncPlayerPrompt();
 
     const playersEl = $("players");
@@ -2626,8 +3144,9 @@
       const cards = p.cards ? p.cards.join(", ") : `(${p.card_count})`;
       const bank = Math.max(0, Number(p.total_cash) - Number(p.cash_this_round || 0));
       const blink = Boolean(snap.awaiting_continue);
+      const label = p.name || `Pelaaja ${p.number}`;
       div.innerHTML =
-        `<strong>Pelaaja ${p.number}</strong>` +
+        `<strong>${escapeHtml(label)}</strong>` +
         (p.number === seatNum ? " (sinä)" : "") +
         `<div class="pp-line">PP ${p.promotion_points}</div>` +
         `<div class="cash-piles">` +
@@ -2655,5 +3174,6 @@
     } else {
       $("endPanel").classList.add("hidden");
     }
+    flushPlannedAssign(snap);
   }
 })();

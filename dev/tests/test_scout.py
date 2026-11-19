@@ -110,8 +110,8 @@ def test_resolve_scout_reveals_resistance_hidden_card():
     except StopIteration as stop:
         revealed = stop.value
 
-    assert len(revealed) == 1
-    assert revealed[0].startswith("resistance:")
+    assert any("vastarintajonosta" in line for line in revealed)
+    assert any(line.startswith("pelaaja saa") for line in revealed)
     assert engine.resistance_queue.cards_and_visibilities[resistance_hidden_indices[0]][1] is True
 
 
@@ -151,7 +151,8 @@ def test_resolve_scout_reorders_when_multiple_from_same_queue():
     except StopIteration as stop:
         revealed = stop.value
 
-    assert len(revealed) == 2
+    assert sum("vastarintajonosta" in line for line in revealed) == 2
+    assert any(line.startswith("pelaaja saa") for line in revealed)
     assert resistance_queue.cards_and_visibilities[idx1][0] == card_id2
     assert resistance_queue.cards_and_visibilities[idx1][1] is True
     assert resistance_queue.cards_and_visibilities[idx2][0] == card_id1
@@ -184,7 +185,7 @@ def test_scout_flips_the_last_hidden_card_then_peeks_two():
     except StopIteration as stop:
         revealed = stop.value
 
-    assert revealed[0].startswith("resistance:")
+    assert any("vastarinta" in line for line in revealed)
     assert engine.resistance_queue.cards_and_visibilities[-1] == [keep, True]
     assert len(engine.resistance_queue.cards_and_visibilities) == 4
 
@@ -218,8 +219,8 @@ def test_resolve_scout_draws_from_deck_when_queues_known():
     except StopIteration as stop:
         revealed = stop.value
 
-    assert len(revealed) == 1
-    assert revealed[0].startswith("resistance:")
+    assert any("vastarintajonoon" in line for line in revealed)
+    assert any(line.startswith("pelaaja saa") for line in revealed)
     assert len(engine.resistance_queue) == before_res_queue + 1
     assert engine.resistance_queue.cards_and_visibilities[-1][0] == keep
     assert engine.resistance_queue.cards_and_visibilities[-1][1] is True

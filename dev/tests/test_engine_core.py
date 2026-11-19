@@ -179,7 +179,7 @@ def test_format_cost_follows_csv_formula():
     assert face["reward"]["label"].startswith("(+")
     assert face["action_name"] == "scout"
     assert "{reveal_mauling_cash}" not in face["help"]["finnish_explanation"]
-    assert "1 rahan" in face["help"]["finnish_explanation"]
+    assert "1 MMk" in face["help"]["finnish_explanation"]
     assert face["help"]["finnish_title"] == "Tiedustele"
 
     shields = format_face(
@@ -267,7 +267,16 @@ def test_action_help_covers_every_printed_action():
     suggested = action_help_for("attack", "Tietokone ehdottaa: Hyökkää!")
     assert suggested["finnish_title"] == "Hyökkää"
     assert "{attack_cash}" not in suggested["finnish_explanation"]
-    assert "2 rahaa" in suggested["finnish_explanation"]
+    assert "2 MMk" in suggested["finnish_explanation"]
+    assert "2 Me¥" in suggested["english_explanation"]
+    service = action_help_for("service", "Huolla")
+    assert "{service_cash}" not in service["finnish_explanation"]
+    assert "{service_tiredness}" not in service["finnish_explanation"]
+    assert "1 väsymys" in service["finnish_explanation"]
+    assert "1 MMk" in service["finnish_explanation"]
+    rest = action_help_for("rest", "Lepää")
+    assert "{rest_tiredness}" not in rest["english_explanation"]
+    assert "2 tiredness" in rest["english_explanation"]
     renamed = action_help_for("rest", "Uusi: Lepää")
     assert renamed["finnish_title"] == "Lepää"
 
@@ -278,11 +287,34 @@ def test_unit_log_label_uses_color_and_type():
     # Player 2's first unit — color "blue"
     unit = next(u for u in convoy.units if u.player.number == 2)
     label = action_mod.unit_log_label(unit)
-    assert label.startswith("blue ")
-    assert any(
-        tok in label
-        for tok in ("panssarit", "jalkaväki", "huolto", "panzer", "infantry", "logistics")
-    )
+    assert label.startswith("Pelaaja 2 ")
+    assert "siniset" in label or "sininen" in label
+    assert any(tok in label for tok in ("panssarit", "jalkaväki", "huolto"))
+
+
+def test_bypass_from_second_place_stops_at_the_front():
+    from sixtyfivekmconvoy.core.constants import ChoiceType
+    from sixtyfivekmconvoy.core.engine import GameEngine
+
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=1)
+    while engine.pending_choice().choicetype == ChoiceType.PLACE_UNITS:
+        engine.step([0])
+    face = {
+        "action_name": "bypass",
+        "action_modifier": 2,
+        "cost": "0",
+        "limits": {"P": "ABCE", "I": "ABCE", "L": "ABCE"},
+    }
+    second = engine.convoy.units[1]
+    assert second.bypass_distance(2) == 1
+    assert not action_mod.why_action_impossible(engine, 1, face)
+    assert action_mod.why_action_impossible(engine, 0, face)
+    new_pos = action_mod._shift_off_mauling(engine, second, second.bypass_distance(2))
+    assert new_pos == 0
+    assert engine.convoy.units[0] is second
+    rear = engine.convoy.units[-1]
+    assert rear.bypass_distance(2) == 2
 
 
 def test_retreat_identity_loop_tires_each_unit_once():
@@ -350,7 +382,7 @@ def test_pillage_sober_chooses_front_or_revealed():
         raise AssertionError("expected StopIteration")
     except StopIteration as stop:
         taken = stop.value
-    assert taken == [engine.pillage_deck.describe(revealed)]
+    assert taken == [{**engine.pillage_deck.describe(revealed), "id": revealed}]
     assert [cid for cid, _ in engine.pillage_queue.cards_and_visibilities] == [
         hidden,
         hidden_back,
@@ -378,7 +410,7 @@ def test_pillage_drunk_takes_front_card():
         raise AssertionError("drunk pillage should not ask")
     except StopIteration as stop:
         taken = stop.value
-    assert taken == [engine.pillage_deck.describe(front)]
+    assert taken == [{**engine.pillage_deck.describe(front), "id": front}]
     assert engine.pillage_queue.cards_and_visibilities[0][0] == revealed
 
 

@@ -21,6 +21,10 @@ class PPOConfig:
     max_grad_norm: float = 0.5
     epochs: int = 4
     minibatch_size: int = 256
+    # How many minibatches to sum before one Adam step.
+    # 128 x 8 is an effective batch of 1024. A 512-row transformer
+    # forward does not fit a 3 GB GTX 1050 once each decision is 128 tokens.
+    grad_accum_steps: int = 1
     gamma: float = 0.99
     gae_lambda: float = 0.95
 
@@ -40,6 +44,13 @@ class PPOTrainer:
             self.policy.parameters(), lr=self.config.lr, eps=1e-5
         )
 
+    def set_learning_rate(self, lr: float) -> float:
+        """Replace Adam's learning rate. Moment estimates are left as they are."""
+        rate = float(lr)
+        for group in self.optimizer.param_groups:
+            group["lr"] = rate
+        return rate
+
     def update(self, buffer: RolloutBuffer) -> dict[str, float]:
         batch = buffer.get(self.device)
         cfg = self.config
@@ -55,22 +66,26 @@ class PPOTrainer:
             "approx_kl": [],
             "clipfrac": [],
         }
-        mb = max(1, min(int(cfg.minibatch_size), n))
+        micro = max(1, min(int(cfg.minibatch_size), n))
+        accum = max(1, int(cfg.grad_accum_steps))
         for _ in range(cfg.epochs):
             order = torch.randperm(n, device=self.device)
-            for start in range(0, n, mb):
-                sel = order[start : start + mb]
-                loss_info = self._batch_loss(batch, sel)
+            slices = [order[start : start + micro] for start in range(0, n, micro)]
+            for group_at in range(0, len(slices), accum):
+                group = slices[group_at : group_at + accum]
                 self.optimizer.zero_grad(set_to_none=True)
-                loss_info["loss"].backward()
+                scale = float(len(group))
+                for sel in group:
+                    loss_info = self._batch_loss(batch, sel)
+                    (loss_info["loss"] / scale).backward()
+                    for k, v in loss_info.items():
+                        if k == "loss":
+                            continue
+                        metrics[k].append(float(v))
                 nn.utils.clip_grad_norm_(
                     self.policy.parameters(), cfg.max_grad_norm
                 )
                 self.optimizer.step()
-                for k, v in loss_info.items():
-                    if k == "loss":
-                        continue
-                    metrics[k].append(float(v))
         self.policy.eval()
         return {
             k: float(sum(vs) / max(1, len(vs))) for k, vs in metrics.items()

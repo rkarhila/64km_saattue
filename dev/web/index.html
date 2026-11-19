@@ -4,13 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>65km Convoy</title>
-  <link rel="stylesheet" href="/static/style.css?v=unit-solid" />
+  <link rel="stylesheet" href="/static/style.css?v=uncovered-units" />
 </head>
 <body>
   <header class="top">
     <div class="top-brand">
       <h1>65km Convoy</h1>
-      <p class="tag">Ihmispelaaja vs botit</p>
+      <p class="tag">Useampi pelaaja, useampi peli</p>
     </div>
     <div id="markerTray" class="marker-tray" aria-label="Statusmerkit">
       <div class="marker-pile" data-kind="tired" title="Väsymys">
@@ -33,13 +33,30 @@
   </header>
 
   <section class="controls" id="lobby">
+    <div class="lobby-main">
+    <div id="passwordGate" class="lobby-block">
+      <label class="lobby-field">Salasana
+        <input type="password" id="lobbyPassword" autocomplete="current-password" />
+      </label>
+      <button id="unlockBtn" type="button">Jatka</button>
+      <p id="passwordError" class="hint password-error"></p>
+    </div>
+    <div id="gate" class="lobby-block hidden">
+      <label class="lobby-field">Nimi
+        <input type="text" id="playerName" maxlength="32" placeholder="Nimi" required />
+      </label>
+      <button id="showCreate" type="button">Uusi peli</button>
+      <p id="lobbyStatus" class="hint muted"></p>
+      <div id="openGames" class="table-list"></div>
+    </div>
+    <div id="createForm" class="lobby-block hidden">
     <label>Pelaajia
       <input type="number" id="numPlayers" min="2" max="5" value="3" />
     </label>
     <label>Seed
       <input type="number" id="seed" value="1" />
     </label>
-    <label>Vastustajat
+    <label>Tyhjät paikat
       <select id="botKind">
         <option value="random">Satunnaiset botit</option>
         <option value="rl">League-RL -botti</option>
@@ -54,8 +71,18 @@
       <input type="checkbox" id="lobbyPauseToggle" checked />
       Pysäytä lokin jälkeen
     </label>
-    <button id="startBtn" type="button">Uusi peli</button>
+    <button id="startBtn" type="button">Avaa odotushuone</button>
+    <button id="cancelCreate" type="button" class="secondary">Takaisin</button>
     <p id="botHint" class="hint muted"></p>
+    </div>
+    <div id="waitingRoom" class="lobby-block hidden">
+      <h2>Odotushuone</h2>
+      <p id="waitSummary"></p>
+      <div id="waitSeats" class="table-list"></div>
+      <button id="launchBtn" type="button">Aloita peli</button>
+      <p class="hint muted">Tyhjät paikat täytetään boteilla, kun peli alkaa.</p>
+    </div>
+    </div>
     <aside class="rules-intro" aria-label="Peliohje">
       <p>Tässä pelissä olet keskikastin upseeri johtamassa panssaripataljoonaa, joka on mukana valtavassa sotilassaattueessa päämääränään vihollismaan pääkaupunki.</p>
       <p>Saattue on lähtenyt matkaan täydessä epäjärjestyksessä ja joukkosi ovat siellä sun täällä. Metsät, suot, ja liejuiset pellot tekevät kelirikkoiselta maantieltä poikkeamisen mahdottomaksi. Kaikki aloitekykyiset ja selväjärkiset ovat hankkiutuneet pois tästä tehtävästä, jäljellä on lauma julmureita ja juoppoja. Siksi vietät päiväsi ajaen moottoripyörällä kuraisia pientareita mikromanageroimassa joukkojasi, eikä aikasi riitä kaikkien joukkojen tehokkaaseen käyttöön. Haaveilet ylennyksestä pois tästä mutavellistä, tai että saat kerättyä tarpeeksi rahaa paetaksesi loppuelämäksesi johonkin neutraaliin maahan.</p>
@@ -77,7 +104,7 @@
 
       <h4>Käskyvaihe</h4>
       <ul>
-        <li>Kukin pelaaja nostaa 5 korttia ja asettaa yhden toimintokortin jokaiselle omalle yksikölleen selkäpuoli ylöspäin. Kun kaikki pelajaat ovat jakaneet käskyt, siirrytään toimintovaiheeseen:</li>
+        <li>Kukin pelaaja nostaa {cards_to_deal} korttia ja asettaa yhden toimintokortin jokaiselle omalle yksikölleen selkäpuoli ylöspäin. Jos kortteja ei riitä jokaiselle yksikölle, pelaaja hylkää ne yksiköt, joille ei riitä korttia. Kun kaikki pelajaat ovat jakaneet käskyt, siirrytään toimintovaiheeseen:</li>
       </ul>
 
       <h4>Toimintovaihe</h4>
@@ -95,35 +122,35 @@
       <ul>
         <li>Ensin tarkistetaan eteneminen: Jos vastarinta on murskattu, saattue etenee seuraavaan vastarintapesäkkeenseen. Jos sitä ei ole tiedusteltu, saattue etenee väijytykseen, joka ratkaistaan nyt. Vastarintakortti kuvaa väijytyksen: Vahinko viittaa raha/vahinko-korttipakkaan: Nosta määrätystä pakasta kortti, se kertoo kohdeyksikön saaman vahingon määrän.</li>
         <li>Seuraavaksi tarkistetaan, miten vihollinen on päivän aikana hyökännyt saattuetta vastaan: Käsitellään moukarointijonon ensimmäinen kortti samaan tapaan kuin vastarinnan väijytys.</li>
-        <li>Pelaajalla on mahdollisuus laittaa 4 korttia poistopakkaan ja saada siitä 1 rahan.</li>
         <li>Tarkistetaan tällä kierroksella kerätyt rahat. Jos joku pelaajsta on saanut enemmän rahaa kuin muut, hän saa ylennyspisteen.</li>
       </ul>
 
       <h3>Pelin lopetus</h3>
       <p>Peli päättyy heti, kun</p>
       <ul>
-        <li>joku pelaajista kerää pikavoiton edellyttämän 50 rahaa tai 6 ylennyspistettä.</li>
+        <li>joku pelaajista kerää pikavoiton edellyttämän {cash_to_win} MMk tai {promotions_to_win} ylennyspistettä.</li>
         <li>saattuueesta on jäljellä enää yksi kolmannes sen alkuperäisistä yksiköistä. Voittaja on eniten rahaa kerännyt pelaaja (ei tarvitse ola enää mukana pelissä)</li>
       </ul>
 
       <h3>Toiminnot</h3>
       <ul class="rules-actions">
-        <li><strong>Hyökkää.</strong> Aiheuttaa hyökkäystyypin kortin vahingon aktiiviseen vastarintaan. Onnistunut hyökkäys tuo 2 rahaa.</li>
+        <li><strong>Hyökkää.</strong> Aiheuttaa hyökkäystyypin kortin vahingon aktiiviseen vastarintaan. Onnistunut hyökkäys tuo {attack_cash} MMk.</li>
         <li><strong>Rynnäkkö!</strong> Siirry yksi paikka eteenpäin ja aiheuta hyökkäystyypin kortin vahinko aktiiviseen vastarintaan.</li>
-        <li><strong>Ohita.</strong> Siirry eteenpäin kortin askelmäärän verran, jos matkalle on tilaa.</li>
+        <li><strong>Ohita.</strong> Siirry eteenpäin kortin askelmäärän verran. Pitempi matka pysähtyy keulaan.</li>
         <li><strong>Puolustusasemiin!</strong> Alenna yksikköön tai naapuriin kohdistuvan maahyökkäyksen kategoriaa yhdellä. Jos hyökkäystä ei tulekaan, yksikkö turhautuu vuoron lopussa.</li>
         <li><strong>Sayonara, suckers!</strong> Poistu pelistä ja vaihda kantamasi saalis rahaksi.</li>
-        <li><strong>Ihmiskilpiä.</strong> Vähennä yksikköön tai naapuriyksikköön kohdistuvan ilmahyökkäyksen tyyppiä yhdellä: Onnistuessasi saat 2 rahaa ja 1 hirmutekopisteen. Jos hyökkäystä ei tule, yksikkö turhautuu vuoron lopuusa.</li>
+        <li><strong>Ihmiskilpiä.</strong> Vähennä yksikköön tai naapuriyksikköön kohdistuvan ilmahyökkäyksen tyyppiä yhdellä: Onnistuessasi saat {soak_air_cash} MMk ja {soak_air_atrocities} hirmutekopisteen. Jos hyökkäystä ei tule, yksikkö turhautuu vuoron lopuusa.</li>
         <li><strong>Käskytä.</strong> Pelaa yksi käden kortti odottavan naapurin kautta. Sinä maksat naapurin toiminnasta, mutta saat pitää siitä tulevat rahat.</li>
-        <li><strong>Partioi.</strong> Vähennä yksikköön tai naapuriyksikköön kohdistuvan saboraasin vahnkotyyppiä yhdellä. Onnistuminen tuo 2 rahaa. Jos hyökkäystä ei tule, yksikkö turhautuu vuoron lopussa.</li>
+        <li><strong>Partioi.</strong> Vähennä yksikköön tai naapuriyksikköön kohdistuvan saboraasin vahnkotyyppiä yhdellä. Onnistuminen tuo {soak_sabotage_cash} MMk. Jos hyökkäystä ei tule, yksikkö turhautuu vuoron lopussa.</li>
         <li><strong>Ryöstä.</strong> Ota ryöstöjonosta mikä tahansa näkyvä kortti tai jonon ensimmäinen kortti. Päihtynyt yksikkö ottaa aina ensimmäisen.</li>
         <li><strong>Ylennä.</strong> Liitä haluamasi sopiva upseeri jonosta yksikköön. Ylennystä on juhlittava joten yksikkö päihtyy.</li>
         <li><strong>Lepää.</strong> Poista päihtyneen yksikön päihtymismerkki tai selvin päin olevan yksikön väsymysmerkit.</li>
         <li><strong>Suojatulta!</strong> Peruuta yksi paikka ja aiheuta vahinkotyypin kortin vahinko aktiiviseen vastarintaan.</li>
-        <li><strong>Tiedustele.</strong> Käännä enintään kortin verran kuvapuoli alaspäin olevia ryöstö-, moukarointi- tai vastarintakortteja ja aseta ne haluamaasi järjestykseen. Jos käännettyjä on vähemmän ja jonot ovat näkyvissä, katso loput pakasta ja valitse yksi jonoon. Paljastettu moukarointikortti antaa 1 rahan ja vastarintakortti 1 rahan.</li>
+        <li><strong>Tiedustele.</strong> Käännä enintään kortin verran kuvapuoli alaspäin olevia ryöstö-, moukarointi- tai vastarintakortteja ja aseta ne haluamaasi järjestykseen. Jos käännettyjä on vähemmän ja jonot ovat näkyvissä, katso loput pakasta ja valitse yksi jonoon. Vähintään yksi moukarointikortti antaa {reveal_mauling_cash} MMk ja vähintään yksi vastarintakortti {reveal_resistance_cash} MMk.</li>
         <li><strong>Etsi ryöstettävää.</strong> Käännä enintään kortin verran kuvapuoli alaspäin olevia ryöstökortteja ja aseta ne haluamaasi järjestykseen. Jos käännettyjä on vähemmän ja jono on näkyvissä, katso loput pakasta ja valitse yksi jonoon.</li>
-        <li><strong>Huolla.</strong> Poista 1 väsymys väsyneeltä naapurilta ja saa 1 raha.</li>
-        <li><strong>Signaalitiedustelu.</strong> Käännä enintään kortin verran kuvapuoli alaspäin olevia moukarointikortteja ja aseta ne haluamaasi järjestykseen. Jos käännettyjä on vähemmän ja jono on näkyvissä, katso loput pakasta ja valitse yksi jonoon. Jokainen paljastettu kortti antaa 1 rahan.</li>
+        <li><strong>Huolla.</strong> Poista 1 väsymys väsyneeltä naapurilta ja saa {service_cash} MMk.</li>
+        <li><strong>Myy varusteita.</strong> {cash_in_sentence}</li>
+        <li><strong>Signaalitiedustelu.</strong> Käännä enintään kortin verran kuvapuoli alaspäin olevia moukarointikortteja ja aseta ne haluamaasi järjestykseen. Jos käännettyjä on vähemmän ja jono on näkyvissä, katso loput pakasta ja valitse yksi jonoon. Vähintään yksi paljastettu kortti antaa {reveal_mauling_cash} MMk.</li>
         <li><strong>Röökitauko.</strong> Odota toimintakierros, ja toimi uudella kortilla kun saattueen muut toiminnot käyty läpi.</li>
         <li><strong>Juomatauko.</strong> Odota toimintakierros, ja toimi uudella kortilla kun saattueen muut toiminnot käyty läpi.</li>
       </ul>
@@ -132,12 +159,14 @@
 
   <main id="game" class="hidden">
     <div class="status-bar">
+      <p id="waitingFor" class="waiting-for"></p>
       <span id="message" class="hidden"></span>
       <button id="shareBtn" type="button" class="share-btn">Jaa peli</button>
     </div>
 
     <aside id="continuePanel" class="continue-panel" aria-live="polite">
       <div id="roundInfo" class="side-round"></div>
+      <p id="sideWaiting" class="waiting-for"></p>
       <div id="playerPrompt" class="player-prompt hidden">
         <h2 id="playerPromptTitle"></h2>
         <p id="playerPromptBody"></p>
@@ -200,6 +229,6 @@
     </section>
   </main>
 
-  <script src="/static/app.js?v=formation-spin"></script>
+  <script src="/static/app.js?v=deal-all"></script>
 </body>
 </html>

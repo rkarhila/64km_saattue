@@ -10,6 +10,7 @@ torch = pytest.importorskip("torch")
 from sixtyfivekmconvoy.core.constants import ChoiceType
 from sixtyfivekmconvoy.env.spaces import (
     MAX_OPTIONS,
+    OPTION_FEAT_DIM,
     encode_choice_options,
     flatten_observation,
     observation_size,
@@ -81,7 +82,7 @@ def test_encode_choice_options_mask():
             "num_choice": 2,
         }
     )
-    assert feats.shape == (MAX_OPTIONS, 4)
+    assert feats.shape == (MAX_OPTIONS, OPTION_FEAT_DIM)
     assert mask.sum() == 4
     assert n == 2
     assert ordered is False

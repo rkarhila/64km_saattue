@@ -71,34 +71,164 @@ def load_action_help() -> tuple[dict[str, tuple[dict[str, str], ...]], dict[tupl
     )
 
 
+_CASH_PLACEHOLDERS = (
+    "attack_cash",
+    "service_cash",
+    "soak_air_cash",
+    "soak_ground_cash",
+    "soak_sabotage_cash",
+    "reveal_mauling_cash",
+    "reveal_resistance_cash",
+    "cash_in_reward",
+)
+_ATROCITY_PLACEHOLDERS = (
+    "soak_air_atrocities",
+    "soak_ground_atrocities",
+    "soak_sabotage_atrocities",
+)
+
+
 def _help_reward_values() -> dict[str, int]:
-    """Cash and atrocity amounts a face tip may mention. Names match ``{placeholders}``."""
+    """Amounts a face tip may mention. Names match ``{placeholders}`` in the CSV."""
     from . import config
 
     def amount(name: str) -> int:
         return int(getattr(config, name, 0) or 0)
 
-    return {
-        "attack_cash": amount("ATTACK_CASH"),
-        "service_cash": amount("SERVICE_CASH"),
-        "soak_air_cash": amount("SOAK_AIR_CASH"),
-        "soak_air_atrocities": amount("SOAK_AIR_ATROCITIES"),
-        "soak_ground_cash": amount("SOAK_GROUND_CASH"),
-        "soak_sabotage_cash": amount("SOAK_SABOTAGE_CASH"),
-        "reveal_mauling_cash": amount("REVEAL_MAULING_CASH"),
-        "reveal_resistance_cash": amount("REVEAL_RESISTANCE_CASH"),
-    }
+    values = {name: amount(name.upper()) for name in (*_CASH_PLACEHOLDERS, *_ATROCITY_PLACEHOLDERS)}
+    values["rest_tiredness"] = amount("REST_TIREDNESS")
+    values["service_tiredness"] = amount("SERVICE_TIREDNESS")
+    return values
+
+
+def _english_amount(name: str, value: int) -> str:
+    n = int(value)
+    if name in _CASH_PLACEHOLDERS:
+        return _money_phrase(n, "en")
+    if name in _ATROCITY_PLACEHOLDERS:
+        return f"{n} atrocity" if n == 1 else f"{n} atrocities"
+    if name in ("rest_tiredness", "service_tiredness"):
+        return f"{n} tiredness"
+    return str(n)
+
+
+def _finnish_amount(name: str, value: int) -> str:
+    n = int(value)
+    if name in _CASH_PLACEHOLDERS:
+        return _money_phrase(n, "fi")
+    if name in _ATROCITY_PLACEHOLDERS:
+        if n == 1:
+            return "1 hirmutekopisteen"
+        return f"{n} hirmutekopistettä"
+    if name == "service_tiredness":
+        if n == 1:
+            return "1 väsymys"
+        return f"{n} väsymystä"
+    if name == "rest_tiredness":
+        if n == 1:
+            return "1 väsymysmerkki"
+        return f"{n} väsymysmerkkiä"
+    return str(n)
 
 
 def _fill_help_amounts(entry: dict[str, str]) -> dict[str, str]:
     values = _help_reward_values()
     filled = dict(entry)
-    for key in ("english_explanation", "finnish_explanation"):
+    for key, phrase in (
+        ("english_explanation", _english_amount),
+        ("finnish_explanation", _finnish_amount),
+    ):
         text = filled.get(key) or ""
+        lang = "en" if key.startswith("english") else "fi"
+        text = text.replace("{cash_in_where}", _cash_in_where(lang))
         for name, value in values.items():
-            text = text.replace("{" + name + "}", str(value))
+            text = text.replace("{" + name + "}", phrase(name, value))
         filled[key] = text
     return filled
+
+
+def _cash_in_where(lang: str) -> str:
+    """Where sell's cards go, in the language of the face tip."""
+    from .configs import get_config
+
+    remove = bool(getattr(get_config(), "CASH_IN_REMOVES_FROM_PLAY", False))
+    if lang == "fi":
+        if remove:
+            return "Kortit poistuvat pelistä eivätkä palaa pakkaan."
+        return "Kortit menevät poistopakkaan."
+    if remove:
+        return "The cards leave the game and do not return to the deck."
+    return "The cards go to the discard pile."
+
+
+def _printed_sell_cost(cfg) -> int:
+    from .cards import ACTION_CATALOG
+    from .constants import ActionName
+
+    costs: list[int] = []
+    for card in ACTION_CATALOG.values():
+        for face in getattr(card, "actions", ()) or ():
+            if ActionName.normalize(getattr(face, "action_name", None)) != ActionName.SELL:
+                continue
+            raw = str(getattr(face, "cost", "0")).strip()
+            if raw.isdigit():
+                costs.append(int(raw))
+    if costs:
+        return costs[0]
+    return int(getattr(cfg, "CASH_IN_CARDS", 4) or 4)
+
+
+def _money_phrase(amount: int, lang: str) -> str:
+    """``N MMk`` in Finnish, ``N Me¥`` in English. The unit does not inflect."""
+    from .i18n import t
+
+    return t("log.cash_many", lang=lang).replace("{n}", str(int(amount)))
+
+
+def _fi_cash(amount: int) -> str:
+    """Finnish cash phrase for the rules page, independent of the UI language."""
+    return _money_phrase(amount, "fi")
+
+
+def rules_placeholders() -> dict[str, str]:
+    """Values the start-page rules substitute from the active balance profile."""
+    from .configs import get_config
+
+    cfg = get_config()
+
+    def amount(name: str) -> str:
+        return str(int(getattr(cfg, name, 0) or 0))
+
+    cards = _printed_sell_cost(cfg)
+    reward = int(getattr(cfg, "CASH_IN_REWARD", 1) or 0)
+    cash = _fi_cash(reward)
+    if bool(getattr(cfg, "CASH_IN_REMOVES_FROM_PLAY", False)):
+        cash_in = (
+            f"Maksaa {cards} korttia. Kortit poistuvat pelistä eivätkä palaa "
+            f"pakkaan, ja saat {cash}."
+        )
+    else:
+        cash_in = (
+            f"Maksaa {cards} korttia. Kortit menevät poistopakkaan ja saat {cash}."
+        )
+    values = {name: amount(name.upper()) for name in _help_reward_values()}
+    values.update(
+        {
+            "cards_to_deal": amount("CARDS_TO_DEAL"),
+            "cash_to_win": amount("CASH_TO_WIN"),
+            "promotions_to_win": amount("PROMOTION_POINTS_TO_WIN"),
+            "cash_in_sentence": cash_in,
+        }
+    )
+    return values
+
+
+def fill_rules_html(html: str) -> str:
+    """Replace ``{name}`` tokens in the rules page from the active profile."""
+    text = html
+    for name, value in rules_placeholders().items():
+        text = text.replace("{" + name + "}", value)
+    return text
 
 
 def action_help_for(action_name: str | None, finnish_name: str | None = None) -> dict[str, str]:
@@ -150,6 +280,8 @@ def action_reward_bits(action_name: str | None) -> dict[str, Any]:
         cash = int(getattr(config, "SERVICE_CASH", 0) or 0)
     elif key == ActionName.ATTACK:
         cash = int(getattr(config, "ATTACK_CASH", 0) or 0)
+    elif key == ActionName.SELL:
+        cash = int(getattr(config, "CASH_IN_REWARD", 0) or 0)
     elif key == ActionName.SCOUT:
         cash = int(getattr(config, "REVEAL_RESISTANCE_CASH", 0) or 0)
     elif key == ActionName.SIGINT:
@@ -424,6 +556,13 @@ def format_face(action: Any, *, meta_width: int = DEFAULT_META_WIDTH) -> dict[st
 
 def describe_action_card(card_id: int) -> dict[str, Any]:
     """JSON-friendly action card for the web UI (all faces)."""
+    from .i18n import get_language
+
+    return _describe_action_card(card_id, get_language())
+
+
+@lru_cache(maxsize=512)
+def _describe_action_card(card_id: int, _lang: str) -> dict[str, Any]:
     from .cards import ACTION_CATALOG
 
     card = ACTION_CATALOG[card_id]

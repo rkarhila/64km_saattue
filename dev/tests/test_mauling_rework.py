@@ -97,7 +97,7 @@ def test_mauling_resistance_attack():
     except StopIteration as stop:
         msg = stop.value
     # Confirm 0 damage was dealt / no effect
-    assert "takes 0" in msg or "hit cat" in msg or msg == "no effect"
+    assert msg == "ei vaikutusta"
 
     # 2. Active resistance with resistance_attack_category = 3
     # Let's set up an active resistance card description.
@@ -148,7 +148,7 @@ def test_mauling_resistance_attack():
     except StopIteration as stop:
         msg2 = stop.value
     
-    assert "takes 4 damage" in msg2
+    assert "saa 4 vahinkoa" in msg2
 
     # 3. Ground defence lowers the resistance category one step (3 → 1).
     _seat_custom_convoy(engine, [UnitType.INFANTRY])
@@ -177,7 +177,7 @@ def test_mauling_resistance_attack():
         msg3 = stop.value
 
     assert drawn == [1]
-    assert "lowers cat 3 to 1" in msg3
+    assert "osumaluokan 3 → 1" in msg3
     assert unit.player.total_cash > 0
 
     # Restore draw_hit_damage
@@ -235,8 +235,8 @@ def test_resistance_counterattack_uses_mauling_target():
     assert front in engine.convoy.units
     assert not front.damage_markers
     assert second not in engine.convoy.units
-    assert "position 2" in msg
-    assert "takes 4 damage" in msg
+    assert "saa 4 vahinkoa" in msg
+    assert "poistuu saattueesta" in msg
 
 
 def test_reorder_ambush():
@@ -286,7 +286,8 @@ def test_reorder_ambush():
     res1 = Resistance(res_desc1, engine)
     # Trigger attack (which does the reordering)
     msg1 = res1.attack()
-    assert "reordered units in zones A" in msg1
+    assert "Kaikki vyöhykkeellä A" in msg1
+    assert "perälle" in msg1
 
     # Expected order: not_in_target_zones (3, 4, 5, 6) + reversed(in_target_zones) (2, 1)
     # Wait, when they reorder, their index() changes because the list elements are moved.
@@ -322,7 +323,7 @@ def test_reorder_ambush():
     }
     res2 = Resistance(res_desc2, engine)
     msg2 = res2.attack()
-    assert "reordered units in zones AB" in msg2
+    assert "Vyöhykkeet A ja B" in msg2
 
     # Expected order: not_in_target_zones (6) + reversed(in_target_zones) (5, 4, 3, 2, 1)
     # Expected: [u6, u5, u4, u3, u2, u1]

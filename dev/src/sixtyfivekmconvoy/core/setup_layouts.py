@@ -154,6 +154,37 @@ def pattern_from_code(code: str) -> tuple[int, ...]:
     return tuple(int(ch) - 1 for ch in code)
 
 
+# 0-based convoy seats, matching models._zones_for_players. Zone E is the tail
+# and is not part of this rule. A player with no unit in A must own two seats in B.
+ZONE_AB: dict[int, tuple[tuple[int, ...], tuple[int, ...]]] = {
+    2: ((0,), (1, 2)),
+    3: ((0, 1), (2, 3, 4)),
+    4: ((0, 1, 2), (3, 4, 5)),
+    5: ((0, 1, 2, 3), (4, 5, 6, 7)),
+}
+
+
+def missing_zone_a_has_two_in_b(pattern: tuple[int, ...], num_players: int) -> bool:
+    """True when every player absent from zone A has two seats in zone B."""
+    zone_a, zone_b = ZONE_AB[num_players]
+    for player in range(num_players):
+        if any(pattern[seat] == player for seat in zone_a):
+            continue
+        in_b = sum(pattern[seat] == player for seat in zone_b)
+        if in_b < 2:
+            return False
+    return True
+
+
+def full_formation_obeys_zone_rule(full_code: str) -> bool:
+    """The 15-seat order and every shorter game filtered from it obey the rule."""
+    for num_players in (2, 3, 4, 5):
+        pattern = pattern_for_players(full_code, num_players)
+        if not missing_zone_a_has_two_in_b(pattern, num_players):
+            return False
+    return True
+
+
 def pattern_for_players(full_code: str, num_players: int) -> tuple[int, ...]:
     """Starting order for ``num_players`` taken from the 15-seat sequence.
 
@@ -191,6 +222,33 @@ def pick_setup_pattern(num_players: int, rng) -> tuple[int, ...]:
     if not pool:
         raise ValueError(f"No setup pool for {num_players} players")
     return rng.choice(pool)
+
+
+# One placement choice. Front seat, then the middle seat, then the rear seat.
+# I = infantry (1), P = panzer (0), L = logistics (2).
+PLACEMENT_ORDER_NAMES: tuple[str, ...] = ("IPL", "ILP", "PIL", "PLI", "LIP", "LPI")
+PLACEMENT_ORDERS: tuple[tuple[int, int, int], ...] = (
+    (1, 0, 2),  # IPL
+    (1, 2, 0),  # ILP
+    (0, 1, 2),  # PIL
+    (0, 2, 1),  # PLI
+    (2, 1, 0),  # LIP
+    (2, 0, 1),  # LPI
+)
+
+
+def placement_troops(choice: list[int] | tuple[int, ...]) -> tuple[int, int, int]:
+    """Map a placement answer to panzer/infantry/logistics, front to back.
+
+    The learner sends one index, 0..5. The table UI still sends the three
+    troop numbers themselves.
+    """
+    values = tuple(int(item) for item in choice)
+    if len(values) == 1 and 0 <= values[0] < len(PLACEMENT_ORDERS):
+        return PLACEMENT_ORDERS[values[0]]
+    if values in PLACEMENT_ORDERS:
+        return values  # type: ignore[return-value]
+    raise ValueError(f"Invalid unit placement: {choice}")
 
 
 def slots_for_player(pattern: tuple[int, ...], player: int) -> list[int]:

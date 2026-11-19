@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
-EVENT_WINDOW = 32
+# Two to three rounds of a 4-player log. A heavy round is about 30 rows
+# (unit actions, the mauling, reveals, cash, damage). 64 keeps two of those
+# and drops the start of a third. 96 keeps three ordinary rounds.
+EVENT_WINDOW = 96
 # type, round, stage, actor, target, queue, card_id, amount, card_visible
 EVENT_FIELDS = 9
 
@@ -45,7 +48,6 @@ def make_event(
     card_visible: bool = False,
 ) -> list[int]:
     """One formal event. Hidden cards store id 0 and card_visible 0."""
-    cid = int(card_id) if card_visible else 0
     return [
         int(event_type),
         int(round_n),
@@ -53,9 +55,9 @@ def make_event(
         int(actor),
         int(target),
         int(queue),
-        cid,
+        int(card_id) if card_visible else 0,
         int(amount),
-        1 if card_visible and cid else 0,
+        1 if card_visible else 0,
     ]
 
 
@@ -90,7 +92,12 @@ def events_to_features(
         if num_players:
             if actor >= 0:
                 actor = (int(actor) - int(viewer)) % int(num_players)
-            if target >= 0:
+            # Damage, influence, pillage, and a frustrated action store a convoy
+            # index in target. Other rows store a player seat and rotate it.
+            unit_target = etype in (EVENT_DAMAGE, EVENT_INFLUENCE, EVENT_PILLAGE) or (
+                etype == EVENT_ACTION and amount < 0
+            )
+            if target >= 0 and not unit_target:
                 target = (int(target) - int(viewer)) % int(num_players)
         feats.extend(
             [

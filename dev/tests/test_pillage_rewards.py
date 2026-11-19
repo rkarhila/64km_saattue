@@ -49,8 +49,8 @@ def test_sober_unit_draws_cards_and_becomes_influenced():
     assert unit.under_influence == 1
     assert unit.atrocities == 0
     line = action_mod.format_pillage_effect(unit, _card(6), applied=applied)
-    assert "draws 2 cards" in line
-    assert "under the influence" in line
+    assert "nostaa 2 korttia" in line
+    assert "humaltuu" in line
     assert "atrocities" not in line
 
 
@@ -65,8 +65,8 @@ def test_influenced_unit_gains_conditional_atrocity_and_stays_drunk():
     assert unit.atrocities == 1
     assert unit.under_influence == 1
     line = action_mod.format_pillage_effect(unit, _card(1), applied=applied)
-    assert "commits 1 atrocities" in line
-    assert "under the influence" not in line
+    assert "hirmutekoja 1" in line
+    assert "humaltuu" not in line
 
 
 def test_sober_unit_does_not_take_conditional_atrocity():
@@ -94,8 +94,8 @@ def test_officer_ignores_pillage_intoxication():
     assert unit.under_influence == 0
     assert len(unit.player.action_cards) == before + 2
     line = action_mod.format_pillage_effect(unit, _card(6), applied=applied)
-    assert "ignores intoxication" in line
-    assert "under the influence" not in line
+    assert "ei humallu" in line
+    assert "humaltuu," not in line
 
 
 def test_officer_does_not_block_atrocity_when_already_influenced():

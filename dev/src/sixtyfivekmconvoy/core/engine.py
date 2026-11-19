@@ -4,11 +4,22 @@ from __future__ import annotations
 
 import itertools
 import random
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from typing import Any, Generator
 
-from sixtyfivekmconvoy.rl.events import EVENT_WINDOW, event_from_detail
+from sixtyfivekmconvoy.rl.events import (
+    EVENT_ACTION,
+    EVENT_CASH,
+    EVENT_DAMAGE,
+    EVENT_PLACE,
+    EVENT_PROMOTE,
+    EVENT_REVEAL,
+    EVENT_ROUND,
+    EVENT_WINDOW,
+    event_from_detail,
+    make_event,
+)
 
 # card_display imported lazily in choice builders to avoid cycles
 
@@ -27,15 +38,21 @@ from .cards import (
 from .config import CARDS_TO_DEAL, CARDS_TO_DEAL_FIRST_ROUND
 from .constants import (
     ActionName,
-    CARD_TO_POINTS_RATIO,
     ChoiceType,
     MIN_PLAYER_CARD_LIMIT,
+    UNIT_TYPE_LETTER,
     UNIT_TYPE_STR,
-    PLAYER_COLORS,
 )
-from .i18n import t, unit_type_label
+from .i18n import t, tf, unit_type_label
+from .log_text import frustration_line, one_line, player_log_name, raha
 from .models import Convoy, Player, Resistance, Unit, UnitType
-from .setup_layouts import pattern_for_players, slots_for_player
+from .setup_layouts import (
+    PLACEMENT_ORDER_NAMES,
+    PLACEMENT_ORDERS,
+    pattern_for_players,
+    placement_troops,
+    slots_for_player,
+)
 from .stats import EpisodeStats
 from .view import player_view
 
@@ -70,7 +87,8 @@ class ChoiceRequest:
         if n == 1:
             return [[o] for o in opts]
         indices = range(len(opts))
-        # Place-units: options are troop types; choice is a permutation onto slots.
+        # The table UI still answers with a troop triple. The learner's
+        # request uses num_choices=1 and is handled above.
         if self.choicetype == ChoiceType.PLACE_UNITS:
             return [list(p) for p in itertools.permutations(opts)]
         # Card-to-unit assignment is ordered; discards/cash-in are unordered.
@@ -80,15 +98,17 @@ class ChoiceRequest:
             ChoiceType.REORDER_SCOUTED_CARDS,
         )
         vectors: list[list[int]] = []
-        if ordered:
-            for perm in itertools.permutations(indices, n):
-                vectors.append([opts[i] for i in perm])
-        else:
-            for combo in itertools.combinations(indices, n):
-                vectors.append([opts[i] for i in combo])
-        # Cap explosion for large hands (RL mask size)
-        if len(vectors) > 256:
-            vectors = vectors[:256]
+        # Stop at the mask cap. Building every permutation first can
+        # allocate millions of vectors for one choice.
+        source = (
+            itertools.permutations(indices, n)
+            if ordered
+            else itertools.combinations(indices, n)
+        )
+        for picked in source:
+            vectors.append([opts[i] for i in picked])
+            if len(vectors) >= 256:
+                break
         return vectors or [[]]
 
 
@@ -147,7 +167,10 @@ class GameEngine:
         self.event_rows: deque[list[int]] = deque(maxlen=EVENT_WINDOW)
         # Training turns this off so log strings are not stored.
         self.record_text_log = True
+        self.balance_trace = False
         self.ranking: list[dict] | None = None
+        # RL shaping notes. The env reads and clears these; they do not pay cash.
+        self.shaping_events: list[dict[str, Any]] = []
 
         # decks/queues filled in reset()
         self.action_deck: CardDeck
@@ -182,6 +205,7 @@ class GameEngine:
         self.rng = random.Random(seed)
         self.terminal = False
         self.ranking = None
+        self.shaping_events = []
         self._end_message: str | None = None
         # True after ≥2 players hit PROMOTION_POINTS_TO_WIN on the same round.
         self.sudden_death_pp = False
@@ -194,8 +218,16 @@ class GameEngine:
         self.round_action_summaries = []
         self.max_rounds = max_rounds
         self.stats = EpisodeStats(seed=seed, num_players=num_players)
+        self.end_reason = ""
+        self.opening_units = []
+        self.trace_plays = []
+        self.trace_payments = []
+        self.trace_cash_ins = []
+        self.trace_promotion_income = []
 
         self.players = [Player(i) for i in range(num_players)]
+        self.cash_sources = [Counter() for _ in self.players]
+        self.round_cash_sources = [Counter() for _ in self.players]
         for pl in self.players:
             pl.engine = self
         self._init_decks()
@@ -205,7 +237,8 @@ class GameEngine:
         # Keep created units aside until players place them into the pattern.
         self._unit_pool: list[Unit] = list(self.convoy.units)
         self.convoy.units = []
-        # Queues open after placement: the order card is shown first.
+        # Hands and queues are dealt before the placement choice.
+        self._opening_dealt = False
         self.resistance = Resistance(None, self)
         self.rounds = Rounds(count=0, stage=0)
 
@@ -226,14 +259,31 @@ class GameEngine:
             return []
         return self._pending.legal_action_vectors()
 
-    def observe(self, player_id: str) -> dict:
+    def observe(self, player_id: str, *, web: bool = False) -> dict:
         player = self._player_by_id(player_id)
         return player_view(
             self,
             player,
             choice=self._pending if self._pending and self._pending.player_id == player_id else None,
             message=self.messages[-1] if self.messages else None,
+            include_events=not web,
+            log_tail=60 if web else None,
         )
+
+    def note_shaping(self, kind: str, player: int, **fields: Any) -> None:
+        """Record one training-only event. Cash and the rules are unchanged."""
+        event: dict[str, Any] = {"kind": kind, "player": int(player)}
+        event.update(fields)
+        self.shaping_events.append(event)
+
+    def take_shaping_events(self) -> list[dict[str, Any]]:
+        events = self.shaping_events
+        self.shaping_events = []
+        return events
+
+    def note_resolved_action(self, player: int, action_name: str | None) -> None:
+        """A chosen face resolved. Success itself is not a training bonus."""
+        del player, action_name
 
     def step(self, choice: list[int]) -> StepResult:
         if self.terminal:
@@ -260,6 +310,145 @@ class GameEngine:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _assign_player_actions(self, player: Player):
+        """Give each of the player's units one hand card, or remove it.
+
+        One choice per unit, front to back, so the decision sees that unit.
+        """
+        units = [u for u in self.convoy.units if u.player is player]
+        if not units:
+            return
+        short = len(units) - len(player.action_cards)
+        if short > 0:
+            units = yield from self._discard_uncovered_units(player, units, short)
+        for unit in [u for u in self.convoy.units if u.player is player and not u.actioncard]:
+            waiting = [
+                u for u in self.convoy.units if u.player is player and not u.actioncard
+            ]
+            pay_hand = max(0, len(player.action_cards) - len(waiting))
+            place = unit.index()
+            zone = unit.zone()
+            desc = tf(
+                "ui.choose_card_for_unit",
+                unit=unit_type_label(unit.unittype),
+                place=place,
+                zone=zone,
+            )
+            options = list(player.action_cards)
+            for card in options:
+                desc += f"\n  {card}"
+            chosen = yield ChoiceRequest(
+                player_id=player.agent_id(),
+                choicetype=ChoiceType.CHOOSE_CARD,
+                options=options,
+                num_choices=1,
+                description=desc,
+                payload={
+                    "reason": "assign",
+                    "assign_unit": {
+                        "index": place,
+                        "unit_type": UNIT_TYPE_STR[unit.unittype],
+                        "unit_type_label": unit_type_label(unit.unittype),
+                        "zone": zone,
+                        "place": place,
+                    },
+                    "assign_faces": {
+                        str(card): self._assign_face_bits(unit, card, pay_hand)
+                        for card in options
+                    },
+                    "pay_hand": pay_hand,
+                },
+            )
+            card = int(chosen[0])
+            unit.actioncard = [card]
+            unit.actiontaken = []
+            unit.action_resolution = []
+            player.place_action_card(card)
+
+    def _assign_face_bits(self, unit: Unit, card_id: int, pay_hand: int) -> list[list[int]]:
+        """Per printed face: legal for this troop at all, legal on this unit now."""
+        from .actions import why_action_impossible
+
+        deck = unit.player.action_deck
+        faces = deck.describe(card_id) if deck is not None else []
+        letter = UNIT_TYPE_LETTER[unit.unittype]
+        rows: list[list[int]] = []
+        if not isinstance(faces, list):
+            return rows
+        for face in faces[:4]:
+            if not isinstance(face, dict):
+                rows.append([0, 0])
+                continue
+            type_ok = 1 if letter in (face.get("limits") or {}) else 0
+            now_ok = (
+                1
+                if type_ok
+                and not why_action_impossible(
+                    self, unit.index(), face, hand_size=pay_hand
+                )
+                else 0
+            )
+            rows.append([type_ok, now_ok])
+        return rows
+
+    def _discard_uncovered_units(
+        self, player: Player, units: list[Unit], short: int
+    ):
+        """Remove `short` of this player's units that cannot receive a card."""
+        if short >= len(units):
+            drop = list(units)
+        else:
+            options = [u.index() for u in units]
+            chosen = yield ChoiceRequest(
+                player_id=player.agent_id(),
+                choicetype=ChoiceType.DISCARD_UNITS,
+                options=options,
+                num_choices=short,
+                description=tf("ui.discard_uncovered_units", n=short),
+                payload={
+                    "reason": "uncovered",
+                    "units": [
+                        {
+                            "index": u.index(),
+                            "unit_type": UNIT_TYPE_STR[u.unittype],
+                            "unit_type_label": unit_type_label(u.unittype),
+                        }
+                        for u in units
+                    ],
+                },
+            )
+            allowed = set(options)
+            picked: list[int] = []
+            for idx in list(chosen or []):
+                if idx in allowed and idx not in picked:
+                    picked.append(idx)
+                if len(picked) == short:
+                    break
+            for idx in options:
+                if len(picked) == short:
+                    break
+                if idx not in picked:
+                    picked.append(idx)
+            by_index = {u.index(): u for u in units}
+            drop = [by_index[idx] for idx in picked]
+        for unit in sorted(drop, key=lambda u: u.index(), reverse=True):
+            self._remove_uncovered_unit(unit)
+        return [u for u in self.convoy.units if u.player is player]
+
+    def _remove_uncovered_unit(self, unit: Unit) -> None:
+        self.recycle_damage_markers(unit)
+        reverse = {real: seq for seq, real in self.officer_id_mapping.items()}
+        for officer in unit.officers:
+            seq = reverse.get(getattr(officer, "officer_id", None))
+            if seq is not None:
+                self.officer_deck.discard_card(seq)
+        unit.officers.clear()
+        label = action_mod.unit_log_label(unit)
+        if unit.convoy is self.convoy and unit in self.convoy.units:
+            self.convoy.units.pop(unit.index())
+        unit.convoy = None
+        self._broadcast(tf("log.unit_uncovered", label=label))
 
     def _player_by_id(self, player_id: str) -> Player:
         for p in self.players:
@@ -373,6 +562,17 @@ class GameEngine:
         self.mauling_queue.reveal_card(0)
         self.resistance = Resistance(self.resistance_queue.describe(0), self)
         self._table_open = True
+
+    def _fill_officer_queue(self) -> None:
+        while len(self.officer_queue) < len(self.players):
+            if not self.officer_deck.deck and not self.officer_deck.discard:
+                break
+            self.officer_queue.put_card(self.officer_deck.get_card(), visible=True)
+
+    def _deal_cards(self, n: int) -> None:
+        for _ in range(n):
+            for player in self.players:
+                player.draw_card(1)
 
     def draw_hit_damage(self, category: int) -> int:
         """
@@ -544,6 +744,11 @@ class GameEngine:
                 "fresh": True,
             }
         )
+        target_index = -1
+        convoy = getattr(self, "convoy", None)
+        if convoy is not None and getattr(target, "convoy", None) is convoy:
+            target_index = target.index()
+        self._note_event(EVENT_DAMAGE, target=target_index, amount=int(damage))
 
     def recycle_damage_markers(self, target: Any) -> None:
         """Return damage cards to their decks when the target is destroyed."""
@@ -592,6 +797,22 @@ class GameEngine:
                 self._last_result = stop.value
                 self.ranking = stop.value.ranking
 
+    def _note_event(self, event_type: int, **fields: Any) -> None:
+        """Append one formal row without a text log line."""
+        self.event_rows.append(
+            make_event(
+                int(event_type),
+                round_n=self.rounds.count if self.rounds else 0,
+                stage=self.rounds.stage if self.rounds else -1,
+                actor=int(fields.get("actor", -1)),
+                target=int(fields.get("target", -1)),
+                queue=int(fields.get("queue", -1)),
+                card_id=int(fields.get("card_id", 0) or 0),
+                amount=int(fields.get("amount", 0) or 0),
+                card_visible=bool(fields.get("card_visible", False)),
+            )
+        )
+
     def _broadcast(self, message: str, **detail: Any) -> None:
         """Append a log line. Training keeps only the fixed event-row ring."""
         row = event_from_detail(
@@ -603,6 +824,7 @@ class GameEngine:
             self.event_rows.append(row)
         if not self.record_text_log:
             return
+        message = one_line(message)
         self.messages.append(message)
         entry: dict[str, Any] = {
             "i": len(self.event_log),
@@ -631,14 +853,22 @@ class GameEngine:
     def _run_game(self) -> Generator[ChoiceRequest, list[int], StepResult]:
         assert self.rounds is not None and self.convoy is not None
 
-        # ---- Setup: place units into a balanced ownership pattern ----
-        self._broadcast("—— Asento: sijoita joukot saattueeseen ——")
+        # ---- Setup: hands and queues, then place units ----
+        self._broadcast(t("log.setup"))
+        self._open_table()
+        self._fill_officer_queue()
+        self._deal_cards(CARDS_TO_DEAL_FIRST_ROUND)
+        self._opening_dealt = True
+        self._broadcast(tf("log.cards_dealt", n=CARDS_TO_DEAL_FIRST_ROUND))
         order_name = self.mauling_deck.get_name(self.setup_order_card_id) or str(
             self.setup_order_card_id
         )
         self._broadcast(
-            f"Muodostelma kortista {order_name}: "
-            f"{''.join(str(p + 1) for p in self.setup_pattern)}"
+            tf(
+                "log.formation",
+                name=order_name,
+                pattern="".join(str(p + 1) for p in self.setup_pattern),
+            )
         )
         placements: dict[int, list[int]] = {}
         troop_meta = [
@@ -658,31 +888,47 @@ class GameEngine:
         for player in self.players:
             slots = slots_for_player(self.setup_pattern, player.number)
             desc = (
-                f"Sijoita panssarit, jalkaväki ja huolto paikkoihin "
-                f"{', '.join(str(s) for s in slots)}"
+                tf(
+                    "log.place_units",
+                    slots=", ".join(str(s) for s in slots),
+                )
             )
             chosen = yield ChoiceRequest(
                 player_id=player.agent_id(),
                 choicetype=ChoiceType.PLACE_UNITS,
-                options=[UnitType.PANZER, UnitType.INFANTRY, UnitType.LOGISTICS],
-                num_choices=3,
+                options=list(range(len(PLACEMENT_ORDERS))),
+                num_choices=1,
                 description=desc,
                 payload={
                     "slots": slots,
                     "pattern": list(self.setup_pattern),
                     "troops": troop_meta,
+                    "orders": [list(order) for order in PLACEMENT_ORDERS],
+                    "order_names": list(PLACEMENT_ORDER_NAMES),
                 },
             )
-            if sorted(chosen) != [0, 1, 2]:
-                raise ValueError(f"Invalid unit placement: {chosen}")
-            placements[player.number] = list(chosen)
+            placements[player.number] = list(placement_troops(list(chosen)))
             self._broadcast(
-                f"Pelaaja {player.number} sijoitti joukkonsa paikkoihin {slots}."
+                tf(
+                    "log.placed",
+                    name=player_log_name(player),
+                    slots=slots,
+                ),
+                event_type=EVENT_PLACE,
+                actor=player.number,
+                amount=len(slots),
             )
 
         self._apply_unit_placements(placements)
-        self._open_table()
-        self._broadcast("Saattue muodostettu.")
+        self.opening_units = [
+            {
+                "index": unit.index(),
+                "player": unit.player.number,
+                "unit": UNIT_TYPE_STR[unit.unittype],
+            }
+            for unit in self.convoy.units
+        ]
+        self._broadcast(t("log.convoy_formed"))
 
         initial_units = len(self.convoy.units)
 
@@ -693,52 +939,32 @@ class GameEngine:
             self.round_unit_damage = []
             for pl in self.players:
                 pl.bank_round_cash()
+                self.round_cash_sources[pl.number].clear()
 
-            self._broadcast(f"—— Kierros {self.rounds.count} alkaa ——")
-
-            # Fill officer queue
-            while len(self.officer_queue) < len(self.players):
-                if not self.officer_deck.deck and not self.officer_deck.discard:
-                    break
-                self.officer_queue.put_card(self.officer_deck.get_card(), visible=True)
-
-            # Deal
-            self.rounds.next_stage()
-            deal_n = (
-                CARDS_TO_DEAL_FIRST_ROUND
-                if self.rounds.count == 0
-                else CARDS_TO_DEAL
+            self._broadcast(
+                tf("log.round_start", n=self.rounds.count),
+                event_type=EVENT_ROUND,
+                amount=self.rounds.count,
             )
-            for _ in range(deal_n):
-                for player in self.players:
-                    player.draw_card(1)
-            self._broadcast(f"Kortit jaettu ({deal_n}).")
 
-            # Assign actions
+            self._fill_officer_queue()
+
+            # The opening hand was dealt before placement.
+            self.rounds.next_stage()
+            if not (self.rounds.count == 0 and self._opening_dealt):
+                deal_n = (
+                    CARDS_TO_DEAL_FIRST_ROUND
+                    if self.rounds.count == 0
+                    else CARDS_TO_DEAL
+                )
+                self._deal_cards(deal_n)
+                self._broadcast(tf("log.cards_dealt", n=deal_n))
+
+            # Assign actions. A unit with no card leaves the convoy.
             self.rounds.next_stage()
             for player in self.players:
-                units = [u for u in self.convoy.units if u.player is player]
-                if not units:
-                    continue
-                desc = t("ui.choose_cards_for_units") + ": " + ", ".join(
-                    unit_type_label(u.unittype) for u in units
-                )
-                for c in player.action_cards:
-                    desc += f"\n  {c}"
-                chosen = yield ChoiceRequest(
-                    player_id=player.agent_id(),
-                    choicetype=ChoiceType.CHOOSE_CARD,
-                    options=list(player.action_cards),
-                    num_choices=len(units),
-                    description=desc,
-                )
-                # Deduplicate-safe: remove as we assign
-                for i, card in enumerate(chosen):
-                    units[i].actioncard = [card]
-                    units[i].actiontaken = []
-                    units[i].action_resolution = []
-                    player.place_action_card(card)
-            self._broadcast("Toimintakortit asetettu.")
+                yield from self._assign_player_actions(player)
+            self._broadcast(t("log.cards_assigned"))
 
             # Execute actions by index.
             # Track units by object identity — retreat/assault/bypass reorder the
@@ -831,9 +1057,12 @@ class GameEngine:
                                 }
                             )
                         d = (
-                            f"Choose action for {action_mod.unit_log_label(unit)}: "
-                            + " ".join(
-                                f'{i}:"{possible[i][1].get("name")}"' for i in labels
+                            tf(
+                                "log.choose_action",
+                                label=action_mod.unit_log_label(unit),
+                                options=" ".join(
+                                    f'{i}:"{possible[i][1].get("name")}"' for i in labels
+                                ),
                             )
                         )
                         pick = yield ChoiceRequest(
@@ -866,20 +1095,9 @@ class GameEngine:
                             "name": None,
                         }
                         unit.become_frustrated()
+                        self.note_shaping("frustrated", unit.player.number)
                         label = action_mod.unit_log_label(unit)
-                        face_bits = []
-                        for blocked in blocked_faces:
-                            face_bits.append(
-                                f"{blocked.get('action_name') or '?'}:"
-                                + ",".join(blocked["reasons"])
-                            )
-                        reason_txt = "; ".join(face_bits) if face_bits else "no faces"
-                        msg = (
-                            f"{label} frustrated on card {actioncard} "
-                            f"(unit#{unit_idx} zone={unit.zone()} "
-                            f"type={unit_type_label(unit.unittype)}; "
-                            f"{action_mod.hidden_queue_summary(self)}): {reason_txt}"
-                        )
+                        msg = frustration_line(label, blocked_faces)
                         self.round_action_summaries.append(msg)
                         self._broadcast(
                             msg,
@@ -889,6 +1107,11 @@ class GameEngine:
                             zone=unit.zone(),
                             blocked=blocked_faces,
                             queues=action_mod.hidden_queue_summary(self),
+                            event_type=EVENT_ACTION,
+                            actor=unit.player.number,
+                            target=unit_idx,
+                            amount=-1,
+                            card_visible=True,
                         )
                         yield from action_mod.pause_after_action(self, msg)
                     else:
@@ -908,6 +1131,9 @@ class GameEngine:
                         unit_idx = unit.index()
                         summary = yield from action_mod.resolve_action(
                             self, unit_idx, desc, actioncard
+                        )
+                        self.note_resolved_action(
+                            unit.player.number, desc.get("action_name")
                         )
                         self._broadcast(
                             summary,
@@ -937,7 +1163,11 @@ class GameEngine:
                             FIRST_UNIT_ADVANCE_CASH, source="lead the advance"
                         )
                         self._broadcast(
-                            f"{first_unit.player.agent_id()} rewarded {FIRST_UNIT_ADVANCE_CASH} cash for having the first unit when the convoy advanced"
+                            tf(
+                                "log.advance_cash",
+                                name=player_log_name(first_unit.player),
+                                cash=raha(FIRST_UNIT_ADVANCE_CASH),
+                            )
                         )
                         early = self._finished_result()
                         if early is not None:
@@ -950,16 +1180,15 @@ class GameEngine:
                     self.resistance_queue.reveal_card(0)
                     self.resistance = Resistance(self.resistance_queue.describe(0), self)
                     ambush = self.resistance.attack()
-                    if self.resistance.attack_category > 0:
-                        self._broadcast(f"Ambush: {ambush}")
-                    else:
-                        self._broadcast(ambush)
+                    self._broadcast(ambush)
                 else:
                     self.resistance = Resistance(self.resistance_queue.describe(0), self)
-                self._broadcast(f'New resistance "{self.resistance.name}"')
+                self._broadcast(
+                    tf("log.new_resistance", name=self.resistance.name)
+                )
                 has_advance_log = True
             else:
-                self._broadcast("Convoy stuck because of resistance.")
+                self._broadcast(t("log.convoy_stuck"))
                 has_advance_log = True
 
             if getattr(self, "pause_after_actions", True) and has_advance_log:
@@ -968,7 +1197,7 @@ class GameEngine:
                     choicetype=ChoiceType.LOG_PAUSE,
                     options=[0],
                     num_choices=1,
-                    description="Jatka peliä (Continue)"
+                    description=t("log.press_continue")
                 )
 
             # Mauling (hit-table damage and/or forced discard)
@@ -978,7 +1207,7 @@ class GameEngine:
             maul_id, _ = self.mauling_queue.remove_card(0)
             mauling = self.mauling_deck.describe(maul_id)
             msg = yield from resolve_mauling(self, mauling)
-            maul_line = f"Mauling {mauling['name']}: {msg}"
+            maul_line = tf("log.mauling", name=mauling["name"], effect=msg)
             self._broadcast(
                 maul_line,
                 event_type=3,
@@ -1004,37 +1233,11 @@ class GameEngine:
 
             # Bookkeeping
             self.rounds.next_stage()
-            self._broadcast("Kirjanpito.")
+            self._broadcast(t("log.bookkeeping"))
             lost = initial_units - len(self.convoy.units)
             self.stats.units_lost = max(self.stats.units_lost, lost)
 
             for pl in self.players:
-                if len(pl.action_cards) >= CARD_TO_POINTS_RATIO:
-                    yes = yield ChoiceRequest(
-                        player_id=pl.agent_id(),
-                        choicetype=ChoiceType.CASH_IN_CARDS,
-                        options=[0, 1],
-                        num_choices=1,
-                        description=f"Exchange {CARD_TO_POINTS_RATIO} cards for 1 cash? 0=no 1=yes",
-                    )
-                    if yes[0] == 1:
-                        if len(pl.action_cards) == CARD_TO_POINTS_RATIO:
-                            pl.discard(list(pl.action_cards))
-                        else:
-                            discard = yield ChoiceRequest(
-                                player_id=pl.agent_id(),
-                                choicetype=ChoiceType.CHOOSE_CARDS_TO_DISCARD,
-                                options=list(pl.action_cards),
-                                num_choices=CARD_TO_POINTS_RATIO,
-                                description=f"Choose {CARD_TO_POINTS_RATIO} cards to cash in",
-                            )
-                            pl.discard(list(discard))
-                        pl.get_cash(1, source="cash in cards")
-                        self._broadcast(f"{PLAYER_COLORS[pl.number % len(PLAYER_COLORS)]} player cashed in cards")
-                        early = self._finished_result()
-                        if early is not None:
-                            return early
-
                 card_limit = MIN_PLAYER_CARD_LIMIT
                 for u in self.convoy.units:
                     if u.player is pl and UNIT_TYPE_STR[u.unittype] == "logistics":
@@ -1047,16 +1250,28 @@ class GameEngine:
                         choicetype=ChoiceType.CHOOSE_CARDS_TO_DISCARD,
                         options=list(pl.action_cards),
                         num_choices=to_discard,
-                        description=f"Hand limit {card_limit}; discard {to_discard}",
+                        description=(
+                            tf("log.hand_limit", limit=card_limit, n=to_discard)
+                        ),
                     )
                     pl.discard(list(discard))
 
-            max_score = max(pl.this_round_cash for pl in self.players)
-            if max_score > 0:
-                for pl in self.players:
-                    if pl.this_round_cash == max_score:
-                        pl.promotion_points += 1
-                        self._broadcast(f"{PLAYER_COLORS[pl.number % len(PLAYER_COLORS)]} player gets promotion point")
+            for pl in self._players_earning_promotion():
+                pl.promotion_points += 1
+                if self.balance_trace:
+                    self.trace_promotion_income.append(
+                        {
+                            "player": pl.number,
+                            "round": self.rounds.count if self.rounds else 0,
+                            "sources": dict(self.round_cash_sources[pl.number]),
+                        }
+                    )
+                self._broadcast(
+                    tf("log.promotion_point", name=player_log_name(pl)),
+                    event_type=EVENT_PROMOTE,
+                    actor=pl.number,
+                    amount=1,
+                )
 
             early = self._check_promotion_victory()
             if early is not None:
@@ -1068,16 +1283,10 @@ class GameEngine:
                     self.stats.record_resistance_kill()
 
             if len(self.convoy.units) <= len(self.players):
-                return self._end_game(
-                    None,
-                    "Game finished (convoy collapsed).",
-                )
+                return self._end_game(None, t("log.convoy_collapsed"), reason="convoy")
 
             if self.rounds.count + 1 >= self.max_rounds:
-                return self._end_game(
-                    None,
-                    "Max rounds reached.",
-                )
+                return self._end_game(None, t("log.max_rounds"), reason="max_rounds")
 
             for unit in self.convoy.units:
                 if unit.actioncard and unit.player.action_deck:
@@ -1085,24 +1294,49 @@ class GameEngine:
                         unit.player.action_deck.discard_card(card)
                 unit.clear_state()
 
-            score_parts = []
-            for pl in self.players:
-                color_name = PLAYER_COLORS[pl.number % len(PLAYER_COLORS)].capitalize()
-                score_parts.append(f"{color_name} {pl.promotion_points} PP, {pl.total_cash} total cash")
-            self._broadcast("Current score: " + ", ".join(score_parts))
+            score_parts = [
+                tf(
+                    "log.score_player",
+                    name=player_log_name(pl),
+                    pp=pl.promotion_points,
+                    cash=pl.total_cash,
+                )
+                for pl in self.players
+            ]
+            self._broadcast(tf("log.score", parts=", ".join(score_parts)))
 
-            self._broadcast(f"—— Kierros {self.rounds.count} päättyy ——")
+            self._broadcast(tf("log.round_end", n=self.rounds.count))
             if getattr(self, "pause_after_actions", True):
                 yield ChoiceRequest(
                     player_id=f"player_{getattr(self, 'human_seat', 0)}",
                     choicetype=ChoiceType.LOG_PAUSE,
                     options=[0],
                     num_choices=1,
-                    description="Jatka peliä (Continue)"
+                    description=t("log.press_continue")
                 )
             self.rounds.next_round()
 
-        return self._end_game(None, "Game finished.")
+        return self._end_game(None, t("log.game_over"), reason="other")
+
+    def _players_earning_promotion(self) -> list[Player]:
+        """Players who receive a promotion point for this round's cash.
+
+        With ``SOLE_CASH_LEAD_FOR_PROMOTION``, only a player who earned strictly
+        more than every other player gets the point. Otherwise every player
+        tied for the highest amount (above zero) gets one.
+        """
+        from .configs import get_config
+
+        if not self.players:
+            return []
+        best = max(pl.this_round_cash for pl in self.players)
+        if best <= 0:
+            return []
+        leaders = [pl for pl in self.players if pl.this_round_cash == best]
+        sole = bool(getattr(get_config(), "SOLE_CASH_LEAD_FOR_PROMOTION", True))
+        if sole and len(leaders) != 1:
+            return []
+        return leaders
 
     def _compute_ranking(self) -> list[dict]:
         rows = [p.to_json() for p in self.players]
@@ -1114,10 +1348,49 @@ class GameEngine:
         rest.sort(key=lambda k: (-k["promotion_points"], -k["total_cash"]))
         return [winner.to_json()] + rest
 
+    def sell_income(self) -> tuple[int, bool]:
+        """Cash a sell action pays, and whether those cards leave the game."""
+        from .configs import get_config
+
+        cfg = get_config()
+        reward = int(getattr(cfg, "CASH_IN_REWARD", 1))
+        remove = bool(getattr(cfg, "CASH_IN_REMOVES_FROM_PLAY", False))
+        return reward, remove
+
+    def apply_card_cash(self, player: Player, cards: list[int]) -> int:
+        """Turn cards into cash. Retire profile removes them from the game."""
+        reward, remove = self.sell_income()
+        chosen = list(cards)
+        if remove:
+            player.remove_from_play(chosen)
+            source = "retire cards"
+        else:
+            player.discard(chosen)
+            source = "cash in cards"
+        player.get_cash(reward, source=source)
+        if self.balance_trace:
+            deck = player.action_deck
+            self.trace_cash_ins.append(
+                {
+                    "player": player.number,
+                    "reward": reward,
+                    "removed": remove,
+                    "cards": [
+                        {
+                            "id": int(card),
+                            "name": deck.label(card) if deck is not None else str(card),
+                        }
+                        for card in chosen
+                    ],
+                }
+            )
+        return reward
+
     def _end_game(
-        self, winner: Player | None, message: str
+        self, winner: Player | None, message: str, *, reason: str = "other"
     ) -> StepResult:
         """Mark terminal. If ``winner`` is set, they are ranked first."""
+        self.end_reason = reason
         if winner is not None:
             ranking = self._ranking_with_winner(winner)
         else:
@@ -1136,7 +1409,7 @@ class GameEngine:
         return StepResult(
             terminal=True,
             ranking=self.ranking,
-            message=self._end_message or "Game finished.",
+            message=self._end_message or t("log.game_over"),
         )
 
     def _on_cash_gained(self, player: Player, before: int) -> None:
@@ -1148,11 +1421,15 @@ class GameEngine:
         if CASH_TO_WIN <= 0:
             return
         if before < CASH_TO_WIN <= player.total_cash:
-            color = PLAYER_COLORS[player.number % len(PLAYER_COLORS)]
             self._end_game(
                 player,
-                f"{color} wins with {player.total_cash} cash "
-                f"(target {CASH_TO_WIN}).",
+                tf(
+                    "log.win_cash",
+                    name=player_log_name(player),
+                    cash=player.total_cash,
+                    target=CASH_TO_WIN,
+                ),
+                reason="cash",
             )
 
     def _check_promotion_victory(self) -> StepResult | None:
@@ -1177,20 +1454,25 @@ class GameEngine:
 
         if not self.sudden_death_pp:
             if len(at_target) == 1:
-                color = PLAYER_COLORS[at_target[0].number % len(PLAYER_COLORS)]
                 return self._end_game(
                     at_target[0],
-                    f"{color} wins with {at_target[0].promotion_points} PP "
-                    f"(target {PROMOTION_POINTS_TO_WIN}).",
+                    tf(
+                        "log.win_pp",
+                        name=player_log_name(at_target[0]),
+                        pp=at_target[0].promotion_points,
+                        target=PROMOTION_POINTS_TO_WIN,
+                    ),
+                    reason="promotion",
                 )
             if len(at_target) >= 2:
                 self.sudden_death_pp = True
-                names = ", ".join(
-                    PLAYER_COLORS[p.number % len(PLAYER_COLORS)] for p in at_target
-                )
+                names = ", ".join(player_log_name(p) for p in at_target)
                 self._broadcast(
-                    f"Sudden death: {names} reached {PROMOTION_POINTS_TO_WIN} PP "
-                    f"together — first sole PP lead wins."
+                    tf(
+                        "log.sudden_death",
+                        names=names,
+                        target=PROMOTION_POINTS_TO_WIN,
+                    )
                 )
                 return None
             return None
@@ -1199,9 +1481,13 @@ class GameEngine:
         max_pp = max(p.promotion_points for p in self.players)
         leaders = [p for p in self.players if p.promotion_points == max_pp]
         if len(leaders) == 1:
-            color = PLAYER_COLORS[leaders[0].number % len(PLAYER_COLORS)]
             return self._end_game(
                 leaders[0],
-                f"{color} wins sudden death with {max_pp} PP.",
+                tf(
+                    "log.win_sudden",
+                    name=player_log_name(leaders[0]),
+                    pp=max_pp,
+                ),
+                reason="sudden_death",
             )
         return None

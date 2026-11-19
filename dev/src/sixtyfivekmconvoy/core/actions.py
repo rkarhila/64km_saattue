@@ -11,20 +11,110 @@ from .constants import (
     ChoiceType,
     PLAYER_COLORS,
     UNIT_TYPE_LETTER,
+    UNIT_TYPE_STR,
 )
+from sixtyfivekmconvoy.rl.events import EVENT_INFLUENCE, EVENT_PILLAGE, EVENT_REVEAL
+
 from .cards import OfficerCard, OFFICER_CATALOG, parse_mauling_target
 from .cost import evaluate_cost
-from .i18n import unit_type_label
+from .i18n import t, tf, unit_type_label
+from .log_text import (
+    color_adjective,
+    format_action_log,
+    gains_prefix,
+    one_line,
+    player_log_name,
+    queue_name,
+    raha,
+    reward,
+    scout_verb,
+)
 
 if TYPE_CHECKING:
     from .engine import ChoiceRequest, GameEngine
     from .models import Convoy, Unit
 
 
+def _select_payment_cards(
+    engine: GameEngine,
+    payer,
+    action: dict,
+    name: str,
+    cost: int,
+    *,
+    sell: bool = False,
+):
+    """Choose ``cost`` hand cards. The caller moves them."""
+    from .engine import ChoiceRequest
+
+    if cost <= 0:
+        return []
+    if cost >= len(payer.action_cards):
+        return list(payer.action_cards)
+    reward_amount = 0
+    removes = False
+    if sell:
+        reward_amount, removes = engine.sell_income()
+        desc = tf(
+            "log.sell_pay_remove" if removes else "log.sell_pay",
+            cost=cost,
+            action=action.get("name", name),
+            cash=raha(reward_amount),
+        )
+    else:
+        desc = tf("log.pay_cost", cost=cost, action=action.get("name", name))
+    for card_id in payer.action_cards:
+        card_desc = payer.action_deck.describe(card_id) if payer.action_deck else card_id
+        if isinstance(card_desc, list):
+            clabel = "/".join(f["name"] for f in card_desc if isinstance(f, dict))
+        elif isinstance(card_desc, dict):
+            clabel = card_desc.get("name", str(card_id))
+        else:
+            clabel = str(card_desc)
+        desc += f"\n  {card_id}: {clabel}"
+    payload = {
+        "reason": "pay_cost",
+        "action_name": action.get("name", name),
+        "cost": cost,
+    }
+    if sell:
+        payload.update(sell=True, reward=reward_amount, removes=removes)
+    chosen = yield ChoiceRequest(
+        player_id=payer.agent_id(),
+        choicetype=ChoiceType.CHOOSE_CARDS_TO_DISCARD,
+        options=list(payer.action_cards),
+        num_choices=cost,
+        description=desc,
+        payload=payload,
+    )
+    return list(chosen)
+
+
+def _trace_payment(engine: GameEngine, payer, action: dict, name: str, cards: list[int]) -> None:
+    if not getattr(engine, "balance_trace", False) or not cards:
+        return
+    deck = payer.action_deck
+    engine.trace_payments.append(
+        {
+            "player": payer.number,
+            "action": str(action.get("name") or name),
+            "action_name": name,
+            "cards": [
+                {
+                    "id": int(card),
+                    "name": deck.label(card) if deck is not None else str(card),
+                }
+                for card in cards
+            ],
+        }
+    )
+
+
 def unit_log_label(unit: Unit) -> str:
-    """Human-readable unit id for logs, e.g. 'blue jalkaväki'."""
+    """Human-readable unit id, e.g. 'Foo siniset panssarit'."""
     color = PLAYER_COLORS[unit.player.number % len(PLAYER_COLORS)]
-    return f"{color} {unit_type_label(unit.unittype)}"
+    adj = color_adjective(color, plural=unit.unittype == 0)
+    return f"{player_log_name(unit.player)} {adj} {unit_type_label(unit.unittype)}"
 
 
 def get_cost(
@@ -80,7 +170,7 @@ def scoutable_queues(
 
 
 def hidden_queue_summary(engine: GameEngine) -> str:
-    """Compact queue visibility for logs, e.g. 'resistance:1up/2hid mauling:1up/2hid'."""
+    """Compact queue visibility for logs."""
     parts: list[str] = []
     for name, queue in (
         ("resistance", engine.resistance_queue),
@@ -89,12 +179,22 @@ def hidden_queue_summary(engine: GameEngine) -> str:
     ):
         total = len(queue)
         hidden = sum(1 for _, vis in queue.cards_and_visibilities if not vis)
-        parts.append(f"{name}:{total - hidden}up/{hidden}hid")
+        parts.append(
+            tf(
+                "log.queue_visibility",
+                queue=queue_name(name),
+                up=total - hidden,
+                hidden=hidden,
+            )
+        )
     return " ".join(parts)
 
 
 def why_action_impossible(
-    engine: GameEngine, actor_idx: int, action: dict
+    engine: GameEngine,
+    actor_idx: int,
+    action: dict,
+    hand_size: int | None = None,
 ) -> list[str]:
     """
     Reasons this action cannot be taken now. Empty list ⇒ legal.
@@ -129,7 +229,7 @@ def why_action_impossible(
     cost_player = action.get("_cost_player")  # optional override (Order nested play)
     payer = cost_player if cost_player is not None else unit.player
     required = get_cost(unit, action.get("cost", "0"))
-    hand = len(payer.action_cards)
+    hand = len(payer.action_cards) if hand_size is None else max(0, int(hand_size))
     if hand < required:
         reasons.append(f"cost {required} but hand has {hand}")
 
@@ -152,7 +252,7 @@ def why_action_impossible(
         elif not unit.can_overtake(-1):
             reasons.append("cannot overtake backward for retreat")
     elif name == ActionName.BYPASS:
-        if not unit.can_overtake(modifier):
+        if unit.bypass_distance(modifier) <= 0:
             reasons.append(f"cannot bypass/overtake by {modifier}")
     elif name == ActionName.PILLAGE:
         if len(engine.pillage_queue) < 1:
@@ -220,6 +320,7 @@ def why_action_impossible(
         ActionName.PATROL,
         ActionName.WAIT,
         ActionName.EXIT,
+        ActionName.SELL,
     ):
         pass
     # Unknown actions: allow (legacy default) unless already rejected above.
@@ -259,11 +360,28 @@ def matching_officer_queue_indices(engine: GameEngine, unit: Unit) -> list[int]:
     return out
 
 
-def _cash_for_revealed_cards(engine: GameEngine, player, code: int, count: int, label: str) -> None:
-    """1 cash per mauling or resistance card turned face-up. Pillage pays nothing."""
+def _cash_for_revealed_cards(
+    engine: GameEngine,
+    player,
+    code: int,
+    count: int,
+    label: str,
+    paid_types: set[int] | None = None,
+) -> str | None:
+    """Pay for mauling or resistance cards turned face up. Pillage pays nothing.
+
+    With ``REVEAL_CASH_PER_CARD`` false, the configured amount is paid once
+    per action for that card type, as long as at least one card was turned.
+    ``paid_types`` stops a later deck look in the same action from paying again.
+    """
+    del engine, label
     if count <= 0:
         return
-    from .config import REVEAL_MAULING_CASH, REVEAL_RESISTANCE_CASH
+    from .config import (
+        REVEAL_CASH_PER_CARD,
+        REVEAL_MAULING_CASH,
+        REVEAL_RESISTANCE_CASH,
+    )
 
     if code == SCOUT_QUEUE_MAULING:
         per, source, kind = REVEAL_MAULING_CASH, "reveal mauling", "mauling"
@@ -273,21 +391,44 @@ def _cash_for_revealed_cards(engine: GameEngine, player, code: int, count: int, 
         return
     if per <= 0:
         return
-    total = per * count
-    player.get_cash(total, source=source)
-    engine._broadcast(
-        f"{label} rewarded {total} cash for revealing {count} {kind} card(s)"
-    )
-
-
-def _cash_for_resistance_hit(player, status: int) -> None:
-    """Grant hit cash when resistance is damaged but not destroyed (destroy cash is on the card)."""
-    if status != 1:
+    if not REVEAL_CASH_PER_CARD and paid_types is not None and code in paid_types:
         return
+    total = per * count if REVEAL_CASH_PER_CARD else per
+    if paid_types is not None:
+        paid_types.add(code)
+    player.get_cash(total, source=source)
+    kind_fi = t(f"log.reveal_kind.{kind}")
+    return reward("log.for_reveal", cash=raha(total), count=count, kind=kind_fi)
+
+
+def _note_resistance_pay(engine: GameEngine, player, status: int, rewards: list[str]) -> None:
+    hit_pay = _cash_for_resistance_hit(player, status)
+    if hit_pay:
+        rewards.append(hit_pay)
+    destroy_pay = getattr(engine.resistance, "last_destroy_reward", None)
+    if destroy_pay:
+        rewards.append(destroy_pay)
+        engine.resistance.last_destroy_reward = None
+
+
+def _absorb_scout_lines(lines: list[str], effects: list[str], rewards: list[str]) -> None:
+    for line in lines:
+        if line.startswith(gains_prefix()):
+            rewards.append(line)
+        else:
+            effects.append(line)
+
+
+def _cash_for_resistance_hit(player, status: int) -> str | None:
+    """Grant hit cash when resistance is damaged but not destroyed."""
+    if status != 1:
+        return None
     from .config import RESISTANCE_HIT_CASH
 
-    if RESISTANCE_HIT_CASH > 0:
-        player.get_cash(RESISTANCE_HIT_CASH, source="resistance hit")
+    if RESISTANCE_HIT_CASH <= 0:
+        return None
+    player.get_cash(RESISTANCE_HIT_CASH, source="resistance hit")
+    return reward("log.for_hit", cash=raha(RESISTANCE_HIT_CASH))
 
 
 def _current_action_index(engine: GameEngine) -> int:
@@ -363,7 +504,7 @@ def _reveal_unit_action_card(engine: GameEngine, unit: Unit, action_index: int) 
         str(f.get("name") or f.get("action_name") or "?") for f in faces
     ) or str(card_id)
     engine._broadcast(
-        f"{unit_log_label(unit)} card revealed for Order → {names}"
+        one_line(tf("log.order_peek", label=unit_log_label(unit), names=names))
     )
 
 
@@ -380,9 +521,9 @@ def resolve_order(
     orderer = ordering_unit.player
     targets = order_wait_targets(engine, ordering_unit)
     if not targets:
-        return "order failed: no neighbouring wait"
+        return t("log.order_no_waiter")
     if not orderer.action_cards:
-        return "order failed: no hand card to assign"
+        return t("log.order_empty_hand")
 
     action_index = _current_action_index(engine)
     preceding, following = ordering_unit.get_neighbours()
@@ -395,16 +536,16 @@ def resolve_order(
         desc_bits = []
         if preceding in targets:
             opts.append(0)
-            desc_bits.append(f"0={unit_log_label(preceding)} (previous, waited)")
+            desc_bits.append(tf("log.order_prev", label=unit_log_label(preceding)))
         if following in targets:
             opts.append(1)
-            desc_bits.append(f"1={unit_log_label(following)} (following, Wait card)")
+            desc_bits.append(tf("log.order_next", label=unit_log_label(following)))
         chosen = yield ChoiceRequest(
             player_id=orderer.agent_id(),
             choicetype=ChoiceType.CHOOSE_SERVICE,
             options=opts,
             num_choices=1,
-            description="Order which neighbour: " + "; ".join(desc_bits),
+            description=tf("log.order_choose", bits="; ".join(desc_bits)),
             payload={
                 "reason": "order_target",
                 "unit_index": ordering_unit.index(),
@@ -439,7 +580,7 @@ def resolve_order(
     )
     card_id = picked[0]
     if card_id not in orderer.action_cards:
-        return f"order failed: card {card_id} not in hand"
+        return tf("log.order_card_missing", card=card_id)
     orderer.place_action_card(card_id)
 
     faces = _card_faces(waiter, card_id)
@@ -508,7 +649,7 @@ def resolve_order(
         orderer.action_cards.append(card_id)
         orderer.action_cards.sort()
 
-    return f"ordered {unit_log_label(waiter)} → {nested} (card {card_id} returned)"
+    return tf("log.order_ok", label=unit_log_label(waiter), nested=nested)
 
 
 def _has_officer(unit: Unit, effect_type: str, kind: str = "discard_effect") -> OfficerCard | None:
@@ -546,45 +687,23 @@ def resolve_action(
     convoy = engine.convoy
     unit = convoy.units[actor_idx]
     player = unit.player
+    try:
+        trace_unit_index = unit.index()
+    except ValueError:
+        trace_unit_index = None
     payer = cost_player if cost_player is not None else player
     name = ActionName.normalize(action.get("action_name", "")) or ""
     modifier = action.get("action_modifier", 0)
     label = unit_log_label(unit)
-    parts = [
-        f"{label} resolved {action.get('name', name)}:"
-    ]
+    effects: list[str] = []
+    rewards: list[str] = []
 
-    # Pay cost (possibly from ordering player)
+    # Pay cost (possibly from ordering player). Sell moves the cards itself.
     cost = get_cost(unit, action.get("cost", "0"))
-    if cost > 0:
-        if cost >= len(payer.action_cards):
-            payer.discard(list(payer.action_cards))
-        else:
-            desc = f"Choose {cost} action cards to discard for {action.get('name', name)}"
-            for c in payer.action_cards:
-                card_desc = payer.action_deck.describe(c) if payer.action_deck else c
-                if isinstance(card_desc, list):
-                    clabel = "/".join(
-                        f["name"] for f in card_desc if isinstance(f, dict)
-                    )
-                elif isinstance(card_desc, dict):
-                    clabel = card_desc.get("name", str(c))
-                else:
-                    clabel = str(card_desc)
-                desc += f"\n  {c}: {clabel}"
-            chosen = yield ChoiceRequest(
-                player_id=payer.agent_id(),
-                choicetype=ChoiceType.CHOOSE_CARDS_TO_DISCARD,
-                options=list(payer.action_cards),
-                num_choices=cost,
-                description=desc,
-                payload={
-                    "reason": "pay_cost",
-                    "action_name": action.get("name", name),
-                    "cost": cost,
-                },
-            )
-            payer.discard(list(chosen))
+    if cost > 0 and name != ActionName.SELL:
+        paid = yield from _select_payment_cards(engine, payer, action, name, cost)
+        payer.discard(list(paid))
+        _trace_payment(engine, payer, action, name, list(paid))
 
     if name == ActionName.ATTACK:
         damage = modifier
@@ -601,46 +720,63 @@ def resolve_action(
         status, msg = engine.resistance.take_damage(
             UNIT_TYPE_LETTER[unit.unittype], f"={damage}", player=player
         )
-        _cash_for_resistance_hit(player, status)
-        parts.append(msg)
-
+        effects.append(msg)
+        hit_pay = _cash_for_resistance_hit(player, status)
         from .config import ATTACK_CASH
         if ATTACK_CASH > 0:
             player.get_cash(ATTACK_CASH, source="attack")
-            engine._broadcast(
-                f"{unit_log_label(unit)} rewarded {ATTACK_CASH} cash for attacking"
-            )
+            rewards.append(reward("log.for_attack", cash=raha(ATTACK_CASH)))
+        destroy_pay = getattr(engine.resistance, "last_destroy_reward", None)
+        if destroy_pay:
+            rewards.append(destroy_pay)
+            engine.resistance.last_destroy_reward = None
+        if hit_pay:
+            rewards.append(hit_pay)
 
     elif name == ActionName.ASSAULT:
         old_pos = actor_idx
         old_zone = unit.zone()
-        new_pos = convoy.move_unit(actor_idx, 1)
+        new_pos = _shift_off_mauling(engine, unit, 1)
         actor_idx = unit.index()
-        parts.append(f"assaulted {old_pos}({old_zone})→{new_pos}({unit.zone()})")
+        effects.append(
+            tf(
+                "log.assault",
+                old=old_pos,
+                old_zone=old_zone,
+                new=new_pos,
+                new_zone=unit.zone(),
+            )
+        )
         status, msg = engine.resistance.take_damage(
             UNIT_TYPE_LETTER[unit.unittype], f"={modifier}", player=player
         )
-        _cash_for_resistance_hit(player, status)
-        parts.append(msg)
+        effects.append(msg)
+        _note_resistance_pay(engine, player, status, rewards)
 
     elif name == ActionName.RETREAT:
         # Suojatulta! → retreat one slot toward the rear, then deal damage.
         old_pos = actor_idx
         old_zone = unit.zone()
-        new_pos = convoy.move_unit(actor_idx, -1)
+        new_pos = _shift_off_mauling(engine, unit, -1)
         actor_idx = unit.index()
-        parts.append(
-            f"retreated {old_pos}({old_zone})→{new_pos}({unit.zone()})"
+        effects.append(
+            tf(
+                "log.retreat",
+                old=old_pos,
+                old_zone=old_zone,
+                new=new_pos,
+                new_zone=unit.zone(),
+            )
         )
         status, msg = engine.resistance.take_damage(
             UNIT_TYPE_LETTER[unit.unittype], modifier, player=player
         )
-        _cash_for_resistance_hit(player, status)
-        parts.append(msg)
+        effects.append(msg)
+        _note_resistance_pay(engine, player, status, rewards)
 
     elif name == ActionName.BYPASS:
-        new_pos = convoy.move_unit(actor_idx, modifier)
-        parts.append(f"bypassed to {new_pos}")
+        new_pos = _shift_off_mauling(engine, unit, unit.bypass_distance(modifier))
+        effects.append(tf("log.bypass", pos=new_pos))
 
     elif name == ActionName.EXIT:
         loot_cash = sum(unit.carry)
@@ -649,34 +785,37 @@ def resolve_action(
         if engine is not None:
             engine.recycle_damage_markers(unit)
         convoy.units.pop(unit.index())
-        parts.append(f"exited with loot worth {loot_cash}")
+        effects.append(tf("log.exit", cash=raha(loot_cash)))
 
     elif name in (ActionName.PILLAGE, ActionName.PILLAGE_WITH_EXTRA_ATROCITY):
         extra = 0 if name == ActionName.PILLAGE_WITH_EXTRA_ATROCITY else modifier
-        rewards = yield from _resolve_pillage(engine, unit, extra)
+        loot_cards = yield from _resolve_pillage(engine, unit, extra)
         disciplined = name == ActionName.PILLAGE_WITH_EXTRA_ATROCITY
-        for r in rewards:
+        for card in loot_cards:
             applied = _apply_pillage_reward(
-                player, unit, r, disciplined=disciplined
+                player, unit, card, disciplined=disciplined
             )
-            parts.append(format_pillage_effect(unit, r, applied=applied))
+            _note_pillage(engine, player, unit, card, applied)
+            effects.append(format_pillage_effect(unit, card, applied=applied))
 
     elif name in ATTACK_TYPE_BY_DEFENCE_ACTION:
         # Defend→G (ground), Human shields→A (air), Patrol→S (sabotage).
         # Soak rewards are config-driven in Unit.reward_defending.
         attack_letter = ATTACK_TYPE_BY_DEFENCE_ACTION[name]
         unit.resolve_defend(attack_letter)
-        parts.append(f"defending ({attack_letter}/{name})")
+        defence_key = f"log.defend.{name}"
+        defence_line = t(defence_key)
+        if defence_line == defence_key:
+            defence_line = tf("log.defend.other", letter=attack_letter)
+        effects.append(defence_line)
 
     elif name == ActionName.SCOUT:
         count = modifier if modifier and modifier > 0 else 2
         scouted = yield from resolve_scout(engine, unit, count)
         if scouted:
-            parts.append(f"scouted {len(scouted)}: " + ", ".join(scouted))
+            _absorb_scout_lines(scouted, effects, rewards)
         else:
-            parts.append(
-                f"scout found nothing ({hidden_queue_summary(engine)})"
-            )
+            effects.append(tf("log.found_nothing", queues=hidden_queue_summary(engine)))
 
     elif name == ActionName.SIGINT:
         # Like scout, but only the mauling queue/deck.
@@ -689,26 +828,24 @@ def resolve_action(
             verb="sigint",
         )
         if scouted:
-            parts.append(f"sigint {len(scouted)}: " + ", ".join(scouted))
+            _absorb_scout_lines(scouted, effects, rewards)
         else:
-            parts.append(
-                f"sigint found nothing ({hidden_queue_summary(engine)})"
-            )
+            effects.append(tf("log.found_nothing", queues=hidden_queue_summary(engine)))
 
     elif name == ActionName.SEARCH:
         # Face-down pillage → reveal; empty queue → draw N / keep 1 face-up.
         count = modifier if modifier and modifier > 0 else 2
         scouted = yield from resolve_search(engine, unit, count)
         if scouted:
-            parts.append(f"searched {len(scouted)}: " + ", ".join(scouted))
+            _absorb_scout_lines(scouted, effects, rewards)
         else:
-            parts.append("searched, but found nothing")
+            effects.append(t("log.found_no_pillage"))
 
     elif name == ActionName.WAIT:
         if not player.action_cards:
-            parts.append("waited but no cards")
+            effects.append(t("log.wait_empty"))
         else:
-            desc = "Choose an action card to add (WAIT):"
+            desc = t("log.wait_prompt")
             for c in player.action_cards:
                 desc += f"\n  {c}"
             chosen = yield ChoiceRequest(
@@ -723,47 +860,47 @@ def resolve_action(
             unit.actiontaken.append(None)
             unit.action_resolution.append(None)
             player.place_action_card(card)
-            parts.append(f"waited, queued card {card}")
+            effects.append(tf("log.wait_queued", card=card))
 
     elif name == ActionName.ORDER:
         msg = yield from resolve_order(engine, unit)
-        parts.append(msg)
+        effects.append(msg)
 
     elif name == ActionName.SEARCH_PILLAGE_COMBO:
         count = modifier if modifier and modifier > 0 else 2
         scouted = yield from resolve_search(engine, unit, count)
         if scouted:
-            parts.append(f"searched {len(scouted)}: " + ", ".join(scouted))
+            _absorb_scout_lines(scouted, effects, rewards)
         else:
-            parts.append("searched, but found nothing")
+            effects.append(t("log.found_no_pillage"))
         if len(engine.pillage_queue) >= 1:
-            rewards = yield from _resolve_pillage(engine, unit, 0)
-            for r in rewards:
+            loot_cards = yield from _resolve_pillage(engine, unit, 0)
+            for card in loot_cards:
                 applied = _apply_pillage_reward(
-                    player, unit, r, disciplined=False
+                    player, unit, card, disciplined=False
                 )
-                parts.append(format_pillage_effect(unit, r, applied=applied))
+                _note_pillage(engine, player, unit, card, applied)
+                effects.append(format_pillage_effect(unit, card, applied=applied))
         else:
-            parts.append("nothing to pillage after search")
+            effects.append(t("log.pillage_queue_empty"))
 
     elif name == ActionName.SOBER_UP:
         officer = _has_officer(unit, "sober_up")
         unit.under_influence = 0
         if officer:
             _discard_officer(unit, officer)
-        parts.append("sobered up")
+        effects.append(t("log.sober"))
 
     elif name == ActionName.PROMOTE:
         oq = engine.officer_queue
         indices = matching_officer_queue_indices(engine, unit)
         if not indices:
-            parts.append(
-                f"no officers available for troop "
-                f"{UNIT_TYPE_LETTER[unit.unittype]}"
+            effects.append(
+                tf("log.no_officer", letter=UNIT_TYPE_LETTER[unit.unittype])
             )
         else:
             letter = UNIT_TYPE_LETTER[unit.unittype]
-            desc = f"Choose an officer to promote ({letter}):"
+            desc = tf("log.choose_officer", letter=letter)
             for i in indices:
                 seq_id, _ = oq.cards_and_visibilities[i]
                 real_id = engine.officer_id_mapping.get(seq_id, seq_id)
@@ -797,32 +934,46 @@ def resolve_action(
                 )
             unit.officers.append(officer)
             engine.stats.record_officer_pick(player.number, officer.name)
-            parts.append(f"promoted with {officer.name}")
+            effects.append(tf("log.promoted", name=officer.name))
 
     elif name == ActionName.SERVICE:
         msg = yield from _resolve_service(engine, unit)
-        parts.append(msg)
+        effects.append(msg)
 
     elif name == ActionName.REST:
+        # Tired and under_influence are the same burden for this bonus.
+        if unit.tired + unit.under_influence >= 3:
+            engine.note_shaping("rest_relief", player.number)
         if modifier == 2 and unit.can_rest_with_cards():
             old = unit.tired
             unit.rest_with_cards()
-            parts.append(f"rested hard {old}->{unit.tired}")
+            effects.append(tf("log.rest_with_cards", old=old, new=unit.tired))
         else:
             old = unit.tired
-            u = unit.under_influence
+            was_drunk = unit.under_influence
             unit.rest()
-            parts.append(f"rested (influence={u}, tired {old}->{unit.tired})")
+            if was_drunk:
+                effects.append(t("log.rest_sober"))
+            else:
+                effects.append(tf("log.rest", old=old, new=unit.tired))
 
     elif name == ActionName.SUICIDAL_ATTACK:
         damage = modifier if modifier else 5
         status, msg = engine.resistance.take_damage(
             UNIT_TYPE_LETTER[unit.unittype], damage, player=player
         )
-        _cash_for_resistance_hit(player, status)
+        effects.append(msg)
+        _note_resistance_pay(engine, player, status, rewards)
         convoy.apply_damage(1, unit=unit)
-        parts.append(msg)
-        parts.append("unit took 1 damage")
+        effects.append(t("log.self_damage"))
+
+    elif name == ActionName.SELL:
+        paid = yield from _select_payment_cards(
+            engine, payer, action, name, cost, sell=True
+        )
+        gained = engine.apply_card_cash(payer, list(paid))
+        _trace_payment(engine, payer, action, name, list(paid))
+        rewards.append(reward("log.for_sell", cash=raha(gained)))
 
     elif name == ActionName.EXIT_FROM_C_WITH_COST:
         cost_cash = modifier or 5
@@ -836,22 +987,48 @@ def resolve_action(
         if engine is not None:
             engine.recycle_damage_markers(unit)
         convoy.units.pop(unit.index())
-        parts.append(f"paid {cost_cash} and exited from C")
+        effects.append(
+            tf(
+                "log.exit_paid",
+                cost=raha(cost_cash),
+                loot=raha(loot_cash),
+            )
+        )
 
     else:
-        parts.append(f"(no-op / unimplemented {name})")
+        effects.append(tf("log.unimplemented", name=name))
 
     if action.get("tire"):
         unit.tire()
     if action.get("intoxicate"):
+        was_sober = unit.under_influence == 0
         unit.under_influence = 1
+        if was_sober and unit.convoy is not None:
+            engine._note_event(
+                EVENT_INFLUENCE, actor=player.number, target=unit.index(), amount=1
+            )
 
     if action.get("is_officer_discard") and action.get("officer"):
         _discard_officer(unit, action["officer"])
-        parts.append(f"discarded officer {action['officer'].name}")
+        effects.append(tf("log.discard_officer", name=action["officer"].name))
 
     engine.stats.record_action(player.number, name)
-    summary = ", ".join(parts)
+    if getattr(engine, "balance_trace", False):
+        deck = player.action_deck
+        engine.trace_plays.append(
+            {
+                "player": player.number,
+                "unit_index": trace_unit_index,
+                "unit": UNIT_TYPE_STR.get(unit.unittype, str(unit.unittype)),
+                "card_id": int(cardnumber),
+                "card_name": deck.label(cardnumber) if deck is not None else str(cardnumber),
+                "action": str(action.get("name") or name),
+                "action_name": name,
+            }
+        )
+    summary = format_action_log(
+        label, str(action.get("name") or name), effects, rewards
+    )
     engine.round_action_summaries.append(summary)
     return summary
 
@@ -867,7 +1044,7 @@ def _loot_list(loot: Any) -> list[int]:
 
 
 def _ignores_pillage_intoxication(unit: Unit) -> bool:
-    """Huikka Möttönen: pillaging cards do not make this unit drunk."""
+    """Officer passive: pillaging cards do not make this unit drunk."""
     return (
         _has_officer(unit, "no_boozing_while_pillaging", kind="passive_effect")
         is not None
@@ -924,7 +1101,6 @@ def format_pillage_effect(
 ) -> str:
     """Human log line: loot, atrocities, influence, cards drawn, money."""
     reward = card.get("reward") or {}
-    label = unit_log_label(unit)
     name = card.get("name") or "?"
     if applied is None:
         loot = _loot_list(reward.get("loot"))
@@ -945,20 +1121,20 @@ def format_pillage_effect(
     bits: list[str] = []
     if loot:
         shown = "+".join(str(v) for v in loot)
-        bits.append(f"gains {len(loot)} loot ({shown})")
+        bits.append(tf("log.pillage_loot", count=len(loot), shown=shown))
     if atro:
-        bits.append(f"commits {atro} atrocities")
+        bits.append(tf("log.pillage_atrocity", n=atro))
     if became:
-        bits.append("is now under the influence")
+        bits.append(t("log.pillage_drunk"))
     elif ignored:
-        bits.append("ignores intoxication")
+        bits.append(t("log.pillage_sober"))
     if cards:
-        bits.append(f"player draws {cards} cards")
+        bits.append(tf("log.pillage_cards", n=cards))
     if cash:
-        bits.append(f"gains {cash} money")
+        bits.append(tf("log.pillage_cash", cash=raha(cash)))
     if not bits:
-        bits.append("no reward")
-    return f"{label} pillaged {name}: " + "; ".join(bits)
+        bits.append(t("log.pillage_empty"))
+    return f"*{name}*: " + ", ".join(bits)
 
 
 def _pillage_offer(engine: GameEngine, index: int) -> dict:
@@ -978,8 +1154,12 @@ def _pillage_offer(engine: GameEngine, index: int) -> dict:
     return {
         "id": card_id,
         "index": index,
-        "name": "Jonon ensimmäinen kortti" if index == 0 else f"Face-down card {index + 1}",
-        "detail": "Kortti on kuvapuoli alaspäin.",
+        "name": (
+            t("log.pillage_face_down_front")
+            if index == 0
+            else tf("log.pillage_face_down", n=index + 1)
+        ),
+        "detail": t("log.pillage_face_down_detail"),
         "visible": False,
     }
 
@@ -1001,7 +1181,24 @@ def _pillage_choice_indices(engine: GameEngine, unit: Unit) -> list[int]:
 def _take_pillage_at(engine: GameEngine, index: int) -> dict:
     card_id, _visible = engine.pillage_queue.remove_card(index)
     engine.pillage_deck.discard_card(card_id)
-    return engine.pillage_deck.describe(card_id)
+    described = dict(engine.pillage_deck.describe(card_id))
+    described["id"] = card_id
+    return described
+
+
+def _note_pillage(engine: GameEngine, player: Any, unit: Unit, card: dict, applied: dict) -> None:
+    cid = card.get("id")
+    target = unit.index() if unit.convoy is not None else -1
+    engine._note_event(
+        EVENT_PILLAGE,
+        actor=player.number,
+        target=target,
+        card_id=int(cid) if cid is not None else 0,
+        amount=int(applied.get("cash") or 0),
+        card_visible=cid is not None,
+    )
+    if applied.get("became_influenced") and target >= 0:
+        engine._note_event(EVENT_INFLUENCE, actor=player.number, target=target, amount=1)
 
 
 def _resolve_pillage(
@@ -1019,7 +1216,7 @@ def _resolve_pillage(
         return [_take_pillage_at(engine, offered[0]["index"])]
 
     options = [o["id"] for o in offered]
-    desc = "Choose one pillage card:"
+    desc = t("log.choose_pillage")
     for o in offered:
         desc += f"\n  {o['id']}: {o['name']}"
     chosen = yield ChoiceRequest(
@@ -1059,7 +1256,7 @@ def _resolve_service(
             choicetype=ChoiceType.CHOOSE_SERVICE,
             options=[0, 1],
             num_choices=1,
-            description="Service neighbour: 0=preceding, 1=following",
+            description=t("log.service_choose"),
         )
         target = preceding if chosen[0] == 0 else following
     elif tired_prev:
@@ -1067,16 +1264,13 @@ def _resolve_service(
     else:
         target = following
     assert target is not None
-    target.tired = max(0, target.tired - 1)
-    
-    msg = f"serviced {unit_log_label(target)}"
-    from .config import SERVICE_CASH
+    from .config import SERVICE_CASH, SERVICE_TIREDNESS
+
+    target.tired = max(0, target.tired - int(SERVICE_TIREDNESS))
+    msg = tf("log.service", label=unit_log_label(target))
     if SERVICE_CASH > 0:
         unit.player.get_cash(SERVICE_CASH, source="service")
-        engine._broadcast(
-            f"{unit_log_label(unit)} rewarded {SERVICE_CASH} cash for service"
-        )
-        msg += f" (rewarded {SERVICE_CASH} cash)"
+        msg += tf("log.service_cash", cash=raha(SERVICE_CASH))
     return msg
 
 
@@ -1122,12 +1316,12 @@ def pause_after_action(
     engine: GameEngine, summary: str
 ) -> Generator[ChoiceRequest, list[int], None]:
     """Pause after an action resolves (or a unit becomes frustrated)."""
-    hint = summary.strip() if summary else "Toiminto kirjattu lokiin."
+    hint = summary.strip() if summary else t("log.action_logged")
     if len(hint) > 480:
         hint = hint[:477] + "…"
     yield from _pause_after_log(
         engine,
-        f"{hint} Jatka.",
+        hint + t("log.continue_suffix"),
         reason="action_pause",
     )
 
@@ -1184,6 +1378,7 @@ def _resolve_scout_from_deck(
     *,
     allowed_queue_codes: set[int] | frozenset[int] | None = None,
     verb: str = "scout",
+    paid_types: set[int] | None = None,
 ) -> Generator[ChoiceRequest, list[int], list[str]]:
     """
     When no face-down queue cards remain: choose an allowed deck, draw up to
@@ -1202,8 +1397,13 @@ def _resolve_scout_from_deck(
 
     if not eligible:
         engine._broadcast(
-            f"{label} {verb}: no face-down cards and no deck cards left "
-            f"({hidden_queue_summary(engine)})"
+            one_line(
+                tf(
+                    "log.no_cards_left",
+                    label=label,
+                    queues=hidden_queue_summary(engine),
+                )
+            )
         )
         return []
 
@@ -1212,8 +1412,7 @@ def _resolve_scout_from_deck(
     else:
         options = [c for c, _, _, _ in eligible]
         desc = (
-            f"{label} {verb}: all queued cards are known — choose a deck "
-            f"to draw {count} from:"
+            tf("log.choose_deck", label=label, verb=scout_verb(verb), count=count)
         )
         for c, name, _, d in eligible:
             ds, disc = d.get_sizes()
@@ -1249,7 +1448,15 @@ def _resolve_scout_from_deck(
             drawn.append(deck.get_card(shuffle_if_necessary=True))
         except RuntimeError:
             engine._broadcast(
-                f"{label} {verb}: {qname} deck empty after {step}/{count} draws"
+                one_line(
+                    tf(
+                        "log.deck_ran_out",
+                        label=label,
+                        queue=queue_name(qname),
+                        step=step,
+                        count=count,
+                    )
+                )
             )
             break
 
@@ -1261,8 +1468,13 @@ def _resolve_scout_from_deck(
         keep = drawn[0]
     else:
         desc = (
-            f"{label} {verb}: choose 1 of {len(drawn)} drawn {qname} "
-            f"card(s) to place face-up in the queue:"
+            tf(
+                "log.choose_drawn",
+                label=label,
+                verb=scout_verb(verb),
+                count=len(drawn),
+                queue=queue_name(qname),
+            )
         )
         for offer in offers:
             desc += f"\n  {offer['id']}: {offer['name']}"
@@ -1291,21 +1503,38 @@ def _resolve_scout_from_deck(
     keep_name = deck.get_name(keep) or str(keep)
     placed_index = len(queue) - 1
 
-    _cash_for_revealed_cards(engine, unit.player, code, 1, label)
+    pay = _cash_for_revealed_cards(
+        engine, unit.player, code, 1, label, paid_types=paid_types
+    )
+    found = [
+        tf("log.into_queue_from_deck", name=keep_name, queue=queue_name(qname))
+    ]
+    if pay:
+        found.append(pay)
 
     engine._broadcast(
-        f"{label} {verb} → {qname} queue +{keep_name} (face-up from deck; "
-        f"drew {len(drawn)})",
+        one_line(
+            tf(
+                "log.draw_into_queue",
+                label=label,
+                name=keep_name,
+                queue=queue_name(qname),
+            )
+        ),
         kind="reveal",
-        queue=qname,
+        queue=code,
         index=placed_index,
         card_id=keep,
+        event_type=EVENT_REVEAL,
+        actor=unit.player.number,
+        amount=1,
+        card_visible=True,
     )
     yield from _pause_after_reveal(
         engine,
-        f"Pakasta jonoon ({qname}): {keep_name}. Jatka.",
+        tf("log.deck_pause", queue=queue_name(qname), name=keep_name),
     )
-    return [f"{qname}:{keep_name}"]
+    return found
 
 
 def resolve_search(
@@ -1346,6 +1575,7 @@ def resolve_scout(
 
     revealed: list[str] = []
     label = unit_log_label(unit)
+    paid_types: set[int] = set()
     queue_mapping = _scout_queue_mapping(engine, allowed_queue_codes)
 
     face_down_cards = []
@@ -1362,14 +1592,21 @@ def resolve_scout(
         pick = [code * 100 + idx for code, qname, idx, cid in face_down_cards]
     else:
         queue_hint = (
-            "any queues"
+            t("log.all_queues")
             if allowed_queue_codes is None
-            else ", ".join(SCOUT_QUEUE_NAMES[c] for c in sorted(allowed_queue_codes))
+            else ", ".join(
+                queue_name(SCOUT_QUEUE_NAMES[c]) for c in sorted(allowed_queue_codes)
+            )
         )
         options = [code * 100 + idx for code, qname, idx, cid in face_down_cards]
         desc = (
-            f"{label} {verb}: Turn {flips} face-down card(s) "
-            f"({queue_hint}). All {flips} flips are used."
+            tf(
+                "log.turn_cards",
+                label=label,
+                verb=scout_verb(verb),
+                flips=flips,
+                queues=queue_hint,
+            )
         )
         queues_payload = []
         for code, qname, idx, cid in face_down_cards:
@@ -1409,7 +1646,11 @@ def resolve_scout(
         chosen_by_queue.setdefault(code, []).append(idx)
 
     for code, indices in chosen_by_queue.items():
-        _cash_for_revealed_cards(engine, unit.player, code, len(indices), label)
+        pay = _cash_for_revealed_cards(
+            engine, unit.player, code, len(indices), label, paid_types=paid_types
+        )
+        if pay:
+            revealed.append(pay)
 
     for code, indices in chosen_by_queue.items():
         queue = _queue_by_scout_code(engine, code)
@@ -1420,23 +1661,40 @@ def resolve_scout(
             queue.reveal_card(idx)
             card_id = queue.cards_and_visibilities[idx][0]
             card_name = queue.deck.get_name(card_id) if queue.deck else str(card_id)
-            revealed.append(f"{qname}:{card_name}")
+            revealed.append(
+                tf("log.from_queue", name=card_name, queue=queue_name(qname))
+            )
             engine._broadcast(
-                f"{label} {verb} {qname} card → {card_name} (revealed)",
+                one_line(
+                    tf(
+                        "log.reveal_card",
+                        label=label,
+                        queue=queue_name(qname),
+                        name=card_name,
+                    )
+                ),
                 kind="reveal",
-                queue=qname,
+                queue=code,
                 index=idx,
                 card_id=card_id,
+                event_type=EVENT_REVEAL,
+                actor=unit.player.number,
+                amount=1,
+                card_visible=True,
             )
             yield from _pause_after_reveal(
                 engine,
-                f"Paljastettu ({qname}): {card_name}. Jatka.",
+                tf("log.reveal_pause", queue=queue_name(qname), name=card_name),
             )
 
         if len(indices) > 1:
             desc_reorder = (
-                f"{label} {verb}: Choose the new order for the scouted "
-                f"{qname} cards."
+                tf(
+                    "log.reorder_prompt",
+                    label=label,
+                    verb=scout_verb(verb),
+                    queue=queue_name(qname),
+                )
             )
             reorder_payload_cards = []
             for idx in indices:
@@ -1456,6 +1714,7 @@ def resolve_scout(
                 description=desc_reorder,
                 payload={
                     "reason": "scout_reorder",
+                    "verb": verb,
                     "queue": qname,
                     "cards": reorder_payload_cards
                 }
@@ -1478,7 +1737,14 @@ def resolve_scout(
                     queue.deck.get_name(card_id) if queue.deck else str(card_id)
                 )
             engine._broadcast(
-                f"{label} reordered {verb} {qname} cards: {', '.join(names)}"
+                one_line(
+                    tf(
+                        "log.reorder_cards",
+                        label=label,
+                        queue=queue_name(qname),
+                        names=", ".join(names),
+                    )
+                )
             )
 
     queues_face_up = all(
@@ -1491,10 +1757,50 @@ def resolve_scout(
             count - flips,
             allowed_queue_codes=allowed_queue_codes,
             verb=verb,
+            paid_types=paid_types,
         )
         revealed.extend(from_deck)
 
     return revealed
+
+
+def _visible_mauling_target(engine: GameEngine) -> str | None:
+    """Target code of the front mauling card, when that card is face up."""
+    queue = engine.mauling_queue
+    if not queue.cards_and_visibilities:
+        return None
+    card_id, visible = queue.cards_and_visibilities[0]
+    if not visible:
+        return None
+    described = engine.mauling_deck.describe(card_id)
+    if not isinstance(described, dict):
+        return None
+    target = (described.get("effect") or {}).get("target") or ""
+    if not target or target == "-":
+        return None
+    return str(target)
+
+
+def _on_visible_mauling(engine: GameEngine, unit: Unit) -> bool:
+    target = _visible_mauling_target(engine)
+    convoy = engine.convoy
+    if not target or convoy is None or unit not in convoy.units:
+        return False
+    try:
+        return unit in mauling_target_units(convoy, target)
+    except ValueError:
+        return False
+
+
+def _shift_off_mauling(engine: GameEngine, unit: Unit, delta: int) -> int:
+    """Move the unit. Note when that leaves the visible front mauling's target."""
+    convoy = engine.convoy
+    assert convoy is not None
+    was_target = _on_visible_mauling(engine, unit)
+    new_pos = convoy.move_unit(unit.index(), delta)
+    if was_target and unit in convoy.units and not _on_visible_mauling(engine, unit):
+        engine.note_shaping("mauling_dodge", unit.player.number)
+    return new_pos
 
 
 def mauling_target_units(convoy: Convoy, target: str) -> list[Unit]:
@@ -1565,19 +1871,20 @@ def _apply_category_hit(engine: GameEngine, unit: Unit, category: int, attack_ty
     cat = convoy.category_after_defence(unit, category, attack_type)
     note = ""
     if cat != category:
-        note = f"{label} defence lowers cat {category} to {cat}"
+        note = tf("log.category_lowered", label=label, old=category, new=cat)
     if cat <= 0:
-        return note or f"{label} hit cat {category} for 0"
+        return note or tf("log.category_dodged", label=label, category=category)
     damage = engine.draw_hit_damage(cat)
     if damage <= 0:
-        line = f"{label} hit cat {cat} for 0"
+        line = tf("log.category_zero", label=label, category=cat)
     else:
         line = convoy.apply_damage(damage, unit=unit, attack_type=attack_type)
+        engine.note_shaping("mauling_damage", unit.player.number, damage=int(damage))
         if unit in convoy.units:
             engine.attach_damage_marker(unit, damage, category=cat)
     engine.discard_unclaimed_hits()
     if note:
-        return f"{note}; {line}"
+        return one_line(f"{note}, {line}")
     return line
 
 
@@ -1638,8 +1945,12 @@ def resolve_mauling(
             player = unit.player
             if len(player.action_cards) >= discard_n:
                 desc = (
-                    f"Mauling {mauling.get('name', '')}: discard {discard_n} "
-                    f"action card(s) for {unit_log_label(unit)}"
+                    tf(
+                        "log.mauling_discard_prompt",
+                        name=mauling.get("name", ""),
+                        label=unit_log_label(unit),
+                        n=discard_n,
+                    )
                 )
                 chosen = yield ChoiceRequest(
                     player_id=player.agent_id(),
@@ -1656,18 +1967,21 @@ def resolve_mauling(
                 )
                 player.discard(list(chosen))
                 parts.append(
-                    f"{unit_log_label(unit)} discards {discard_n} "
-                    f"({player.agent_id()})"
+                    tf("log.discarded", label=unit_log_label(unit), n=discard_n)
                 )
             elif fail_hit > 0:
                 msg = _apply_category_hit(engine, unit, fail_hit, atype)
                 parts.append(
-                    f"{unit_log_label(unit)} cannot discard {discard_n}; "
-                    f"fail hit: {msg}"
+                    tf(
+                        "log.cannot_discard_hit",
+                        label=unit_log_label(unit),
+                        n=discard_n,
+                        hit=msg,
+                    )
                 )
             else:
                 parts.append(
-                    f"{unit_log_label(unit)} cannot discard {discard_n}; no fail hit"
+                    tf("log.cannot_discard", label=unit_log_label(unit), n=discard_n)
                 )
 
-    return "; ".join(parts) if parts else "no effect"
+    return one_line(", ".join(parts)) if parts else t("log.no_effect")

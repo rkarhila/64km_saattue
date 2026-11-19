@@ -112,3 +112,42 @@ def test_selfplay_short_train(tmp_path):
     assert rollouts
     assert "sim_sec" in rollouts[0] and "update_sec" in rollouts[0]
     assert result["time_update_sec"] >= 0.0
+
+
+def test_frozen_opponents_keep_only_one_on_the_training_device(tmp_path, monkeypatch):
+    league = League(tmp_path / "league")
+    cfg = SelfPlayConfig(
+        hidden=32,
+        n_layers=1,
+        width=32,
+        d_model=32,
+        nhead=4,
+        dim_feedforward=64,
+        tf_layers=1,
+        rollout_steps=8,
+        num_envs=1,
+        num_players=2,
+        device="cpu",
+    )
+    trainer = SelfPlayTrainer(league, cfg, learner_name="cache", log_fn=lambda _m: None)
+    init_id = league.list()[0].id
+    second = league.add(trainer.policy, name="other")
+    first = trainer._load_frozen(init_id)
+    other = trainer._load_frozen(second.id)
+    assert trainer._gpu_frozen_id == second.id
+    assert len(trainer._frozen_cache) == 2
+    assert next(first.policy.parameters()).device.type == "cpu"
+    assert next(other.policy.parameters()).device.type == "cpu"
+
+    calls: list[str] = []
+    trainer.device = torch.device("cuda")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: calls.append("empty"))
+    trainer._park_frozen()
+    assert trainer._gpu_frozen_id is None
+    assert calls == ["empty"]
+    assert next(other.policy.parameters()).device.type == "cpu"
+
+    trainer._release_frozen_cache()
+    assert trainer._frozen_cache == {}
+    assert calls == ["empty", "empty"]

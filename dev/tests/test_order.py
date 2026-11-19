@@ -104,8 +104,7 @@ def test_resolve_order_previous_wait_returns_card():
     except StopIteration as stop:
         summary = stop.value
 
-    assert "ordered" in summary
-    assert "returned" in summary
+    assert "käskyttää" in summary
     assert 17 in p0.action_cards  # assigned card returned to orderer
     assert u_prev.tired == 0  # Rest applied on waiter
     assert u_prev.current_action_type == "resting"

@@ -5,6 +5,7 @@ card_id,action_index,troop_type,zone,action_type,action_modifier,cost,tire,intox
 1,0,P,ABCE,Rest,10,0,0,0,Lepää
 1,1,I,ABCE,Patrol,3,1/T+1/U+1/A,1,0,Partioi
 1,2,L,ABCE,Service,1,1/T+1/U+1/A,1,0,Huolla
+1,3,A,ABCE,Sell,0,4,1,0,Myy varusteita
 2,0,P,ABCE,Pillage,3,1/T,1,0,Ryöstä
 2,1,I,ABCE,Rest,10,0,0,0,Lepää
 2,2,L,ABCE,Search,3,1/T+1/U+1/A,1,0,Etsi ryöstettävää
@@ -14,6 +15,7 @@ card_id,action_index,troop_type,zone,action_type,action_modifier,cost,tire,intox
 4,0,P,ABCE,Search,3,1/T+1/U+1/A,1,0,Etsi ryöstettävää
 4,1,I,ABCE,Bypass,2,1/T+1/U,1,0,Ohita
 4,2,L,ABCE,Order,0,1/T+1/U+1/A,1,0,Käskytä
+4,3,A,ABCE,Sell,0,4,0,1,Myy varusteita
 5,0,P,AB,Attack,2,1/T+1/U,1,0,Hyökkää
 5,1,I,ABCE,Order,0,1/T+1/U+1/A,1,0,Käskytä
 5,2,L,A,Attack,2,1/T+1/U,1,0,Hyökkää

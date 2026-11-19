@@ -56,3 +56,31 @@ def test_win_mode_terminal_bonus_for_first_place():
     assert env.engine.winner_ranking()[0]["number"] == 0
     assert env.rewards["player_0"] == pytest.approx(1.0)
     assert env.rewards["player_1"] == pytest.approx(-0.5)
+
+
+def test_win_mode_penalises_frustration_and_keeps_the_other_shaping():
+    env = ConvoyEnv(num_players=2, seed=0, reward_mode="win", pp_reward=0.0, cash_reward=0.0)
+    env.reset(seed=0)
+    env.engine.note_shaping("action_ok", 0, action="rest")
+    env.engine.note_shaping("frustrated", 0)
+    env.engine.note_shaping("rest_relief", 0)
+    env.engine.note_shaping("mauling_dodge", 0)
+    env.engine.note_shaping("mauling_damage", 1, damage=4)
+    env._assign_win_mode_rewards(terminal=False)
+    assert env.rewards["player_0"] == pytest.approx(
+        -env.frustration_penalty + env.rest_relief_reward + env.mauling_dodge_reward
+    )
+    assert env.rewards["player_1"] == pytest.approx(-env.mauling_damage_penalty * 4)
+    assert env.engine.shaping_events == []
+
+
+def test_one_cash_outweighs_every_shaping_term():
+    env = ConvoyEnv(num_players=2, seed=0)
+    cash = env.cash_reward
+    assert env.pp_reward > cash > 0
+    assert cash > env.rest_relief_reward
+    assert cash > env.mauling_dodge_reward
+    assert cash > env.frustration_penalty
+    assert cash > env.action_reward
+    # Hit categories are 1, 3, 5, and 10.
+    assert cash > 10 * env.mauling_damage_penalty

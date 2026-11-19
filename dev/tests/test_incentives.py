@@ -64,7 +64,9 @@ def test_incentive_scout():
     assert p0.total_cash == initial_cash + REVEAL_RESISTANCE_CASH
 
 
-def test_incentive_reveal_pays_per_card():
+def _reveal_two_mauling(per_card: bool) -> int:
+    from sixtyfivekmconvoy.core import config as game_config
+
     engine, p0, p1, u0, u1, u2 = _setup_custom_game()
     engine.pause_after_actions = False
     initial_cash = p0.total_cash
@@ -74,23 +76,35 @@ def test_incentive_reveal_pays_per_card():
         if not vis
     ]
     assert len(hidden) >= 2
-
-    gen = action_mod.resolve_scout(
-        engine,
-        u0,
-        count=2,
-        allowed_queue_codes={action_mod.SCOUT_QUEUE_MAULING},
-        verb="sigint",
-    )
-    # Both hidden mauling cards must be turned, so the first choice is their order.
-    reorder = next(gen)
-    assert reorder.choicetype == ChoiceType.REORDER_SCOUTED_CARDS
-    assert set(reorder.options) == set(hidden[:2])
-    assert p0.total_cash == initial_cash + 2 * REVEAL_MAULING_CASH
+    previous = game_config.REVEAL_CASH_PER_CARD
+    game_config.REVEAL_CASH_PER_CARD = per_card
     try:
-        gen.send(list(reorder.options))
-    except StopIteration:
-        pass
+        gen = action_mod.resolve_scout(
+            engine,
+            u0,
+            count=2,
+            allowed_queue_codes={action_mod.SCOUT_QUEUE_MAULING},
+            verb="sigint",
+        )
+        reorder = next(gen)
+        assert reorder.choicetype == ChoiceType.REORDER_SCOUTED_CARDS
+        assert set(reorder.options) == set(hidden[:2])
+        gained = p0.total_cash - initial_cash
+        try:
+            gen.send(list(reorder.options))
+        except StopIteration:
+            pass
+        return gained
+    finally:
+        game_config.REVEAL_CASH_PER_CARD = previous
+
+
+def test_incentive_reveal_pays_once_for_any_number():
+    assert _reveal_two_mauling(False) == REVEAL_MAULING_CASH
+
+
+def test_incentive_reveal_can_pay_per_card():
+    assert _reveal_two_mauling(True) == 2 * REVEAL_MAULING_CASH
 
 
 def test_incentive_service_other_player():
@@ -157,14 +171,24 @@ def test_incentive_attack_and_destroy_resistance():
         },
         cardnumber=0,
     )
+    before = list(engine.messages)
     try:
         next(gen)
-    except StopIteration:
-        pass
+        summary = ""
+    except StopIteration as stop:
+        summary = stop.value or ""
 
     # Destroy cash from the resistance card + ATTACK_CASH incentive.
     expected_gain = destroy_cash + ATTACK_CASH
     assert p0.total_cash == initial_cash + expected_gain
+    assert "\n" not in summary
+    assert "suorittaa *attack*" in summary
+    assert "tuhoutui" in summary
+    assert "hyökkäyksestä" in summary
+    assert "*Test Resistance*" in summary
+    assert "tuhoamisesta" in summary
+    assert "rewarded" not in summary.lower()
+    assert not any("rewarded" in line.lower() for line in engine.messages[len(before):])
 
 
 def test_resistance_hit_cash_when_not_destroyed():

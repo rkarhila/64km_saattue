@@ -19,6 +19,7 @@ class ChoiceType(IntEnum):
     CHOOSE_CARDS_TO_SCOUT = 10
     REORDER_SCOUTED_CARDS = 11
     LOG_PAUSE = 12
+    DISCARD_UNITS = 13
 
 
 class ActionName:
@@ -44,6 +45,7 @@ class ActionName:
     SEARCH_PILLAGE_COMBO = "search_pillage_combo"
     PILLAGE_WITH_EXTRA_ATROCITY = "pillage_with_extra_atrocity"
     EXIT_FROM_C_WITH_COST = "exit_from_c_with_cost"
+    SELL = "sell"
 
     # Not fully implemented — excluded from legal play until rules exist.
     UNIMPLEMENTED = frozenset()

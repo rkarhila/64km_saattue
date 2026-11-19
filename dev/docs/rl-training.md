@@ -228,7 +228,7 @@ The match ends when any of these fire:
    play on until one player has **strictly more PP** than every other; that player
    wins immediately.
 2. **Cash race** — first player whose `total_cash` reaches `CASH_TO_WIN`
-   (default **50**) wins **immediately**, even mid-round (as soon as the cash
+   (default **25**) wins **immediately**, even mid-round (as soon as the cash
    gain is applied).
 3. **Convoy collapses** — living units ≤ number of players after bookkeeping.
 4. **Max rounds** — `max_rounds` reached (engine default 200).
@@ -236,8 +236,10 @@ The match ends when any of these fire:
 For (3) and (4), ranking is PP desc, then total cash desc. For (1) and (2) the
 triggering player is forced to 1st place.
 
-How PP are earned: each round’s bookkeeping, every player who tied for the
-**highest `this_round_cash`** (and that max is > 0) gains **+1 PP**.
+How PP are earned: each round’s bookkeeping, the player who earned strictly
+more `this_round_cash` than every other player gains **+1 PP**. A tie awards
+nothing. Set `SOLE_CASH_LEAD_FOR_PROMOTION = False` to give the point to every
+player tied for the highest cash (when that amount is > 0).
 
 Cash accumulates from actions (attack rewards, pillage, service, card cash-in,
 etc.) into `total_cash`.
@@ -255,6 +257,17 @@ Default `--reward-mode win`:
 | Non-win | Terminal, not 1st | `0.0` (`lose_reward`) |
 | **PP proxy** | Each step, per +1 promotion point | `+0.25` (`pp_reward`) |
 | **Cash proxy** | Each step, per +1 total cash | `+0.05` (`cash_reward`) |
+| **Frustration** | A unit has no legal face and becomes frustrated | `−0.01` (`frustration_penalty`) |
+| **Rest** | Rest while tired + under_influence ≥ 3 | `+0.01` (`rest_relief_reward`) |
+| **Mauling hit** | Per point of damage a mauling draws onto the unit. A category-10 hit is `−0.02`, still under one cash | `−0.002` (`mauling_damage_penalty`) |
+| **Leave mauling** | Assault, retreat, or bypass leaves the face-up front mauling's target | `+0.01` (`mauling_dodge_reward`) |
+
+One cash (`+0.05`) is larger than each of those. One promotion point (`+0.25`) is five times one cash.
+
+Revealing mauling or resistance cards pays the configured amount once per
+type when at least one card of that type is turned (`REVEAL_CASH_PER_CARD`
+is false). That cash is the cash-proxy row above. There is no second reveal
+bonus.
 
 Legacy modes: `rank` = sparse terminal +1…−1 by place; `points` = sparse
 terminal raw PP total (no win bonus / no step proxies).

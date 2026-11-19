@@ -1,7 +1,8 @@
 """Transformer actor-critic with autoregressive multi-slot choices.
 
-History is the event window already stored in the observation. There is no
-recurrent state between decisions. The GRU only picks the slots of one choice.
+History is the event window already stored in the observation. Each log slot
+has a learned position, oldest at 0 and the newest at the last slot. There is
+no recurrent state between decisions. The GRU only picks the slots of one choice.
 """
 
 from __future__ import annotations
@@ -13,14 +14,25 @@ import torch
 import torch.nn as nn
 from torch.distributions import Categorical
 
+from sixtyfivekmconvoy.env.card_features import CARD_FEAT_DIM, N_CARD_SLOTS
 from sixtyfivekmconvoy.env.spaces import (
+    MAX_HAND,
     MAX_LEGAL,
     MAX_OPTIONS,
     MAX_PICKS,
+    MAX_UNITS,
     OPTION_FEAT_DIM,
     observation_size,
     option_block_slices,
     picks_to_vector,
+    token_layout,
+)
+from sixtyfivekmconvoy.env.table_features import (
+    CARD_TOKEN_DIM,
+    OFFICER_DIM,
+    OFFICER_QUEUE_SLOTS,
+    TUCK_DIM,
+    UNIT_STACKS,
 )
 from sixtyfivekmconvoy.rl.events import EVENT_FIELDS, EVENT_WINDOW
 
@@ -37,7 +49,8 @@ def _masked_logits(logits: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
 
 class MaskedActorCritic(nn.Module):
     """
-    Encoder MLP → transformer over board token + event rows → value and picks.
+    Encoder MLP reads the board prefix only. The transformer then sees that
+    board token plus queue cards, officers, action cards, tucks, and events.
 
     Up to ``num_choices`` picks are decoded over option embeddings carved from
     the observation. Flat ``MAX_LEGAL`` logits are the fallback when a row has
@@ -88,14 +101,31 @@ class MaskedActorCritic(nn.Module):
         self.sequence = "transformer"
         self.recurrent = False
 
+        _fs, _fe, _ms, board_end = option_block_slices(self.obs_dim)
+        self.board_dim = int(board_end)
+        (
+            self._card_slice,
+            self._officer_slice,
+            self._hand_slice,
+            self._stack_slice,
+            self._tuck_slice,
+            self._event_slice,
+        ) = token_layout(self.obs_dim)
         layers: list[nn.Module] = []
-        in_dim = self.obs_dim
+        in_dim = self.board_dim
         for _ in range(self.n_layers):
             layers.extend([nn.Linear(in_dim, self.hidden), nn.Tanh()])
             in_dim = self.hidden
         self.encoder = nn.Sequential(*layers)
         self.tf_board = nn.Linear(self.hidden, self.d_model)
+        self.tf_card = nn.Linear(CARD_FEAT_DIM, self.d_model)
+        self.tf_officer = nn.Linear(OFFICER_DIM, self.d_model)
+        self.tf_action = nn.Linear(CARD_TOKEN_DIM, self.d_model)
+        self.tf_tuck = nn.Linear(TUCK_DIM, self.d_model)
         self.tf_event = nn.Linear(EVENT_FIELDS, self.d_model)
+        # Log order. Slot 0 is the oldest row in the window, the last slot
+        # is the newest. Blanks are padded on the left, so recency stays put.
+        self.event_pos = nn.Embedding(EVENT_WINDOW, self.d_model)
         tf_layer = nn.TransformerEncoderLayer(
             d_model=self.d_model,
             nhead=self.nhead,
@@ -116,6 +146,7 @@ class MaskedActorCritic(nn.Module):
         self._opt_feat_slice = (fs, fe)
         self._opt_mask_slice = (ms, me)
         self.apply(self._init_weights)
+        nn.init.normal_(self.event_pos.weight, mean=0.0, std=0.02)
 
     @staticmethod
     def _init_weights(module: nn.Module) -> None:
@@ -133,21 +164,52 @@ class MaskedActorCritic(nn.Module):
         """obs [B, D] → decision features [B, width]."""
         if obs.dim() == 1:
             obs = obs.unsqueeze(0)
-        enc = self.encoder(obs)
+        enc = self.encoder(obs[:, : self.board_dim])
         return self._transformer_step(obs, enc)
 
+    def _tokens(self, obs: torch.Tensor, span: tuple[int, int], count: int, dim: int) -> torch.Tensor:
+        start, end = span
+        return obs[:, start:end].reshape(obs.shape[0], count, dim)
+
     def _transformer_step(self, obs: torch.Tensor, enc: torch.Tensor) -> torch.Tensor:
-        """obs [B, D], enc [B, hidden] → [B, width] from board + event tokens."""
+        """obs [B, D], enc [B, hidden] → [B, width] from the board and the table tokens."""
         b = obs.shape[0]
-        tail = EVENT_WINDOW * EVENT_FIELDS
-        ev = obs[:, -tail:].reshape(b, EVENT_WINDOW, EVENT_FIELDS)
-        valid = ev[:, :, 0] > 1e-6
+        cards = self._tokens(obs, self._card_slice, N_CARD_SLOTS, CARD_FEAT_DIM)
+        officers = self._tokens(obs, self._officer_slice, OFFICER_QUEUE_SLOTS, OFFICER_DIM)
+        hand = self._tokens(obs, self._hand_slice, MAX_HAND, CARD_TOKEN_DIM)
+        stacks = self._tokens(obs, self._stack_slice, MAX_UNITS * UNIT_STACKS, CARD_TOKEN_DIM)
+        tucks = self._tokens(obs, self._tuck_slice, MAX_UNITS, TUCK_DIM)
+        ev = self._tokens(obs, self._event_slice, EVENT_WINDOW, EVENT_FIELDS)
+        # Empty pads are masked. A face-down card stays in the sequence.
+        card_pad = cards[:, :, 0] <= 0.5
+        officer_pad = officers[:, :, 0] <= 0.5
+        hand_pad = hand[:, :, 0] <= 0.5
+        stack_pad = stacks[:, :, 0] <= 0.5
+        tuck_pad = (tucks[:, :, 0] <= 0.5) & (tucks[:, :, OFFICER_DIM] <= 0.5)
+        event_pad = ev[:, :, 0] <= 1e-6
         board = self.tf_board(enc).unsqueeze(1)
-        tokens = torch.cat([board, self.tf_event(ev)], dim=1)
+        log_tokens = self.tf_event(ev) + self.event_pos.weight.unsqueeze(0)
+        tokens = torch.cat(
+            [
+                board,
+                self.tf_card(cards),
+                self.tf_officer(officers),
+                self.tf_action(hand),
+                self.tf_action(stacks),
+                self.tf_tuck(tucks),
+                log_tokens,
+            ],
+            dim=1,
+        )
         pad = torch.cat(
             [
                 torch.zeros(b, 1, dtype=torch.bool, device=obs.device),
-                ~valid,
+                card_pad,
+                officer_pad,
+                hand_pad,
+                stack_pad,
+                tuck_pad,
+                event_pad,
             ],
             dim=1,
         )
@@ -431,7 +493,11 @@ class MaskedActorCritic(nn.Module):
         cls, data: dict[str, Any], *, map_location: str | torch.device = "cpu"
     ) -> MaskedActorCritic:
         hidden = int(data.get("hidden", 256))
-        obs_dim = int(data.get("obs_dim", observation_size()))
+        live_obs = observation_size()
+        stored_obs = int(data.get("obs_dim", live_obs))
+        # An older checkpoint's width does not match this table layout.
+        # Build the live net and keep only tensors that still fit.
+        obs_dim = stored_obs if stored_obs == live_obs else live_obs
         n_layers = int(data.get("n_layers", 2))
         width = int(data.get("width", data.get("lstm_hidden", 128)))
         model = cls(

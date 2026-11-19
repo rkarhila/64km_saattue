@@ -16,6 +16,7 @@ from sixtyfivekmconvoy.env.convoy_env import ConvoyEnv
 from sixtyfivekmconvoy.env.spaces import MAX_LEGAL, observation_size
 from sixtyfivekmconvoy.rl.agent import RLAgent
 from sixtyfivekmconvoy.rl.buffer import RolloutBuffer
+from sixtyfivekmconvoy.rl.curriculum import cash_with_carried_loot
 from sixtyfivekmconvoy.rl.league import League
 from sixtyfivekmconvoy.rl.policy import MaskedActorCritic
 from sixtyfivekmconvoy.rl.ppo import PPOConfig, PPOTrainer
@@ -46,14 +47,26 @@ class SelfPlayConfig:
     dim_feedforward: int = 1024
     tf_layers: int = 4
     num_envs: int = 8
+    max_cycles: int = 50_000
+    # Round cap passed to the engine. 200 is the engine default.
+    max_rounds: int = 200
+    # Empty keeps every episode at num_players. Otherwise each episode draws one.
+    player_counts: tuple[int, ...] = ()
     device: str = "cpu"
     reward_mode: str = "win"
     pp_reward: float = 0.25
     cash_reward: float = 0.05
     win_reward: float = 1.0
     lose_reward: float = 0.0
+    action_reward: float = 0.0
+    frustration_penalty: float = 0.01
+    rest_relief_reward: float = 0.01
+    mauling_damage_penalty: float = 0.002
+    mauling_dodge_reward: float = 0.01
     league_name: str = "main"
     ppo: PPOConfig = field(default_factory=PPOConfig)
+    # When set, Adam's rate falls linearly from ppo.lr to this value over max_seconds.
+    lr_end: float | None = None
 
 
 class SelfPlayTrainer:
@@ -111,7 +124,11 @@ class SelfPlayTrainer:
         self.parent_id = parent_id
         self.global_step = 0
         self.episodes = 0
+        self.after_eval = None
+        self.stop_requested = False
         self._frozen_cache: dict[str, RLAgent] = {}
+        # At most one frozen opponent resides on the training device.
+        self._gpu_frozen_id: str | None = None
         self._pool: GamePool | None = None
         self._step_queue: list[tuple[dict[str, Any], int | list[int]]] = []
         self._sim_sec = 0.0
@@ -140,24 +157,64 @@ class SelfPlayTrainer:
             self.log(f"league seed checkpoint {entry.id} ({entry.name})")
 
     def _load_frozen(self, entry_id: str) -> RLAgent:
-        if entry_id not in self._frozen_cache:
-            model = self.league.load_model(entry_id, map_location=self.device)
-            self._frozen_cache[entry_id] = RLAgent(
-                model, deterministic=False, device=self.device
-            )
-        return self._frozen_cache[entry_id]
+        """Return a frozen opponent. Copies stay on CPU except the one about to act."""
+        agent = self._frozen_cache.get(entry_id)
+        if agent is None:
+            model = self.league.load_model(entry_id, map_location="cpu")
+            agent = RLAgent(model, deterministic=False, device="cpu")
+            agent.league_id = entry_id
+            self._frozen_cache[entry_id] = agent
+        self._activate_frozen(entry_id)
+        return agent
+
+    def _activate_frozen(self, entry_id: str) -> None:
+        """Move ``entry_id`` onto the training device and send the previous one back to CPU."""
+        if self._gpu_frozen_id == entry_id:
+            return
+        self._park_frozen()
+        agent = self._frozen_cache[entry_id]
+        if self.device.type != "cpu":
+            agent.policy.to(self.device)
+            agent.device = self.device
+        self._gpu_frozen_id = entry_id
+
+    def _park_frozen(self) -> None:
+        """Drop the resident opponent off the training device and release its blocks."""
+        previous = self._gpu_frozen_id
+        if previous is None:
+            return
+        agent = self._frozen_cache.get(previous)
+        self._gpu_frozen_id = None
+        if agent is not None and self.device.type != "cpu":
+            agent.policy.to("cpu")
+            agent.device = torch.device("cpu")
+        if self.device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def _release_frozen_cache(self) -> None:
+        self._park_frozen()
+        self._frozen_cache.clear()
+        self._gpu_frozen_id = None
+        if self.device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def _env_kwargs(self, *, fast: bool) -> dict[str, Any]:
         cfg = self.config
         return {
             "num_players": cfg.num_players,
             "reward_mode": cfg.reward_mode,
-            "max_cycles": 50_000,
+            "max_cycles": cfg.max_cycles,
             "pp_reward": cfg.pp_reward,
             "cash_reward": cfg.cash_reward,
             "win_reward": cfg.win_reward,
             "lose_reward": cfg.lose_reward,
+            "action_reward": cfg.action_reward,
+            "frustration_penalty": cfg.frustration_penalty,
+            "rest_relief_reward": cfg.rest_relief_reward,
+            "mauling_damage_penalty": cfg.mauling_damage_penalty,
+            "mauling_dodge_reward": cfg.mauling_dodge_reward,
             "fast": fast,
+            "max_rounds": cfg.max_rounds,
         }
 
     def _make_env(self, *, seed: int | None = None, fast: bool = False) -> ConvoyEnv:
@@ -175,8 +232,16 @@ class SelfPlayTrainer:
             self._pool.close()
             self._pool = None
 
-    def _assign_opponents(self, learner_seat: int) -> dict[int, RLAgent | None]:
-        n = self.config.num_players
+    def _episode_player_count(self) -> int:
+        counts = self.config.player_counts
+        if counts:
+            return int(self.rng.choice(list(counts)))
+        return int(self.config.num_players)
+
+    def _assign_opponents(
+        self, learner_seat: int, num_players: int | None = None
+    ) -> dict[int, RLAgent | None]:
+        n = int(self.config.num_players if num_players is None else num_players)
         seats: dict[int, RLAgent | None] = {i: None for i in range(n)}
         seats[learner_seat] = None
 
@@ -199,10 +264,10 @@ class SelfPlayTrainer:
         return seats
 
     def _prepare_slot(self, slot: dict[str, Any]) -> None:
-        cfg = self.config
         seed = int(self.rng.integers(0, 2**31 - 1))
-        learner_seat = int(self.rng.integers(0, cfg.num_players))
-        seat_agents = self._assign_opponents(learner_seat)
+        n_players = self._episode_player_count()
+        learner_seat = int(self.rng.integers(0, n_players))
+        seat_agents = self._assign_opponents(learner_seat, n_players)
         for bot in seat_agents.values():
             if bot is not None:
                 bot.reset_memory()
@@ -214,6 +279,7 @@ class SelfPlayTrainer:
         slot["ep_len"] = 0
         slot["finished"] = False
         slot["_seed"] = seed
+        slot["num_players"] = n_players
 
     def _flush_resets(self, slots: list[dict[str, Any]]) -> None:
         if not slots:
@@ -223,7 +289,9 @@ class SelfPlayTrainer:
         t0 = time.perf_counter()
         for slot in slots:
             env: RemoteEnv = slot["env"]
-            env.begin_reset(slot["_seed"])
+            env.begin_reset(
+                slot["_seed"], slot.get("num_players"), self.config.max_rounds
+            )
         for slot in slots:
             slot["env"].finish_reset()
         self._sim_sec += time.perf_counter() - t0
@@ -434,6 +502,8 @@ class SelfPlayTrainer:
             options.append(opt)
             ordered.append(ord_flag)
             num_choices.append(n)
+        if getattr(bot, "league_id", None):
+            self._activate_frozen(bot.league_id)
         t0 = time.perf_counter()
         results = bot.policy.act_batch(
             obs,
@@ -503,6 +573,7 @@ class SelfPlayTrainer:
             if not live and not frozen and all(s["finished"] for s in slots):
                 break
 
+        self._park_frozen()
         return {
             "ep_return_mean": float(np.mean(ep_returns)) if ep_returns else 0.0,
             "ep_len_mean": float(np.mean(ep_lens)) if ep_lens else 0.0,
@@ -519,12 +590,20 @@ class SelfPlayTrainer:
         live = RLAgent(self.policy, deterministic=True, device=self.device)
         wins = 0
         returns: list[float] = []
+        cashes: list[float] = []
         for ep in range(n_episodes):
             seed = int(self.rng.integers(0, 2**31 - 1))
-            env.reset(seed=seed)
-            learner_seat = ep % self.config.num_players
+            n_players = self._episode_player_count()
+            env.reset(
+                seed=seed,
+                options={
+                    "num_players": n_players,
+                    "max_rounds": self.config.max_rounds,
+                },
+            )
+            learner_seat = ep % n_players
             learner_id = f"player_{learner_seat}"
-            seat_agents = self._assign_opponents(learner_seat)
+            seat_agents = self._assign_opponents(learner_seat, n_players)
             live.reset_memory()
             for bot in seat_agents.values():
                 if bot is not None:
@@ -544,6 +623,8 @@ class SelfPlayTrainer:
                     )
                 else:
                     bot = seat_agents.get(seat)
+                    if bot is not None and getattr(bot, "league_id", None):
+                        self._activate_frozen(bot.league_id)
                     if bot is None:
                         action = live.act(
                             obs,
@@ -564,11 +645,14 @@ class SelfPlayTrainer:
                     break
             ret = float(env._cumulative_rewards.get(learner_id, 0.0))
             returns.append(ret)
+            cashes.append(cash_with_carried_loot(env.engine, learner_seat))
             ranking = env.engine.winner_ranking() or []
             if ranking and f"player_{ranking[0]['number']}" == learner_id:
                 wins += 1
+        self._park_frozen()
         return {
             "eval_return_mean": float(np.mean(returns)) if returns else 0.0,
+            "eval_cash_mean": float(np.mean(cashes)) if cashes else 0.0,
             "eval_win_rate": wins / max(1, n_episodes),
             "eval_episodes": float(n_episodes),
         }
@@ -596,7 +680,7 @@ class SelfPlayTrainer:
             },
         )
         self.parent_id = entry.id
-        self._frozen_cache.clear()
+        self._release_frozen_cache()
         self.log(
             f"checkpoint {entry.id} {entry.name} "
             f"step={self.global_step} episodes={self.episodes}"
@@ -640,14 +724,22 @@ class SelfPlayTrainer:
             "num_envs": cfg.num_envs,
             "rollout_steps": cfg.rollout_steps,
             "minibatch_size": cfg.ppo.minibatch_size,
+            "grad_accum_steps": cfg.ppo.grad_accum_steps,
+            "player_counts": list(cfg.player_counts),
             "epochs": cfg.ppo.epochs,
             "lr": cfg.ppo.lr,
+            "lr_end": cfg.lr_end,
             "ent_coef": cfg.ppo.ent_coef,
             "max_seconds": cfg.max_seconds,
             "total_timesteps": cfg.total_timesteps,
             "reward_mode": cfg.reward_mode,
             "pp_reward": cfg.pp_reward,
             "cash_reward": cfg.cash_reward,
+            "action_reward": cfg.action_reward,
+            "frustration_penalty": cfg.frustration_penalty,
+            "rest_relief_reward": cfg.rest_relief_reward,
+            "mauling_damage_penalty": cfg.mauling_damage_penalty,
+            "mauling_dodge_reward": cfg.mauling_dodge_reward,
             "checkpoint_every_steps": cfg.checkpoint_every_steps,
             "eval_every_steps": cfg.eval_every_steps,
             "eval_episodes": cfg.eval_episodes,
@@ -685,7 +777,10 @@ class SelfPlayTrainer:
             "value_loss",
             "entropy",
             "approx_kl",
+            "lr",
+            "max_rounds",
             "eval_win_rate",
+            "eval_cash_mean",
             "vram_update_mb",
         )
         parts: list[str] = []
@@ -695,9 +790,21 @@ class SelfPlayTrainer:
             value = row[key]
             if key in ("step", "rollout_env_steps", "rollout_learner_steps", "episodes"):
                 parts.append(f"{key}={int(value)}")
+            elif key == "lr":
+                parts.append(f"{key}={value:.6f}")
             else:
                 parts.append(f"{key}={value:.3f}")
         return " | ".join(parts)
+
+    def _apply_lr_schedule(self, started_at: float) -> float:
+        """Linear drop from ``ppo.lr`` to ``lr_end`` across the wall-clock budget."""
+        start = float(self.config.ppo.lr)
+        end = self.config.lr_end
+        span = self.config.max_seconds
+        if end is None or span is None or span <= 0:
+            return self.trainer.set_learning_rate(start)
+        progress = min(1.0, max(0.0, (time.time() - started_at) / float(span)))
+        return self.trainer.set_learning_rate(start + (float(end) - start) * progress)
 
     def train(self) -> dict[str, Any]:
         cfg = self.config
@@ -728,11 +835,17 @@ class SelfPlayTrainer:
             f"hidden={self.policy.hidden} width={self.policy.width} "
             f"envs={cfg.num_envs} "
             f"minibatch={cfg.ppo.minibatch_size} epochs={cfg.ppo.epochs} "
+            f"lr={cfg.ppo.lr:.6f} lr_end={cfg.lr_end} "
+            f"max_rounds={cfg.max_rounds} "
             f"pp={cfg.pp_reward} cash={cfg.cash_reward} ent={cfg.ppo.ent_coef} "
             f"log={cfg.log_path}"
         )
         try:
             while self.global_step < cfg.total_timesteps:
+                if self.stop_requested:
+                    self.log(f"stop requested at step={self.global_step}")
+                    break
+                lr_now = self._apply_lr_schedule(t0)
                 if deadline is not None and time.time() >= deadline:
                     self.log(
                         f"wall-clock deadline reached "
@@ -785,6 +898,8 @@ class SelfPlayTrainer:
                     "sim_env_sps": float(rollout_env / max(1e-6, sim_sec)),
                     "vram_collect_mb": float(vram_collect),
                     "vram_update_mb": float(vram_update),
+                    "lr": float(lr_now),
+                    "max_rounds": float(cfg.max_rounds),
                 }
                 for key, value in update.items():
                     row[key] = float(value)
@@ -809,6 +924,8 @@ class SelfPlayTrainer:
                 logged = {"type": "rollout", "time": datetime.now(timezone.utc).isoformat(timespec="seconds")}
                 logged.update(row)
                 self._append_jsonl(logged)
+                if self.after_eval is not None and "eval_win_rate" in row:
+                    self.after_eval(self, row)
                 if self.global_step - last_ckpt >= cfg.checkpoint_every_steps:
                     self.checkpoint(
                         metrics={k: float(row[k]) for k in row if k != "step"}

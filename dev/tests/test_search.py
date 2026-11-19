@@ -98,7 +98,7 @@ def test_resolve_search_draws_from_pillage_deck_when_queue_empty():
         revealed = stop.value
 
     assert len(revealed) == 1
-    assert revealed[0].startswith("pillage:")
+    assert "ryöstöjonoon" in revealed[0]
     assert len(engine.pillage_queue) == 1
     assert engine.pillage_queue.cards_and_visibilities[0][0] == keep
     assert engine.pillage_queue.cards_and_visibilities[0][1] is True
@@ -136,7 +136,7 @@ def test_resolve_search_reveals_existing_face_down_pillage():
         revealed = stop.value
 
     assert len(revealed) == 2
-    assert all(r.startswith("pillage:") for r in revealed)
+    assert all("ryöstöjonosta" in r for r in revealed)
     assert len(engine.pillage_deck.deck) == before_deck  # no extra draws
     assert engine.pillage_queue.cards_and_visibilities[0][1] is True
     assert engine.pillage_queue.cards_and_visibilities[1][1] is True
@@ -199,8 +199,8 @@ def test_search_uses_every_flip_then_peeks_the_remainder():
     except StopIteration as stop:
         revealed = stop.value
 
-    assert revealed[0].startswith("pillage:")
-    assert any(line.startswith("pillage:") and line != revealed[0] for line in revealed) or len(revealed) == 2
+    assert any("ryöstöjonosta" in line for line in revealed)
+    assert any("ryöstöjonoon" in line for line in revealed)
     assert engine.pillage_queue.cards_and_visibilities[0] == [hidden, True]
     assert engine.pillage_queue.cards_and_visibilities[1] == [keep, True]
     assert other in engine.pillage_deck.discard

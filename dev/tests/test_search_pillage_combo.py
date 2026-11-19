@@ -68,6 +68,6 @@ def test_resolve_search_pillage_combo_searches_then_pillages():
     except StopIteration as stop:
         summary = stop.value
 
-    assert "pillaged" in summary
+    assert "ryöstö" in summary or "ei saalista" in summary
     assert officer not in unit.officers
     assert player.total_cash >= cash_before

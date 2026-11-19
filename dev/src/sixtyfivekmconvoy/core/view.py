@@ -12,6 +12,12 @@ if TYPE_CHECKING:
     from .models import Player
 
 
+def _log_tail(messages: list[str], log_tail: int | None) -> list[str]:
+    if log_tail is None or log_tail < 0 or len(messages) <= log_tail:
+        return list(messages)
+    return messages[-log_tail:]
+
+
 def _deck_row(
     key: str,
     deck: CardDeck,
@@ -33,6 +39,8 @@ def player_view(
     *,
     choice: ChoiceRequest | None = None,
     message: str | None = None,
+    include_events: bool = True,
+    log_tail: int | None = None,
 ) -> dict[str, Any]:
     # Horizontal UI rows: discard | deck | queue (front = rightmost).
     table_decks = [
@@ -86,10 +94,7 @@ def player_view(
         "stage": engine.rounds.stage if engine.rounds else -1,
         "terminal": engine.terminal,
         "you": player.number,
-        "log": list(engine.messages),
-        # Structured events (same text as log, plus machine-readable detail).
-        "events": list(getattr(engine, "event_log", []) or []),
-        "event_rows": list(getattr(engine, "event_rows", []) or []),
+        "log": _log_tail(engine.messages, log_tail),
         "setup_complete": getattr(engine, "setup_complete", True),
         "setup_pattern": list(getattr(engine, "setup_pattern", ()) or ()),
     }
@@ -100,6 +105,10 @@ def player_view(
             "visible": True,
             **(desc if isinstance(desc, dict) else {}),
         }
+    if include_events:
+        # Training observations. The web poll does not render these.
+        state["events"] = list(getattr(engine, "event_log", []) or [])
+        state["event_rows"] = list(getattr(engine, "event_rows", []) or [])
     if message:
         state["message"] = message
     if choice is not None and choice.player_id == player.agent_id():
