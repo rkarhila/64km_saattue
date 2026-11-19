@@ -1,4 +1,5 @@
 (() => {
+  const convoyTransport = window.convoyTransport || fetch.bind(window);
   const $ = (id) => document.getElementById(id);
   const CT = {
     CHOOSE_CARD: 0,
@@ -78,7 +79,7 @@
     const sel = $("botId");
     if (!sel) return;
     try {
-      const res = await fetch("/league/bots");
+      const res = await convoyTransport("/league/bots");
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       sel.innerHTML = "";
@@ -136,7 +137,7 @@
   if (importState) {
     (async () => {
       try {
-        const res = await fetch("/games/import", {
+        const res = await convoyTransport("/games/import", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ state: importState }),
@@ -209,7 +210,7 @@
       }
       body.bot_id = botId;
     }
-    const res = await fetch("/tables", {
+    const res = await convoyTransport("/tables", {
       method: "POST",
       headers: gateHeaders(true),
       body: JSON.stringify(body),
@@ -281,7 +282,7 @@
     const err = $("passwordError");
     if (err) err.textContent = "";
     try {
-      const res = await fetch("/lobby/unlock", {
+      const res = await convoyTransport("/lobby/unlock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
@@ -345,7 +346,7 @@
     const status = $("lobbyStatus");
     if (!box) return false;
     try {
-      const res = await fetch("/lobby", { headers: gateHeaders(false) });
+      const res = await convoyTransport("/lobby", { headers: gateHeaders(false) });
       if (res.status === 401) return false;
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -389,7 +390,7 @@
   async function joinTable(id) {
     const name = requireName();
     if (!name) return;
-    const res = await fetch(`/tables/${id}/join`, {
+    const res = await convoyTransport(`/tables/${id}/join`, {
       method: "POST",
       headers: gateHeaders(true),
       body: JSON.stringify({ name }),
@@ -446,11 +447,11 @@
   async function pollTable() {
     if (!tableId) return;
     try {
-      const res = await fetch(`/tables/${tableId}`, { headers: gateHeaders(false) });
+      const res = await convoyTransport(`/tables/${tableId}`, { headers: gateHeaders(false) });
       if (!res.ok) return;
       const table = await res.json();
       if (table.started_game_id) {
-        const gameRes = await fetch(
+        const gameRes = await convoyTransport(
           `/games/${table.started_game_id}?seat=${seatNum}`
         );
         if (!gameRes.ok) return;
@@ -469,7 +470,7 @@
 
   async function launchTable() {
     if (!tableId) return;
-    const res = await fetch(`/tables/${tableId}/start?seat=${seatNum}`, {
+    const res = await convoyTransport(`/tables/${tableId}/start?seat=${seatNum}`, {
       method: "POST",
       headers: gateHeaders(false),
     });
@@ -499,7 +500,7 @@
   async function pollGame() {
     if (!gameId) return;
     try {
-      const res = await fetch(`/games/${gameId}?seat=${seatNum}`);
+      const res = await convoyTransport(`/games/${gameId}?seat=${seatNum}`);
       if (!res.ok) return;
       const snap = await res.json();
       if (lastSnap && viewKey(snap) === viewKey(lastSnap)) return;
@@ -549,7 +550,7 @@
     }
     if (!saved) return false;
     if (saved.kind === "game" && saved.gameId != null) {
-      const res = await fetch(`/games/${saved.gameId}?seat=${saved.seat}`);
+      const res = await convoyTransport(`/games/${saved.gameId}?seat=${saved.seat}`);
       if (!res.ok) {
         sessionStorage.removeItem("convoyLive");
         return false;
@@ -562,7 +563,7 @@
       return true;
     }
     if (saved.kind === "table" && saved.tableId) {
-      const res = await fetch(`/tables/${saved.tableId}`, {
+      const res = await convoyTransport(`/tables/${saved.tableId}`, {
         headers: gateHeaders(false),
       });
       if (!res.ok) {
@@ -571,7 +572,7 @@
       }
       const table = await res.json();
       if (table.started_game_id) {
-        const gameRes = await fetch(
+        const gameRes = await convoyTransport(
           `/games/${table.started_game_id}?seat=${saved.seat}`
         );
         if (!gameRes.ok) return false;
@@ -616,7 +617,7 @@
 
   $("pauseToggle").addEventListener("change", async () => {
     if (!gameId) return;
-    const res = await fetch(`/games/${gameId}/settings?seat=${seatNum}`, {
+    const res = await convoyTransport(`/games/${gameId}/settings?seat=${seatNum}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pause_after_actions: $("pauseToggle").checked }),
@@ -664,7 +665,7 @@
   async function sendChoice(choice, options) {
     const keepAssign = Boolean(options && options.keepAssign);
     const savedCards = keepAssign ? { ...slotCards } : null;
-    const res = await fetch(`/games/${gameId}/choice?seat=${seatNum}`, {
+    const res = await convoyTransport(`/games/${gameId}/choice?seat=${seatNum}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ choice }),
@@ -697,7 +698,7 @@
   }
 
   async function sendContinue() {
-    const res = await fetch(`/games/${gameId}/continue?seat=${seatNum}`, {
+    const res = await convoyTransport(`/games/${gameId}/continue?seat=${seatNum}`, {
       method: "POST",
     });
     if (!res.ok) {
