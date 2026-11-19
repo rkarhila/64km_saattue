@@ -1,6 +1,13 @@
 /* Pyodide worker: fetch this package, then answer the lobby URLs. */
 
 const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.mjs";
+const SOURCE_REV = "nocache";
+
+function fresh(url) {
+  const target = new URL(url, import.meta.url);
+  target.searchParams.set("v", SOURCE_REV);
+  return fetch(target, { cache: "no-store" });
+}
 
 function mkdirp(fs, path) {
   const parts = path.split("/").filter(Boolean);
@@ -28,7 +35,7 @@ async function boot() {
   await pyodide.loadPackage("numpy");
   const fs = pyodide.FS;
   report("Ladataan bottia…");
-  const botRes = await fetch(new URL("bots/curriculum-step1840496.npz", import.meta.url));
+  const botRes = await fresh("bots/curriculum-step1840496.npz");
   if (botRes.ok) {
     mkdirp(fs, "/pkg/bots");
     fs.writeFile(
@@ -39,8 +46,7 @@ async function boot() {
     report("Bottia ei löytynyt. Vastustajat ovat satunnaisia.");
   }
   report("Haetaan pelikoodin luetteloa…");
-  const listUrl = new URL("pyodide_files.json", import.meta.url);
-  const files = await fetch(listUrl).then((res) => {
+  const files = await fresh("pyodide_files.json").then((res) => {
     if (!res.ok) throw new Error("pyodide_files.json puuttuu");
     return res.json();
   });
@@ -49,7 +55,9 @@ async function boot() {
   for (let i = 0; i < files.length; i++) {
     const rel = files[i];
     report(`Ladataan pelikoodia ${i + 1}/${files.length}: ${rel}`);
-    const res = await fetch(new URL(rel, pkg));
+    const fileUrl = new URL(rel, pkg);
+    fileUrl.searchParams.set("v", SOURCE_REV);
+    const res = await fetch(fileUrl, { cache: "no-store" });
     if (!res.ok) throw new Error("Puuttuu " + rel);
     const dest = "/pkg/sixtyfivekmconvoy/" + rel;
     mkdirp(fs, dest.split("/").slice(0, -1).join("/"));

@@ -294,9 +294,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)
+    class Handler(SimpleHTTPRequestHandler):
+        def end_headers(self) -> None:
+            self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
     root = Path(__file__).resolve().parents[2]
     os.chdir(root)
-    server = ThreadingHTTPServer((args.host, args.port), SimpleHTTPRequestHandler)
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Open http://{args.host}:{args.port}/web/local.html", flush=True)
     try:
         server.serve_forever()
