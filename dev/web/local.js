@@ -16,7 +16,7 @@ setInterval(() => {
   if (seconds >= 2) status.textContent = `${lastText} (${seconds} s)`;
 }, 1000);
 
-const worker = new Worker(new URL("worker.js?v=progress", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("worker.js?v=bots", import.meta.url), { type: "module" });
 worker.addEventListener("error", (event) => {
   say("Työntekijä kaatui: " + (event.message || "tuntematon virhe"));
   console.error(event);

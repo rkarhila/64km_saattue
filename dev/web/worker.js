@@ -24,6 +24,20 @@ async function boot() {
   const { loadPyodide } = await import(PYODIDE_URL);
   report("Käynnistetään Pythonia… tämä lataus kestää hetken.");
   const pyodide = await loadPyodide();
+  report("Ladataan NumPya…");
+  await pyodide.loadPackage("numpy");
+  const fs = pyodide.FS;
+  report("Ladataan bottia…");
+  const botRes = await fetch(new URL("bots/curriculum-step1840496.npz", import.meta.url));
+  if (botRes.ok) {
+    mkdirp(fs, "/pkg/bots");
+    fs.writeFile(
+      "/pkg/bots/curriculum-step1840496.npz",
+      new Uint8Array(await botRes.arrayBuffer())
+    );
+  } else {
+    report("Bottia ei löytynyt. Vastustajat ovat satunnaisia.");
+  }
   report("Haetaan pelikoodin luetteloa…");
   const listUrl = new URL("pyodide_files.json", import.meta.url);
   const files = await fetch(listUrl).then((res) => {
@@ -31,7 +45,6 @@ async function boot() {
     return res.json();
   });
   const pkg = new URL("../src/sixtyfivekmconvoy/", import.meta.url);
-  const fs = pyodide.FS;
   mkdirp(fs, "/pkg/sixtyfivekmconvoy");
   for (let i = 0; i < files.length; i++) {
     const rel = files[i];
@@ -49,6 +62,9 @@ import os
 import sys
 sys.path.insert(0, "/pkg")
 os.environ["CONVOY_CONFIG"] = "retire"
+weights = "/pkg/bots/curriculum-step1840496.npz"
+if os.path.isfile(weights):
+    os.environ["CONVOY_BOT_WEIGHTS"] = weights
 from sixtyfivekmconvoy.play import LocalLobby
 lobby = LocalLobby()
 

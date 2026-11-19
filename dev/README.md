@@ -88,7 +88,9 @@ PYTHONPATH=src python -m sixtyfivekmconvoy.play
 ```
 
 Open http://127.0.0.1:8000/web/local.html. The password is still 1234. The
-first load downloads Pyodide. `CONVOY_CONFIG` inside that page is `retire`.
+first load downloads Pyodide and NumPy. `CONVOY_CONFIG` inside that page is
+`retire`. The checkpoint `curriculum-step1840496` is in the opponent list when
+`web/bots/curriculum-step1840496.npz` is present. Random bots remain available.
 
 ## Terminal human vs bots
 

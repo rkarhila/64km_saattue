@@ -38,5 +38,6 @@
   "env/__init__.py",
   "env/card_features.py",
   "env/spaces.py",
-  "env/table_features.py"
+  "env/table_features.py",
+  "play_net.py"
 ]

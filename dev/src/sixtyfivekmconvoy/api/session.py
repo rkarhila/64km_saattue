@@ -821,7 +821,12 @@ class SessionManager:
             table.seats[seat] = _require_player_name(name)
             return table, seat
 
-    def start_table(self, table_id: str, seat: int = 0) -> tuple[GameSession, str]:
+    def start_table(
+        self,
+        table_id: str,
+        seat: int = 0,
+        external_bots: dict[str, Any] | None = None,
+    ) -> tuple[GameSession, str]:
         with self._lock:
             table = self.tables.get(table_id)
             if table is None:
@@ -843,6 +848,7 @@ class SessionManager:
                 bot_id=table.bot_id,
                 league_path=table.league_path,
                 count_against_cap=False,
+                external_bots=external_bots,
             )
             table.started_game_id = session.game_id
             return session, "player_0"
@@ -883,6 +889,7 @@ class SessionManager:
         bot_id: str | None,
         league_path: str | None,
         count_against_cap: bool = True,
+        external_bots: dict[str, Any] | None = None,
     ) -> GameSession:
         if count_against_cap:
             self._require_room()
@@ -900,15 +907,24 @@ class SessionManager:
                 player.name = "Botti"
         game_id = uuid.uuid4().hex[:10]
         human_ids = {f"player_{seat}" for seat in human_seats}
-        bots, bot_meta = make_seat_bots(
-            engine.agent_ids(),
-            human_id=f"player_{human_seat}",
-            human_ids=human_ids,
-            seed=seed if seed is not None else engine.seed,
-            bot_kind=bot_kind,
-            bot_id=bot_id,
-            league_path=league_path,
-        )
+        if external_bots is not None:
+            bots = external_bots
+            bot_meta = {
+                "bot_kind": bot_kind,
+                "bot_id": bot_id,
+                "bot_name": bot_id,
+                "league": league_path,
+            }
+        else:
+            bots, bot_meta = make_seat_bots(
+                engine.agent_ids(),
+                human_id=f"player_{human_seat}",
+                human_ids=human_ids,
+                seed=seed if seed is not None else engine.seed,
+                bot_kind=bot_kind,
+                bot_id=bot_id,
+                league_path=league_path,
+            )
         for bot in bots.values():
             reset = getattr(bot, "reset_memory", None)
             if callable(reset):

@@ -81,6 +81,14 @@ def test_local_lobby_starts_after_the_password():
     )
     assert status == 200
     assert started["snapshot"]["pending"]["choicetype"] == int(ChoiceType.PLACE_UNITS)
+    status, placed = lobby.handle(
+        "POST",
+        f"/games/{started['game_id']}/choice?seat=0",
+        {"choice": [0, 1, 2]},
+        {},
+    )
+    assert status == 200
+    assert placed["state"]["convoy"]
     status, refused = lobby.handle(
         "POST",
         "/tables",
@@ -88,3 +96,35 @@ def test_local_lobby_starts_after_the_password():
         headers,
     )
     assert status == 400
+
+
+def test_trained_bot_is_offered_and_places():
+    weights = Path("web/bots/curriculum-step1840496.npz")
+    if not weights.is_file():
+        return
+    lobby = LocalLobby(weights_path=str(weights))
+    status, listed = lobby.handle("GET", "/league/bots", {}, {})
+    assert status == 200
+    assert listed["bots"][0]["name"] == "curriculum-step1840496"
+    headers = {"X-Convoy-Token": lobby.token}
+    status, opened = lobby.handle(
+        "POST",
+        "/tables",
+        {
+            "num_players": 3,
+            "name": "Ada",
+            "seed": 2,
+            "bot_kind": "rl",
+            "bot_id": listed["bots"][0]["id"],
+        },
+        headers,
+    )
+    assert status == 200
+    status, started = lobby.handle(
+        "POST",
+        f"/tables/{opened['table_id']}/start?seat=0",
+        {},
+        headers,
+    )
+    assert status == 200
+    assert started["snapshot"]["pending"]["choicetype"] == int(ChoiceType.PLACE_UNITS)

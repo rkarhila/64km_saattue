@@ -22,7 +22,7 @@ The same one-player game can run in the browser without the Python server stayin
 PYTHONPATH=src python -m sixtyfivekmconvoy.play
 ```
 
-Open http://127.0.0.1:8000/web/local.html. That page downloads Pyodide, loads the engine, and plays against random bots. The password is 1234. The trained checkpoint is not wired into that page yet.
+Open http://127.0.0.1:8000/web/local.html. That page downloads Pyodide, loads the engine, and can play against random bots or the trained checkpoint `curriculum-step1840496`. The password is 1234.
 
 ## Play against the trained bot
 
