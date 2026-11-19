@@ -65,7 +65,7 @@ try {
   holder.innerHTML = html;
   document.body.replaceChildren(holder);
   const script = document.createElement("script");
-  script.src = new URL("app.js?v=pyodide-play", import.meta.url).href;
+  script.src = new URL("app.js?v=bot-wait", import.meta.url).href;
   document.body.appendChild(script);
 } catch (err) {
   say("Pelin lataus epäonnistui: " + err);

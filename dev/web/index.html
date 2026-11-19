@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>65km Convoy</title>
-  <link rel="stylesheet" href="/static/style.css?v=uncovered-units" />
+  <link rel="stylesheet" href="/static/style.css?v=bot-wait" />
 </head>
 <body>
   <header class="top">
@@ -181,6 +181,10 @@
       </button>
       <div id="continueActions" class="continue-actions hidden">
         <p id="continueHint">Toiminto kirjattu lokiin.</p>
+        <div id="botWait" class="bot-wait hidden" role="status">
+          <span class="bot-spinner" aria-hidden="true"></span>
+          <span>Botti miettii…</span>
+        </div>
         <button id="continueBtn" type="button">Jatka</button>
       </div>
     </aside>
@@ -230,6 +234,6 @@
   </main>
 
   <script src="/static/transport.js?v=pyodide-play"></script>
-  <script src="/static/app.js?v=pyodide-play"></script>
+  <script src="/static/app.js?v=bot-wait"></script>
 </body>
 </html>

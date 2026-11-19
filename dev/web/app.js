@@ -26,6 +26,7 @@
   let placementMap = {};
   let assignCommitted = false;
   let assignFlushKey = "";
+  let botBusy = false;
   /** @type {number[]} */
   let payPicks = [];
   /** @type {any} */
@@ -662,23 +663,43 @@
     pendingReveals = new Set();
   }
 
+  function applyBotWait() {
+    const btn = $("continueBtn");
+    const wait = $("botWait");
+    const actions = $("continueActions");
+    if (actions && botBusy) actions.classList.remove("hidden");
+    if (btn) btn.classList.toggle("hidden", botBusy);
+    if (wait) wait.classList.toggle("hidden", !botBusy);
+  }
+
+  function setBotBusy(on) {
+    botBusy = on;
+    applyBotWait();
+  }
+
   async function sendChoice(choice, options) {
+    if (botBusy) return;
     const keepAssign = Boolean(options && options.keepAssign);
     const savedCards = keepAssign ? { ...slotCards } : null;
-    const res = await convoyTransport(`/games/${gameId}/choice?seat=${seatNum}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ choice }),
-    });
-    if (!res.ok) {
-      assignCommitted = false;
-      assignFlushKey = "";
-      alert(await res.text());
-      return;
+    setBotBusy(true);
+    try {
+      const res = await convoyTransport(`/games/${gameId}/choice?seat=${seatNum}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ choice }),
+      });
+      if (!res.ok) {
+        assignCommitted = false;
+        assignFlushKey = "";
+        alert(await res.text());
+        return;
+      }
+      resetPicks();
+      if (savedCards) slotCards = savedCards;
+      render(await res.json());
+    } finally {
+      setBotBusy(false);
     }
-    resetPicks();
-    if (savedCards) slotCards = savedCards;
-    render(await res.json());
   }
 
   function flushPlannedAssign(snap) {
@@ -698,17 +719,23 @@
   }
 
   async function sendContinue() {
-    const res = await convoyTransport(`/games/${gameId}/continue?seat=${seatNum}`, {
-      method: "POST",
-    });
-    if (!res.ok) {
-      alert(await res.text());
-      return;
+    if (botBusy) return;
+    setBotBusy(true);
+    try {
+      const res = await convoyTransport(`/games/${gameId}/continue?seat=${seatNum}`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        alert(await res.text());
+        return;
+      }
+      resetPicks();
+      // Stop prior blinks; static round halos stay. New pause in this snap can blink again.
+      demoteBlinkToHalo();
+      render(await res.json());
+    } finally {
+      setBotBusy(false);
     }
-    resetPicks();
-    // Stop prior blinks; static round halos stay. New pause in this snap can blink again.
-    demoteBlinkToHalo();
-    render(await res.json());
   }
 
   async function sendRandomChoice() {
@@ -2295,10 +2322,11 @@
         $("continueHint").textContent = raw
           ? prettifyLogLine(String(raw).replace(/\s*Jatka\.?\s*$/i, "").trim())
           : "Toiminto kirjattu lokiin. Klikkaa jatkaaksesi.";
-      } else {
+      } else if (!botBusy) {
         actions.classList.add("hidden");
       }
     }
+    applyBotWait();
   }
 
   function syncPlayerPrompt() {

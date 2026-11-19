@@ -591,6 +591,31 @@ button:disabled {
   font-size: 1.05rem;
 }
 
+.bot-wait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  min-height: 2.4rem;
+  padding: 0.45rem 0.6rem;
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+.bot-spinner {
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 2px solid rgba(196, 163, 90, 0.35);
+  border-top-color: var(--accent, #c4a35a);
+  border-radius: 50%;
+  animation: bot-spin 0.7s linear infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes bot-spin {
+  to { transform: rotate(360deg); }
+}
+
 .continue-panel .random-choice-btn {
   align-self: stretch;
   min-width: 0;
