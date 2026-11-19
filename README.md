@@ -16,6 +16,14 @@ convoy-web --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000/. Leave **Vastustajat** on **Satunnaiset botit** and press **Uusi peli**. You play the first seat. The other seats are random bots. No PyTorch and no checkpoint are required.
 
+The same one-player game can run in the browser without the Python server staying up. From `dev/`:
+
+```bash
+PYTHONPATH=src python -m sixtyfivekmconvoy.play
+```
+
+Open http://127.0.0.1:8000/web/local.html. That page downloads Pyodide, loads the engine, and plays against random bots. The password is 1234. The trained checkpoint is not wired into that page yet.
+
 ## Play against the trained bot
 
 The trained policy is the release asset [`league_tf4h_v2.zip`](https://github.com/rkarhila/64km_saattue/releases/download/tf1050-step3346736/league_tf4h_v2.zip) (`tf1050-step3346736`, checkpoint `edefe53e3251`). It is the final network from a 4-hour run: 3,346,736 environment steps. Download it from the [release](https://github.com/rkarhila/64km_saattue/releases/tag/tf1050-step3346736) and unpack it into `dev/runs/`:

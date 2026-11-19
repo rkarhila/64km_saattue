@@ -54,6 +54,18 @@ def _seat(query: dict[str, list[str]]) -> int:
     return int(raw)
 
 
+def bot_observation(session: GameSession, player_id: str):
+    """Float vector the browser policy will read.
+
+    Random bots do not use it. The page keeps PyTorch out of Pyodide and, later,
+    runs this vector through ONNX in JavaScript.
+    """
+    from sixtyfivekmconvoy.env.spaces import fill_observation
+
+    seat = int(player_id.split("_")[1])
+    return fill_observation(session.engine, seat, len(session.engine.players))
+
+
 def new_solo(
     *,
     num_players: int = 3,
@@ -225,10 +237,14 @@ def main(argv: list[str] | None = None) -> None:
     root = Path(__file__).resolve().parents[2]
     os.chdir(root)
     server = ThreadingHTTPServer((args.host, args.port), SimpleHTTPRequestHandler)
-    print(f"Open http://{args.host}:{args.port}/web/local.html")
+    print(f"Open http://{args.host}:{args.port}/web/local.html", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print()
     finally:
         server.server_close()
+
+
+if __name__ == "__main__":
+    main()

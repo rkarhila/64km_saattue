@@ -7,7 +7,9 @@ import sys
 from pathlib import Path
 
 from sixtyfivekmconvoy.core.constants import ChoiceType
-from sixtyfivekmconvoy.play import LocalLobby, new_solo, pyodide_files
+import numpy as np
+
+from sixtyfivekmconvoy.play import LocalLobby, bot_observation, new_solo, pyodide_files
 
 
 def test_play_import_does_not_load_fastapi():
@@ -35,6 +37,26 @@ def test_new_solo_deals_a_hand_to_the_human():
     assert snap["pending"]["choicetype"] == int(ChoiceType.PLACE_UNITS)
     placed = session.apply_human_choice("player_0", [0, 1, 2])
     assert placed["state"]["convoy"]
+
+
+def test_bot_observation_is_a_finite_vector():
+    session = new_solo(num_players=3, name="Ada", seed=1, pause_after_actions=False)
+    vector = bot_observation(session, "player_1")
+    assert vector.ndim == 1
+    assert vector.shape[0] > 100
+    assert np.isfinite(vector).all()
+
+
+def test_rules_route_follows_the_retire_profile():
+    from sixtyfivekmconvoy.core.configs import load_config
+
+    load_config("retire")
+    try:
+        status, payload = LocalLobby().handle("GET", "/rules/placeholders", {}, {})
+    finally:
+        load_config("default")
+    assert status == 200
+    assert "poistuvat pelistä" in payload["cash_in_sentence"]
 
 
 def test_local_lobby_starts_after_the_password():

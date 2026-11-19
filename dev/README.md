@@ -11,6 +11,10 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+`[dev]` includes the server and the PettingZoo env. The game itself installs
+with only NumPy. Add `[web]` to run `convoy-web`, `[env]` for the training
+environment, and `[rl]` for PyTorch.
+
 ## Self-play (random agents)
 
 ```bash
@@ -71,6 +75,20 @@ API:
 
 Lobby: choose **Satunnaiset botit** or a **League-RL** checkpoint (from
 `runs/league` or `CONVOY_LEAGUE`). Non-human seats share that policy.
+
+## One player in the browser
+
+The same page can run without FastAPI. A static server rooted at `dev/` lets
+the browser fetch this package; Pyodide runs `play.LocalLobby`, and the other
+seats are random bots. The trained policy is not loaded in the browser yet.
+
+```bash
+cd dev
+PYTHONPATH=src python -m sixtyfivekmconvoy.play
+```
+
+Open http://127.0.0.1:8000/web/local.html. The password is still 1234. The
+first load downloads Pyodide. `CONVOY_CONFIG` inside that page is `retire`.
 
 ## Terminal human vs bots
 
