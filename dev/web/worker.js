@@ -15,11 +15,16 @@ function mkdirp(fs, path) {
   }
 }
 
+function report(text) {
+  self.postMessage({ type: "status", text });
+}
+
 async function boot() {
-  self.postMessage({ type: "status", text: "Ladataan Pyodidea…" });
+  report("Haetaan Pyodide-latainta…");
   const { loadPyodide } = await import(PYODIDE_URL);
+  report("Käynnistetään Pythonia… tämä lataus kestää hetken.");
   const pyodide = await loadPyodide();
-  self.postMessage({ type: "status", text: "Ladataan pelikoodia…" });
+  report("Haetaan pelikoodin luetteloa…");
   const listUrl = new URL("pyodide_files.json", import.meta.url);
   const files = await fetch(listUrl).then((res) => {
     if (!res.ok) throw new Error("pyodide_files.json puuttuu");
@@ -28,13 +33,16 @@ async function boot() {
   const pkg = new URL("../src/sixtyfivekmconvoy/", import.meta.url);
   const fs = pyodide.FS;
   mkdirp(fs, "/pkg/sixtyfivekmconvoy");
-  for (const rel of files) {
+  for (let i = 0; i < files.length; i++) {
+    const rel = files[i];
+    report(`Ladataan pelikoodia ${i + 1}/${files.length}: ${rel}`);
     const res = await fetch(new URL(rel, pkg));
     if (!res.ok) throw new Error("Puuttuu " + rel);
     const dest = "/pkg/sixtyfivekmconvoy/" + rel;
     mkdirp(fs, dest.split("/").slice(0, -1).join("/"));
     fs.writeFile(dest, await res.text());
   }
+  report("Käynnistetään peliä…");
   await pyodide.runPythonAsync(`
 import json
 import os
@@ -73,11 +81,13 @@ self.onmessage = (event) => {
   if (msg.id == null) return;
   Promise.resolve(booting)
     .then(() => {
-      const raw = String(respond(
-        msg.method || "GET",
-        msg.url || "/",
-        msg.body,
-        JSON.stringify(msg.headers || {})
+      const raw = String(
+        respond(
+          msg.method || "GET",
+          msg.url || "/",
+          msg.body,
+          JSON.stringify(msg.headers || {})
+        )
       );
       const parsed = JSON.parse(raw);
       self.postMessage({ id: msg.id, status: parsed.status, text: parsed.text });

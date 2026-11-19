@@ -1,12 +1,26 @@
 /* Loads the same page as the server, then talks to the Pyodide worker. */
 
 const status = document.getElementById("bootStatus");
+let lastText = status ? status.textContent : "";
+let lastChange = Date.now();
 
 function say(text) {
+  lastText = text;
+  lastChange = Date.now();
   if (status) status.textContent = text;
 }
 
-const worker = new Worker(new URL("worker.js", import.meta.url), { type: "module" });
+setInterval(() => {
+  if (!status || !status.isConnected) return;
+  const seconds = Math.floor((Date.now() - lastChange) / 1000);
+  if (seconds >= 2) status.textContent = `${lastText} (${seconds} s)`;
+}, 1000);
+
+const worker = new Worker(new URL("worker.js?v=progress", import.meta.url), { type: "module" });
+worker.addEventListener("error", (event) => {
+  say("Työntekijä kaatui: " + (event.message || "tuntematon virhe"));
+  console.error(event);
+});
 window.__convoyWorker = worker;
 
 let markReady = () => {};
@@ -25,6 +39,7 @@ worker.postMessage({ type: "boot" });
 
 try {
   await window.__convoyWorkerReady;
+  say("Avataan pelilauta…");
   const pageUrl = new URL("index.html", import.meta.url);
   const raw = await fetch(pageUrl).then((res) => {
     if (!res.ok) throw new Error("index.html puuttuu");
