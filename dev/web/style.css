@@ -1190,7 +1190,8 @@ section h2 {
   transition: border-color 0.12s, background 0.12s;
 }
 
-.card-slot.has-officer .officer-tucks {
+.card-slot.has-officer .officer-tucks,
+.card-slot.has-tucks .officer-tucks {
   order: 2;
   display: flex;
   flex-direction: column;
@@ -1202,7 +1203,10 @@ section h2 {
 
 .card-slot.has-officer > .card-stack,
 .card-slot.has-officer > .action-card,
-.card-slot.has-officer > .slot-placeholder {
+.card-slot.has-officer > .slot-placeholder,
+.card-slot.has-tucks > .card-stack,
+.card-slot.has-tucks > .action-card,
+.card-slot.has-tucks > .slot-placeholder {
   position: relative;
   z-index: 1;
   order: 1;
@@ -1237,6 +1241,26 @@ section h2 {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.officer-tuck.pillage-tuck {
+  border-color: #a8843a;
+  background: linear-gradient(180deg, #3a3018 0%, #241c0e 100%);
+}
+
+.officer-tuck.damage-tuck {
+  border-color: #a83a3a;
+  background: linear-gradient(180deg, #3a1717 0%, #240e0e 100%);
+}
+
+.damage-tuck-num {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #ffd4d4;
+}
+
+.officer-tuck.damage-tuck.blink {
+  animation: hit-card-blink 0.85s ease-in-out infinite;
 }
 
 .officer-tuck-meta {

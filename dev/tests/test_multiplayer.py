@@ -109,6 +109,25 @@ def test_assign_lists_every_waiting_unit_at_once():
     assert pending["assign_units"][0]["index"] == pending["payload"]["assign_unit"]["index"]
 
 
+def test_one_assign_click_keeps_every_card():
+    mgr = SessionManager(max_games=2)
+    table = mgr.create_table(num_players=3, name="Ada", seed=4, pause_after_actions=True)
+    session, _human = mgr.start_table(table.table_id)
+    session.apply_human_choice("player_0", [0, 1, 2])
+    if session.awaiting_continue:
+        session.continue_play("player_0")
+    snap = session.snapshot("player_0")
+    pending = snap["pending"]
+    cards = list(pending["options"][: len(pending["assign_units"])])
+    assert len(cards) == 3
+    session.apply_human_choice("player_0", cards)
+    player = session.engine.players[0]
+    units = [u for u in session.engine.convoy.units if u.player is player]
+    assert [u.actioncard for u in units] == [[card] for card in cards]
+    for card in cards:
+        assert card not in player.action_cards
+
+
 def test_humans_place_units_at_the_same_time():
     _mgr, session = _two_humans()
     assert session.engine.setup_complete is False

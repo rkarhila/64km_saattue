@@ -152,6 +152,7 @@ class Unit:
         self.had_defended = False
         self.current_action_type: str | None = None
         self.officers: list[OfficerCard] = []
+        self.pillage_cards: list[dict] = []
         self.damage_markers: list[dict] = []
 
     def clear_state(self) -> None:
@@ -208,6 +209,7 @@ class Unit:
                 damage += damage_for_not_discarding
         if damage >= len(self.carry):
             self.carry = []
+            self.pillage_cards.clear()
             return -1
         for _ in range(damage):
             self.carry.pop()
@@ -331,6 +333,14 @@ class Unit:
             "under_influence": self.under_influence,
             "atrocities": self.atrocities,
             "carry": list(self.carry),
+            "pillage_cards": [
+                {
+                    "id": card.get("id"),
+                    "name": card.get("name") or "?",
+                    "reward": dict(card.get("reward") or {}),
+                }
+                for card in self.pillage_cards
+            ],
             "defending": self.defending,
             "damage_markers": [dict(marker) for marker in self.damage_markers],
             "action": self._action_json(playerview),

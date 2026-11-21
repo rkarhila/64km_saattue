@@ -111,6 +111,26 @@ def test_promote_requires_matching_officer_troop_type():
     assert not action_mod.is_action_possible(engine, panzer.index(), promote)
     why = action_mod.why_action_impossible(engine, panzer.index(), promote)
     assert any("no officer" in r for r in why)
+    logistics.officers.append(OFFICER_CATALOG[4])
+    assert not action_mod.is_action_possible(engine, logistics.index(), promote)
+    why_one = action_mod.why_action_impossible(engine, logistics.index(), promote)
+    assert any("already has an officer" in r for r in why_one)
+
+
+def test_taken_pillage_card_stays_on_the_unit():
+    from sixtyfivekmconvoy.core import actions as action_mod
+    from sixtyfivekmconvoy.core.engine import GameEngine
+
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=1)
+    unit = engine._unit_pool[0]
+    card = {"id": 8, "name": "Taideaarteita", "reward": {"cash": 0, "loot": 5}}
+    action_mod._apply_pillage_reward(unit.player, unit, card, disciplined=False)
+    assert unit.carry[0] == 5
+    assert sum(slot == 0 for slot in unit.carry) == 2
+    assert unit.pillage_cards[0]["name"] == "Taideaarteita"
+    unit.convoy = None
+    assert unit.to_json()["pillage_cards"][0]["name"] == "Taideaarteita"
 
 
 def test_defence_actions_set_matching_attack_letters():

@@ -60,7 +60,7 @@ _WEB_ROOT = Path(__file__).resolve().parents[3] / "web"
 class CreateGameRequest(BaseModel):
     num_players: int = Field(default=3, ge=2, le=5)
     human_seat: int = Field(default=0, ge=0, le=4)
-    seed: int | None = 1
+    seed: int | None = None
     max_rounds: int = 200
     pause_after_actions: bool = True
     bot_kind: str = Field(default="random", description="random | rl")
@@ -93,7 +93,7 @@ class ImportGameRequest(BaseModel):
 class CreateTableRequest(BaseModel):
     num_players: int = Field(default=3, ge=2, le=5)
     name: str = ""
-    seed: int | None = 1
+    seed: int | None = None
     max_rounds: int = 200
     pause_after_actions: bool = True
     bot_kind: str = "random"

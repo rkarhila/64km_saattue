@@ -71,7 +71,7 @@ def new_solo(
     *,
     num_players: int = 3,
     name: str = "Pelaaja",
-    seed: int | None = 1,
+    seed: int | None = None,
     max_rounds: int = 200,
     pause_after_actions: bool = True,
 ) -> GameSession:

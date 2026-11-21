@@ -2,7 +2,7 @@
 
 Board game you play in the browser against bots. The engine and the web UI live in [`dev/`](dev/README.md).
 
-Play the alpha in the browser, without installing Python: [rkarhila.github.io/64km_saattue/alpha_play.html](https://rkarhila.github.io/64km_saattue/alpha_play.html). The first load downloads the engine. The password is 1234.
+Play the alpha in the browser, without installing Python: [rkarhila.github.io/64km_saattue/alpha_01.html](https://rkarhila.github.io/64km_saattue/alpha_01.html). The first load downloads the engine. The password is 1234.
 
 You need Python 3.11 or newer.
 

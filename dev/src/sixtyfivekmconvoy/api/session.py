@@ -122,11 +122,12 @@ class GameSession:
                 continue_hint = self.engine.messages[idx]
         else:
             awaiting = self.awaiting_continue or log_pause_for_human
-            if awaiting:
-                if log_pause_for_human and pending is not None:
-                    continue_hint = pending.description or None
-                if not continue_hint and self.engine.messages:
-                    continue_hint = self.engine.messages[-1]
+            if awaiting and self.engine.messages:
+                # The pause description is a short prompt. The log line names
+                # who acted, which is what the continue box should show.
+                continue_hint = self.engine.messages[-1]
+            elif awaiting and log_pause_for_human and pending is not None:
+                continue_hint = pending.description or None
         if self._several_humans():
             show_choice = choice_for_me and not awaiting
         else:
@@ -556,6 +557,56 @@ class GameSession:
             return " ".join(parts)
         return None
 
+    def _waiting_assign_units(self, player_id: str) -> list[Any]:
+        player = self.engine._player_by_id(player_id)
+        return [
+            unit
+            for unit in self.engine.convoy.units
+            if unit.player is player and not unit.actioncard
+        ]
+
+    def _apply_assign_batch(self, player_id: str, cards: list[int]) -> dict[str, Any]:
+        """Place one hand card on each waiting unit, front to back, in one click."""
+        pending = self.engine.pending_choice()
+        if (
+            pending is None
+            or pending.player_id != player_id
+            or pending.choicetype != ChoiceType.CHOOSE_CARD
+            or (pending.payload or {}).get("reason") != "assign"
+        ):
+            raise ValueError("Not your turn")
+        waiting = self._waiting_assign_units(player_id)
+        if len(cards) != len(waiting):
+            raise ValueError(
+                f"Illegal choice {cards}: expected {len(waiting)} cards"
+            )
+        hand = list(self.engine._player_by_id(player_id).action_cards)
+        for card in cards:
+            if card not in hand:
+                raise ValueError(f"Illegal choice {[card]}")
+            hand.remove(card)
+        before = len(self.engine.messages)
+        for card in cards:
+            pending = self.engine.pending_choice()
+            if (
+                pending is None
+                or pending.player_id != player_id
+                or pending.choicetype != ChoiceType.CHOOSE_CARD
+                or (pending.payload or {}).get("reason") != "assign"
+                or card not in pending.options
+            ):
+                raise ValueError(f"Illegal choice {[card]}")
+            picked = [int(card)]
+            self.human_choices.append(picked)
+            self.engine.step(picked)
+        if self._should_pause(before):
+            self.awaiting_continue = True
+            self.revision += 1
+            return self.snapshot(player_id)
+        self._run_bots()
+        self.revision += 1
+        return self.snapshot(player_id)
+
     def apply_human_choice(self, player_id: str, choice: list[int]) -> dict[str, Any]:
         if self.placement_answers is not None:
             return self._accept_placement(player_id, choice)
@@ -565,6 +616,12 @@ class GameSession:
             raise ValueError(blocked)
         if pending is None or pending.player_id != player_id:
             raise ValueError("Not your turn")
+        if (
+            len(choice) > 1
+            and pending.choicetype == ChoiceType.CHOOSE_CARD
+            and (pending.payload or {}).get("reason") == "assign"
+        ):
+            return self._apply_assign_batch(player_id, [int(card) for card in choice])
         legal = self.engine.legal_actions()
 
         is_ordered = pending.choicetype in (

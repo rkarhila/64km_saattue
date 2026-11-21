@@ -444,6 +444,7 @@ class GameEngine:
             if seq is not None:
                 self.officer_deck.discard_card(seq)
         unit.officers.clear()
+        unit.pillage_cards.clear()
         label = action_mod.unit_log_label(unit)
         if unit.convoy is self.convoy and unit in self.convoy.units:
             self.convoy.units.pop(unit.index())

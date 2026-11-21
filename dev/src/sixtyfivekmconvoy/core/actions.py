@@ -298,7 +298,9 @@ def why_action_impossible(
         # any flips that did not fit in the queue.
         pass
     elif name == ActionName.PROMOTE:
-        if not matching_officer_queue_indices(engine, unit):
+        if unit.officers:
+            reasons.append("unit already has an officer")
+        elif not matching_officer_queue_indices(engine, unit):
             letter = UNIT_TYPE_LETTER[unit.unittype]
             reasons.append(
                 f"no officer in queue matching troop {letter}"
@@ -924,17 +926,20 @@ def resolve_action(
                     f"officer index {idx} not valid for troop {letter} "
                     f"(allowed {indices})"
                 )
-            seq_id, _ = oq.remove_card(idx)
-            real_id = engine.officer_id_mapping.get(seq_id, seq_id)
-            officer = OFFICER_CATALOG[real_id]
-            if not officer_matches_unit(officer, unit):
-                raise ValueError(
-                    f"officer {officer.name} troop {officer.troop_type} "
-                    f"does not match unit {letter}"
-                )
-            unit.officers.append(officer)
-            engine.stats.record_officer_pick(player.number, officer.name)
-            effects.append(tf("log.promoted", name=officer.name))
+            if unit.officers:
+                effects.append(tf("log.officer_already", label=unit_log_label(unit)))
+            else:
+                seq_id, _ = oq.remove_card(idx)
+                real_id = engine.officer_id_mapping.get(seq_id, seq_id)
+                officer = OFFICER_CATALOG[real_id]
+                if not officer_matches_unit(officer, unit):
+                    raise ValueError(
+                        f"officer {officer.name} troop {officer.troop_type} "
+                        f"does not match unit {letter}"
+                    )
+                unit.officers.append(officer)
+                engine.stats.record_officer_pick(player.number, officer.name)
+                effects.append(tf("log.promoted", name=officer.name))
 
     elif name == ActionName.SERVICE:
         msg = yield from _resolve_service(engine, unit)
@@ -1073,6 +1078,13 @@ def _apply_pillage_reward(
         atro += int(reward.get("atrocities_if_under_influence") or 0)
     if atro:
         unit.gain_atrocities(atro)
+    unit.pillage_cards.append(
+        {
+            "id": card.get("id"),
+            "name": card.get("name") or "?",
+            "reward": dict(card.get("reward") or {}),
+        }
+    )
     became_influenced = False
     intoxicate_ignored = False
     if int(reward.get("intoxicate") or 0) and not was_influenced:
@@ -1652,6 +1664,7 @@ def resolve_scout(
         if pay:
             revealed.append(pay)
 
+    revealed_faces: list[tuple[str, str]] = []
     for code, indices in chosen_by_queue.items():
         queue = _queue_by_scout_code(engine, code)
         qname = SCOUT_QUEUE_NAMES[code]
@@ -1664,29 +1677,49 @@ def resolve_scout(
             revealed.append(
                 tf("log.from_queue", name=card_name, queue=queue_name(qname))
             )
+            # One formal row per card so the trained observation stays the same.
+            # The text log below is one line for the whole action.
+            engine._note_event(
+                EVENT_REVEAL,
+                actor=unit.player.number,
+                queue=code,
+                card_id=card_id,
+                amount=1,
+                card_visible=True,
+            )
+            revealed_faces.append((queue_name(qname), card_name))
+
+    if revealed_faces:
+        if len(revealed_faces) == 1:
+            qlabel, card_name = revealed_faces[0]
             engine._broadcast(
                 one_line(
                     tf(
                         "log.reveal_card",
                         label=label,
-                        queue=queue_name(qname),
+                        queue=qlabel,
                         name=card_name,
                     )
-                ),
-                kind="reveal",
-                queue=code,
-                index=idx,
-                card_id=card_id,
-                event_type=EVENT_REVEAL,
-                actor=unit.player.number,
-                amount=1,
-                card_visible=True,
+                )
             )
             yield from _pause_after_reveal(
                 engine,
-                tf("log.reveal_pause", queue=queue_name(qname), name=card_name),
+                tf("log.reveal_pause", queue=qlabel, name=card_name),
+            )
+        else:
+            names = ", ".join(f"*{name}* ({qlabel})" for qlabel, name in revealed_faces)
+            engine._broadcast(
+                one_line(tf("log.reveal_cards", label=label, names=names))
+            )
+            yield from _pause_after_reveal(
+                engine,
+                tf("log.reveal_cards_pause", names=names),
             )
 
+    for code, indices in chosen_by_queue.items():
+        queue = _queue_by_scout_code(engine, code)
+        qname = SCOUT_QUEUE_NAMES[code]
+        indices = sorted(indices)
         if len(indices) > 1:
             desc_reorder = (
                 tf(

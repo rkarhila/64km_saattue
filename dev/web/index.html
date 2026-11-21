@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>65km Convoy</title>
-  <link rel="stylesheet" href="/static/style.css?v=bot-wait" />
+  <link rel="stylesheet" href="/static/style.css?v=labels" />
 </head>
 <body>
   <header class="top">
@@ -54,7 +54,7 @@
       <input type="number" id="numPlayers" min="2" max="5" value="3" />
     </label>
     <label>Seed
-      <input type="number" id="seed" value="1" />
+      <input type="number" id="seed" min="0" step="1" />
     </label>
     <label>Tyhjät paikat
       <select id="botKind">
@@ -234,6 +234,6 @@
   </main>
 
   <script src="/static/transport.js?v=pyodide-play"></script>
-  <script src="/static/app.js?v=bot-wait"></script>
+  <script src="/static/app.js?v=labels"></script>
 </body>
 </html>

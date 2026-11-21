@@ -27,6 +27,7 @@
   let assignCommitted = false;
   let assignFlushKey = "";
   let botBusy = false;
+  let botWaiters = 0;
   /** @type {number[]} */
   let payPicks = [];
   /** @type {any} */
@@ -171,9 +172,19 @@
     });
   }
 
+  function randomGameSeed() {
+    return Math.floor(Math.random() * 1000000);
+  }
+
+  function fillNewGameSeed() {
+    const input = $("seed");
+    if (input) input.value = String(randomGameSeed());
+  }
+
   if ($("showCreate")) {
     $("showCreate").addEventListener("click", () => {
       if (!requireName()) return;
+      fillNewGameSeed();
       $("gate").classList.add("hidden");
       $("createForm").classList.remove("hidden");
       $("waitingRoom").classList.add("hidden");
@@ -194,10 +205,11 @@
     const name = requireName();
     if (!name) return;
     const botKind = $("botKind") ? $("botKind").value : "random";
+    const seedText = String($("seed").value || "").trim();
     const body = {
       num_players: Number($("numPlayers").value),
       name,
-      seed: Number($("seed").value),
+      seed: seedText === "" ? null : Number(seedText),
       pause_after_actions: $("lobbyPauseToggle")
         ? $("lobbyPauseToggle").checked
         : true,
@@ -663,6 +675,25 @@
     pendingReveals = new Set();
   }
 
+  function choiceSpinner(host) {
+    if (!host) return;
+    let wait = host.querySelector(":scope > .choice-bot-wait");
+    const show = botBusy && !host.classList.contains("hidden");
+    if (!show) {
+      if (wait) wait.remove();
+      return;
+    }
+    if (!wait) {
+      wait = document.createElement("div");
+      wait.className = "bot-wait choice-bot-wait";
+      wait.setAttribute("role", "status");
+      wait.innerHTML =
+        `<span class="bot-spinner" aria-hidden="true"></span>` +
+        `<span>Botti miettii…</span>`;
+      host.appendChild(wait);
+    }
+  }
+
   function applyBotWait() {
     const btn = $("continueBtn");
     const wait = $("botWait");
@@ -670,15 +701,23 @@
     if (actions && botBusy) actions.classList.remove("hidden");
     if (btn) btn.classList.toggle("hidden", botBusy);
     if (wait) wait.classList.toggle("hidden", !botBusy);
+    document.querySelectorAll(".choice-actions").forEach((el) => {
+      el.classList.toggle("hidden", botBusy);
+    });
+    choiceSpinner($("choicePanel"));
+    choiceSpinner($("sideChoice"));
   }
 
   function setBotBusy(on) {
-    botBusy = on;
+    botWaiters += on ? 1 : -1;
+    if (botWaiters < 0) botWaiters = 0;
+    botBusy = botWaiters > 0;
     applyBotWait();
   }
 
   async function sendChoice(choice, options) {
-    if (botBusy) return;
+    const fromFlush = Boolean(options && options.fromFlush);
+    if (botBusy && !fromFlush) return;
     const keepAssign = Boolean(options && options.keepAssign);
     const savedCards = keepAssign ? { ...slotCards } : null;
     setBotBusy(true);
@@ -715,11 +754,21 @@
     const key = `${current.index}:${cid}`;
     if (key === assignFlushKey) return;
     assignFlushKey = key;
-    sendChoice([cid], { keepAssign: true });
+    sendChoice([cid], { keepAssign: true, fromFlush: true });
   }
 
   async function sendContinue() {
     if (botBusy) return;
+    if (isAssignFlow(lastSnap)) {
+      const units = lastSnap.pending.assign_units || [];
+      const cards = units.map((u) => slotCards[u.index]);
+      if (units.length > 1 && cards.every((cid) => cid != null)) {
+        assignCommitted = false;
+        assignFlushKey = "";
+        await sendChoice(cards);
+        return;
+      }
+    }
     setBotBusy(true);
     try {
       const res = await convoyTransport(`/games/${gameId}/continue?seat=${seatNum}`, {
@@ -765,6 +814,9 @@
   const I18N = {
     "deck.resistance": "Vastarinta",
     "deck.pillage": "Ryöstö",
+    "unit.free_cargo": "Vapaata tavaratilaa: {n}",
+    "unit.damage": "Vahinko",
+    "unit.damage_category": "Luokka {n}",
     "deck.mauling": "Moukarointi",
     "resistance.ambush": "Väijytys",
     "resistance.counterattack": "Vastahyökkäys",
@@ -833,6 +885,9 @@
   const UI_TABLES = {
     fi: I18N,
     en: {
+      "unit.free_cargo": "Free cargo space: {n}",
+      "unit.damage": "Damage",
+      "unit.damage_category": "Category {n}",
       "ui.verb.scout": "Scout",
       "ui.verb.search": "Search",
       "ui.verb.sigint": "Sigint",
@@ -1144,6 +1199,43 @@
     return (
       `<div class="fancy-eyebrow">${escapeHtml(t("deck.officer"))}</div>` +
       officerFaceHtml(card)
+    );
+  }
+
+  function freeCargoCount(carry) {
+    return (carry || []).filter((slot) => Number(slot) === 0).length;
+  }
+
+  function renderPillageTuckHtml(card) {
+    const reward = card.reward || {};
+    const loot = Array.isArray(reward.loot)
+      ? reward.loot.filter((v) => Number(v) > 0)
+      : Number(reward.loot) > 0
+        ? [reward.loot]
+        : [];
+    const bits = [];
+    if (Number(reward.cash) > 0) bits.push(`${reward.cash} MMk`);
+    if (loot.length) bits.push(loot.join(" · "));
+    return (
+      `<div class="officer-tuck-name">${escapeHtml(card.name || t("deck.pillage"))}</div>` +
+      (bits.length
+        ? `<div class="officer-tuck-action">${escapeHtml(bits.join(" · "))}</div>`
+        : "")
+    );
+  }
+
+  function renderDamageTuckHtml(marker) {
+    const damage = Number(marker.damage);
+    const shown = Number.isFinite(damage) ? damage : "";
+    const category = marker.category;
+    const cat =
+      category == null
+        ? ""
+        : `<div class="officer-tuck-meta">${escapeHtml(t("unit.damage_category", { n: category }))}</div>`;
+    return (
+      `<div class="officer-tuck-name">${escapeHtml(t("unit.damage"))}</div>` +
+      `<div class="damage-tuck-num">${shown}</div>` +
+      cat
     );
   }
 
@@ -1681,7 +1773,8 @@
         "unit" +
         (owner === seatNum ? " yours" : "") +
         ` ${playerColorClass(owner)}`;
-      unit.innerHTML = `<strong>#${i}</strong><br/>Pelaaja ${owner}`;
+      unit.innerHTML =
+        `<strong>#${i + 1}</strong><br/>${escapeHtml(playerColorName(owner))}`;
       wrap.appendChild(unit);
 
       const slot = document.createElement("div");
@@ -1694,11 +1787,11 @@
           slot.appendChild(buildTroopChip(ut, labelByType[ut] || String(ut), true));
         } else {
           slot.innerHTML =
-            `<div class="slot-placeholder">Pudota joukko<br/><small>paikka ${i}</small></div>`;
+            `<div class="slot-placeholder">Pudota joukko<br/><small>paikka ${i + 1}</small></div>`;
         }
       } else {
         slot.classList.add("empty-slot");
-        slot.innerHTML = `<div class="slot-placeholder muted">P${owner}</div>`;
+        slot.innerHTML = `<div class="slot-placeholder muted">${escapeHtml(playerColorName(owner))}</div>`;
       }
       wrap.appendChild(slot);
       return wrap;
@@ -1772,7 +1865,7 @@
 
   function chipsHtml(
     counts,
-    { haloKinds, blinkKinds, removedCounts, damageMarkers, blinkDamage } = {}
+    { haloKinds, blinkKinds, removedCounts, damageMarkers, blinkDamage, skipDamage } = {}
   ) {
     const parts = [];
     const order = [
@@ -1802,9 +1895,11 @@
         }
       });
     }
-    const cards = damageCardsHtml(damageMarkers, {
-      blinkFresh: Boolean(blinkDamage),
-    });
+    const cards = skipDamage
+      ? ""
+      : damageCardsHtml(damageMarkers, {
+          blinkFresh: Boolean(blinkDamage),
+        });
     const body = parts.join("") + cards;
     return body
       ? `<div class="status-overlay">${body}</div>`
@@ -1840,7 +1935,7 @@
   function unitTokenHtml(u, opts) {
     return chipsHtml(statusCountsForUnit(u), {
       ...opts,
-      damageMarkers: u.damage_markers || [],
+      skipDamage: true,
     });
   }
 
@@ -2086,10 +2181,10 @@
       const counts = statusCountsForUnit(u);
       // Animate after element is in DOM (below).
       unit.innerHTML =
-        `<strong>#${i}</strong> P${u.player} ${escapeHtml(typeLabel)}` +
+        `<strong>#${i + 1}</strong> ${escapeHtml(playerColorName(u.player))} ${escapeHtml(typeLabel)}` +
         (discardMarked ? `<div class="discard-flag">Hylätään</div>` : "") +
         `<div class="unit-tokens"></div>` +
-        `<div class="unit-meta">carry ${escapeHtml(JSON.stringify(u.carry))}</div>`;
+        `<div class="unit-meta">${escapeHtml(t("unit.free_cargo", { n: freeCargoCount(u.carry) }))}</div>`;
       if (discardSet.has(i)) {
         unit.addEventListener("click", () => {
           const need = snap.pending.num_choice;
@@ -2115,7 +2210,11 @@
       const slot = document.createElement("div");
       slot.className = "card-slot";
       const officers = normalizeOfficers(u.officers);
-      if (officers.length) slot.classList.add("has-officer");
+      const lootCards = Array.isArray(u.pillage_cards) ? u.pillage_cards : [];
+      const damageCards = u.damage_markers || [];
+      if (officers.length || lootCards.length || damageCards.length) {
+        slot.classList.add("has-officer", "has-tucks");
+      }
       const isDropTarget = assign && assignSet.has(i);
       const action = u.action || {};
 
@@ -2222,7 +2321,7 @@
         slot.innerHTML = `<div class="slot-placeholder muted">—</div>`;
       }
 
-      if (officers.length) {
+      if (officers.length || lootCards.length || damageCards.length) {
         const tuckRow = document.createElement("div");
         tuckRow.className = "officer-tucks";
         officers.forEach((off) => {
@@ -2236,6 +2335,22 @@
             .filter(Boolean)
             .join(" — ");
           tuck.innerHTML = renderOfficerTuckHtml(off);
+          tuckRow.appendChild(tuck);
+        });
+        lootCards.forEach((card) => {
+          const tuck = document.createElement("div");
+          tuck.className = "officer-tuck pillage-tuck";
+          tuck.title = card.name || t("deck.pillage");
+          tuck.innerHTML = renderPillageTuckHtml(card);
+          tuckRow.appendChild(tuck);
+        });
+        damageCards.forEach((marker) => {
+          const tuck = document.createElement("div");
+          tuck.className =
+            "officer-tuck damage-tuck" +
+            (pauseActive && marker.fresh ? " blink" : "");
+          tuck.title = t("unit.damage");
+          tuck.innerHTML = renderDamageTuckHtml(marker);
           tuckRow.appendChild(tuck);
         });
         slot.appendChild(tuckRow);
@@ -2294,6 +2409,46 @@
       .trim();
   }
 
+  const PLAYER_COLOR_NAMES = [
+    "Punainen",
+    "Vihreä",
+    "Sininen",
+    "Oranssi",
+    "Violetti",
+  ];
+
+  function playerColorName(playerNum) {
+    const n = Number(playerNum);
+    const idx = ((n % PLAYER_COLOR_NAMES.length) + PLAYER_COLOR_NAMES.length) % PLAYER_COLOR_NAMES.length;
+    return PLAYER_COLOR_NAMES[idx] || "";
+  }
+
+  function colorizeLogHtml(text) {
+    let html = escapeHtml(prettifyLogLine(text));
+    const colorWords = [
+      ["punaiset", "punainen"],
+      ["vihreät", "vihreä"],
+      ["siniset", "sininen"],
+      ["oranssit", "oranssi"],
+      ["violetit", "violetti"],
+    ];
+    colorWords.forEach((words, num) => {
+      words.forEach((word) => {
+        const regex = new RegExp(`(^|\\s)(${word})(?=\\s|$)`, "gi");
+        html = html.replace(
+          regex,
+          `$1<span class="player-color-${num}" style="color: var(--pc); font-weight: bold;">$2</span>`
+        );
+      });
+      const playerRegex = new RegExp(`\\b(Pelaaja\\s+${num})\\b`, "g");
+      html = html.replace(
+        playerRegex,
+        `<span class="player-color-${num}" style="color: var(--pc); font-weight: bold;">$1</span>`
+      );
+    });
+    return html;
+  }
+
   function renderContinuePanel(snap) {
     const panel = $("continuePanel");
     if (!panel) return;
@@ -2319,8 +2474,8 @@
           ((snap.state && snap.state.log && snap.state.log.length)
             ? snap.state.log[snap.state.log.length - 1]
             : "");
-        $("continueHint").textContent = raw
-          ? prettifyLogLine(String(raw).replace(/\s*Jatka\.?\s*$/i, "").trim())
+        $("continueHint").innerHTML = raw
+          ? colorizeLogHtml(raw)
           : "Toiminto kirjattu lokiin. Klikkaa jatkaaksesi.";
       } else if (!botBusy) {
         actions.classList.add("hidden");
@@ -2485,11 +2640,11 @@
       okBtn.textContent = "Vahvista";
       okBtn.disabled = !allFilled;
       okBtn.addEventListener("click", () => {
-        const current = (snap.pending.payload || {}).assign_unit || units[0];
-        const cid = slotCards[current.index];
-        assignCommitted = true;
-        assignFlushKey = `${current.index}:${cid}`;
-        sendChoice([cid], { keepAssign: true });
+        const cards = units.map((u) => slotCards[u.index]);
+        if (cards.some((cid) => cid == null)) return;
+        assignCommitted = false;
+        assignFlushKey = "";
+        sendChoice(cards);
       });
       actions.appendChild(clearBtn);
       actions.appendChild(okBtn);
@@ -3086,33 +3241,7 @@
         line.classList.add("round-marker");
       }
 
-      const displayText = prettifyLogLine(text);
-
-      // Prettify player color keywords and Player X mentions using HTML
-      let html = escapeHtml(displayText);
-      const colorWords = [
-        ["punaiset", "punainen"],
-        ["vihreät", "vihreä"],
-        ["siniset", "sininen"],
-        ["oranssit", "oranssi"],
-        ["violetit", "violetti"],
-      ];
-      colorWords.forEach((words, num) => {
-        words.forEach((word) => {
-          const regex = new RegExp(`(^|\\s)(${word})(?=\\s|$)`, "gi");
-          html = html.replace(
-            regex,
-            `$1<span class="player-color-${num}" style="color: var(--pc); font-weight: bold;">$2</span>`
-          );
-        });
-        const playerRegex = new RegExp(`\\b(Pelaaja\\s+${num})\\b`, "g");
-        html = html.replace(
-          playerRegex,
-          `<span class="player-color-${num}" style="color: var(--pc); font-weight: bold;">$1</span>`
-        );
-      });
-
-      line.innerHTML = html;
+      line.innerHTML = colorizeLogHtml(text);
       logEl.appendChild(line);
     });
     if (atBottom || lines.length) {
@@ -3203,6 +3332,7 @@
     } else {
       $("endPanel").classList.add("hidden");
     }
+    applyBotWait();
     flushPlannedAssign(snap);
   }
 })();

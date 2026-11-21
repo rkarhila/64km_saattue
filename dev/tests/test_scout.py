@@ -159,6 +159,35 @@ def test_resolve_scout_reorders_when_multiple_from_same_queue():
     assert resistance_queue.cards_and_visibilities[idx2][1] is True
 
 
+def test_several_reveals_share_one_log_line():
+    from sixtyfivekmconvoy.rl.events import EVENT_REVEAL
+
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=12)
+    engine.pause_after_actions = True
+    inf = _seat_front_infantry(engine)
+    hidden_indices = [
+        idx
+        for idx, (_, vis) in enumerate(engine.resistance_queue.cards_and_visibilities)
+        if not vis
+    ]
+    idx1, idx2 = hidden_indices[0], hidden_indices[1]
+    before = sum(1 for row in engine.event_rows if row[0] == EVENT_REVEAL)
+
+    gen = action_mod.resolve_scout(engine, inf, count=2)
+    next(gen)
+    pause = gen.send([200 + idx1, 200 + idx2])
+
+    assert pause.choicetype == ChoiceType.LOG_PAUSE
+    lines = [m for m in engine.messages if "paljastaa" in m]
+    assert len(lines) == 1
+    assert lines[0].count("*") >= 4
+    after = sum(1 for row in engine.event_rows if row[0] == EVENT_REVEAL)
+    assert after - before == 2
+    reorder = gen.send([0])
+    assert reorder.choicetype == ChoiceType.REORDER_SCOUTED_CARDS
+
+
 def test_scout_flips_the_last_hidden_card_then_peeks_two():
     """Modifier 3 with one face-down card: that flip is mandatory, then N-M = 2."""
     engine = GameEngine()
