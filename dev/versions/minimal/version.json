@@ -1,0 +1,14 @@
+{
+  "id": "minimal",
+  "title": "Minimal gameplay loop",
+  "summary": "Lyhyt pelisilmukka: kolme korttia (eteenpäin, hyökkää, ryöstä), yksi tiesulku ja kassalipas. Voittoon tarvitaan 5.",
+  "cards": [
+    "action.csv",
+    "action_help.csv",
+    "hit.csv",
+    "mauling.csv",
+    "officer.csv",
+    "pillage.csv",
+    "resistance.csv"
+  ]
+}

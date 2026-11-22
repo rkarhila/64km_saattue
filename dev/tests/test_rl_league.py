@@ -25,6 +25,8 @@ def test_league_add_branch_lineage(tmp_path):
     child = league.branch(root.id, name="fork-a", tags=["style-a"])
     assert child.parent_id == root.id
     assert (tmp_path / "league" / child.path).exists()
+    assert (tmp_path / "league" / root.rules / "config.py").is_file()
+    assert (tmp_path / "league" / child.rules / "cards" / "action.csv").is_file()
 
     loaded = league.load_model(child.id)
     assert isinstance(loaded, MaskedActorCritic)

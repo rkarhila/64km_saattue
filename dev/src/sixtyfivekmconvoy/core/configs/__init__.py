@@ -2,6 +2,10 @@
 
 Set env ``CONVOY_CONFIG`` to a module name under this package (default: ``default``)
 before importing game code so rewards stay tied to a specific profile.
+
+Set ``CONVOY_VERSION`` to a directory under ``dev/versions`` to load that
+directory's ``config.py`` instead. The browser does this after the player
+picks a version. Training leaves ``CONVOY_VERSION`` unset.
 """
 
 from __future__ import annotations
@@ -25,8 +29,14 @@ def available_configs() -> list[str]:
 
 
 def load_config(name: str | None = None) -> ModuleType:
-    """Load (or reload) a balance profile by module name."""
+    """Load (or reload) a balance profile by module name or version directory."""
     global _ACTIVE
+    version = os.environ.get("CONVOY_VERSION", "").strip()
+    if name is None and version:
+        from ..versions import load_version_module
+
+        _ACTIVE = load_version_module(version)
+        return _ACTIVE
     name = (name or os.environ.get("CONVOY_CONFIG") or "default").strip()
     _ACTIVE = importlib.import_module(f"{__package__}.{name}")
     return _ACTIVE

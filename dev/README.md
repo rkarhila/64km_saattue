@@ -88,9 +88,23 @@ PYTHONPATH=src python -m sixtyfivekmconvoy.play
 ```
 
 Open http://127.0.0.1:8000/web/local.html. The password is still 1234. The
-first load downloads Pyodide and NumPy. `CONVOY_CONFIG` inside that page is
-`retire`. The checkpoint `curriculum-step1840496` is in the opponent list when
-`web/bots/curriculum-step1840496.npz` is present. Random bots remain available.
+first load downloads Pyodide and NumPy. With no `?version=` the page loads
+`versions/alpha_01`, whose `config.py` matches the `retire` profile and whose
+`cards/` are that version's own copy. `?version=dev` loads `versions/dev`.
+The checkpoint `curriculum-step1840496` is in the opponent list when
+`versions/alpha_01/bots/curriculum-step1840496/` is present. It was trained on
+the Alpha 01 cards. A checkpoint stores its own `config.py` and `cards/`, and
+the lobby warns if the version's files have changed since that copy. Random
+bots remain available.
+
+The Python server chooses its version at startup:
+
+```bash
+convoy-web --version alpha_01
+```
+
+Training with `CONVOY_VERSION=alpha_01` (or `convoy-train --version alpha_01`)
+writes new checkpoints into that version's `bots/` folder.
 
 ## Terminal human vs bots
 
@@ -114,7 +128,8 @@ pytest
 | `src/sixtyfivekmconvoy/agents/` | Random / human / RL bridges |
 | `src/sixtyfivekmconvoy/api/` | FastAPI sessions |
 | `src/sixtyfivekmconvoy/cli/` | Self-play, train, league, terminal |
-| `src/sixtyfivekmconvoy/data/cards/` | CSV decks |
+| `src/sixtyfivekmconvoy/data/cards/` | CSV decks used when no version is selected |
+| `versions/` | One directory per playable version (`config.py` and `cards/`) |
 | `web/` | Vanilla JS UI |
 
 Legacy socket `server/` / `client/` packages are superseded by this layout.

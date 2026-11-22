@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>65km Convoy</title>
-  <link rel="stylesheet" href="/static/style.css?v=labels" />
+  <link rel="stylesheet" href="/static/style.css?v=rules" />
 </head>
 <body>
   <header class="top">
@@ -74,6 +74,7 @@
     <button id="startBtn" type="button">Avaa odotushuone</button>
     <button id="cancelCreate" type="button" class="secondary">Takaisin</button>
     <p id="botHint" class="hint muted"></p>
+    <p id="botWarning" class="hint warning" hidden></p>
     </div>
     <div id="waitingRoom" class="lobby-block hidden">
       <h2>Odotushuone</h2>
@@ -166,6 +167,7 @@
 
     <aside id="continuePanel" class="continue-panel" aria-live="polite">
       <div id="roundInfo" class="side-round"></div>
+      <p id="rulesWarning" class="hint warning" hidden></p>
       <p id="sideWaiting" class="waiting-for"></p>
       <div id="playerPrompt" class="player-prompt hidden">
         <h2 id="playerPromptTitle"></h2>
@@ -234,6 +236,6 @@
   </main>
 
   <script src="/static/transport.js?v=pyodide-play"></script>
-  <script src="/static/app.js?v=labels"></script>
+  <script src="/static/app.js?v=rules"></script>
 </body>
 </html>

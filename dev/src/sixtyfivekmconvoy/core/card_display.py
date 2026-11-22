@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import os
 import unicodedata
 from functools import lru_cache
 from typing import Any
@@ -43,12 +42,9 @@ def _help_title_key(title: str | None) -> str:
 @lru_cache(maxsize=1)
 def load_action_help() -> tuple[dict[str, tuple[dict[str, str], ...]], dict[tuple[str, str], dict[str, str]]]:
     """Rows from ``action_help.csv``, keyed by action name and by Finnish title."""
-    path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)),
-        "data",
-        "cards",
-        "action_help.csv",
-    )
+    from .cards import _cards_path
+
+    path = _cards_path("action_help.csv")
     by_action: dict[str, list[dict[str, str]]] = {}
     by_title: dict[tuple[str, str], dict[str, str]] = {}
     with open(path, encoding="utf-8", newline="") as handle:

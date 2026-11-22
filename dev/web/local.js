@@ -35,7 +35,9 @@ worker.addEventListener("message", (event) => {
   if (msg.type === "ready") markReady();
 });
 
-worker.postMessage({ type: "boot" });
+const version = new URL(window.location.href).searchParams.get("version") || "alpha_01";
+say("Ladataan versiota " + version + "…");
+worker.postMessage({ type: "boot", version });
 
 try {
   await window.__convoyWorkerReady;
@@ -65,7 +67,7 @@ try {
   holder.innerHTML = html;
   document.body.replaceChildren(holder);
   const script = document.createElement("script");
-  script.src = new URL("app.js?v=labels", import.meta.url).href;
+  script.src = new URL("app.js?v=rules", import.meta.url).href;
   document.body.appendChild(script);
 } catch (err) {
   say("Pelin lataus epäonnistui: " + err);

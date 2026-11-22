@@ -1,0 +1,4 @@
+action_name,English_title,English_explanation,Finnish_title,Finnish_explanation
+Attack,Attack,Deal this damage to the active resistance and gain {attack_cash}.,Hyökkää,Aiheuttaa tämän verran vahinkoa aktiiviseen vastarintaan. Onnistunut hyökkäys tuo {attack_cash}.
+Bypass,Bypass,"Move forward the printed number of slots. A longer move stops at the front.",Ohita,"Siirry eteenpäin kortin askelmäärän verran. Pitempi matka pysähtyy keulaan."
+Pillage,Pillage,"Take the first pillage card, or any revealed card if sober.",Ryöstä,Ota ryöstöjonosta ensimmäinen kortti tai selvin päin mikä tahansa näkyvä kortti.

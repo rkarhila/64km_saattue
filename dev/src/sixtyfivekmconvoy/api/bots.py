@@ -25,6 +25,11 @@ def league_search_paths() -> list[Path]:
     env = (os.environ.get("CONVOY_LEAGUE") or "").strip()
     if env:
         paths.append(Path(env).expanduser())
+    version = (os.environ.get("CONVOY_VERSION") or "").strip()
+    if version:
+        from sixtyfivekmconvoy.core.versions import version_bots_dir
+
+        paths.append(version_bots_dir(version))
     cwd = Path.cwd()
     paths.extend(
         [
@@ -52,10 +57,70 @@ def league_search_paths() -> list[Path]:
 
 
 def default_league_path() -> Path:
+    version = (os.environ.get("CONVOY_VERSION") or "").strip()
+    explicit = (os.environ.get("CONVOY_LEAGUE") or "").strip()
+    if version and not explicit:
+        from sixtyfivekmconvoy.core.versions import version_bots_dir
+
+        return version_bots_dir(version)
     for cand in league_search_paths():
-        if (cand / "league.json").exists():
+        if (cand / "league.json").exists() or (cand / "index.json").exists():
             return cand
     return league_search_paths()[0]
+
+
+def iter_numpy_bots(bots_root: str | Path) -> list[dict[str, Any]]:
+    """Browser checkpoints: ``bots/index.json`` plus one directory each."""
+    from sixtyfivekmconvoy.core.versions import rules_warning
+
+    root = Path(bots_root)
+    index_path = root / "index.json"
+    if not index_path.is_file():
+        return []
+    try:
+        raw = json.loads(index_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    rows: list[dict[str, Any]] = []
+    for name in list(raw.get("bots") or []):
+        folder = root / str(name)
+        manifest_path = folder / "manifest.json"
+        if not manifest_path.is_file():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(manifest, dict):
+            continue
+        bot_id = str(manifest.get("id") or name)
+        bot_name = str(manifest.get("name") or name)
+        step = int(manifest.get("step") or 0)
+        weights_name = str(manifest.get("weights") or "weights.npz")
+        warning = rules_warning(folder if (folder / "config.py").is_file() else None)
+        rows.append(
+            {
+                "id": bot_id,
+                "name": bot_name,
+                "step": step,
+                "tags": ["numpy"],
+                "label": f"{bot_name} ({bot_id[:8]}, step {step})",
+                "warning": warning,
+                "weights": str(folder / weights_name),
+                "folder": str(folder),
+            }
+        )
+    return rows
+
+
+def numpy_bot(bots_root: str | Path | None, bot_id: str | None) -> dict[str, Any] | None:
+    if not bots_root or not bot_id:
+        return None
+    wanted = str(bot_id)
+    for row in iter_numpy_bots(bots_root):
+        if row["id"] == wanted or row["name"] == wanted:
+            return row
+    return None
 
 
 def list_league_bots(league_path: str | Path | None = None) -> dict[str, Any]:
@@ -67,12 +132,13 @@ def list_league_bots(league_path: str | Path | None = None) -> dict[str, Any]:
     """
     searched = [str(p) for p in league_search_paths()[:8]]
     root = Path(league_path) if league_path else default_league_path()
+    numpy_rows = iter_numpy_bots(root)
     registry = root / "league.json"
     if not registry.exists():
         return {
             "league": str(root),
-            "exists": False,
-            "bots": [],
+            "exists": bool(numpy_rows),
+            "bots": numpy_rows,
             "searched": searched,
             "error": None,
         }
@@ -88,16 +154,23 @@ def list_league_bots(league_path: str | Path | None = None) -> dict[str, Any]:
             "error": f"failed to read league.json: {exc}",
         }
 
-    rows: list[dict[str, Any]] = []
+    from sixtyfivekmconvoy.core.versions import rules_warning
+
+    rows: list[dict[str, Any]] = list(numpy_rows)
+    seen = {row["id"] for row in rows}
     for e in entries:
         if not isinstance(e, dict):
             continue
         if e.get("active") is False:
             continue
         eid = str(e.get("id") or "")
+        if not eid or eid in seen:
+            continue
         name = str(e.get("name") or eid)
         step = int(e.get("step") or 0)
         tags = list(e.get("tags") or [])
+        rules_rel = str(e.get("rules") or "")
+        snap = (root / rules_rel) if rules_rel else (root / "checkpoints" / f"{eid}.rules")
         rows.append(
             {
                 "id": eid,
@@ -107,6 +180,7 @@ def list_league_bots(league_path: str | Path | None = None) -> dict[str, Any]:
                 "parent_id": e.get("parent_id"),
                 "created_at": float(e.get("created_at") or 0),
                 "label": f"{name} ({eid[:8]}, step {step})",
+                "warning": rules_warning(snap if snap.is_dir() else None),
             }
         )
     rows.sort(key=lambda r: r.get("created_at") or 0, reverse=True)
@@ -117,6 +191,14 @@ def list_league_bots(league_path: str | Path | None = None) -> dict[str, Any]:
         "searched": searched,
         "error": None,
     }
+
+
+def rules_warning_for_entry(root: Path, entry: Any) -> str | None:
+    from sixtyfivekmconvoy.core.versions import rules_warning
+
+    rules_rel = str(getattr(entry, "rules", "") or "")
+    snap = (root / rules_rel) if rules_rel else (root / "checkpoints" / f"{entry.id}.rules")
+    return rules_warning(snap if snap.is_dir() else None)
 
 
 def make_seat_bots(
@@ -142,6 +224,7 @@ def make_seat_bots(
         "bot_id": None,
         "bot_name": None,
         "league": None,
+        "warning": None,
     }
     humans = set(human_ids or ())
     humans.add(human_id)
@@ -155,6 +238,24 @@ def make_seat_bots(
         meta["bot_kind"] = "random"
         return bots, meta
 
+    root = Path(league_path) if league_path else default_league_path()
+    saved = numpy_bot(root, bot_id)
+    if saved is not None and os.path.isfile(saved["weights"]):
+        from sixtyfivekmconvoy.play_net import NumpyPolicy
+
+        policy = NumpyPolicy.load(saved["weights"])
+        bots = {pid: policy for pid in other_ids}
+        meta.update(
+            {
+                "bot_kind": "rl",
+                "bot_id": saved["id"],
+                "bot_name": saved["name"],
+                "league": str(root),
+                "warning": saved.get("warning"),
+            }
+        )
+        return bots, meta
+
     try:
         from sixtyfivekmconvoy.rl.agent import RLAgent
         from sixtyfivekmconvoy.rl.league import League
@@ -163,7 +264,6 @@ def make_seat_bots(
             "RL bots require torch (`pip install -e '.[rl]'`)"
         ) from exc
 
-    root = Path(league_path) if league_path else default_league_path()
     if not (root / "league.json").exists():
         raise FileNotFoundError(f"league not found at {root}")
     league = League(root)
@@ -184,6 +284,7 @@ def make_seat_bots(
             "bot_id": entry.id,
             "bot_name": entry.name,
             "league": str(root),
+            "warning": rules_warning_for_entry(root, entry),
         }
     )
     return bots, meta

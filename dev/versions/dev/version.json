@@ -1,0 +1,14 @@
+{
+  "id": "dev",
+  "title": "Kehitys",
+  "summary": "Kehitysversio. Lähtökohta on sama kuin Alpha 01. Muokkaa tämän kansion config.py-tiedostoa ja korttitaulukoita.",
+  "cards": [
+    "action.csv",
+    "action_help.csv",
+    "hit.csv",
+    "mauling.csv",
+    "officer.csv",
+    "pillage.csv",
+    "resistance.csv"
+  ]
+}

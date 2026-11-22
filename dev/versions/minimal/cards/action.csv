@@ -1,0 +1,4 @@
+card_id,action_index,troop_type,zone,action_type,action_modifier,cost,tire,intoxicate,name
+0,0,A,ABCE,Bypass,1,0,0,0,Eteenpäin
+1,0,A,AB,Attack,1,0,0,0,Hyökkää
+2,0,A,ABCE,Pillage,0,0,0,0,Ryöstä

@@ -4,7 +4,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
+
+
+def _bootstrap_version() -> None:
+    """Apply ``--version`` before the engine import locks the card files."""
+    version = os.environ.get("CONVOY_VERSION", "").strip()
+    argv = sys.argv[1:]
+    if "--version" in argv:
+        index = argv.index("--version")
+        if index + 1 < len(argv):
+            version = argv[index + 1].strip()
+    if not version:
+        return
+    from sixtyfivekmconvoy.boot import prepare_version
+
+    prepare_version(version)
+
+
+_bootstrap_version()
 
 from sixtyfivekmconvoy.rl.league import League
 from sixtyfivekmconvoy.rl.ppo import PPOConfig
@@ -15,11 +35,24 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Self-play PPO training with a branched bot league"
     )
+    version = os.environ.get("CONVOY_VERSION", "").strip()
+    if version:
+        from sixtyfivekmconvoy.core.versions import version_bots_dir
+
+        league_default = str(version_bots_dir(version))
+    else:
+        league_default = "runs/league"
+    p.add_argument(
+        "--version",
+        type=str,
+        default=version or None,
+        help="Version directory under dev/versions. Checkpoints go in its bots/ folder.",
+    )
     p.add_argument(
         "--league",
         type=str,
-        default="runs/league",
-        help="League root directory (checkpoints + league.json)",
+        default=league_default,
+        help="League root directory (checkpoints + league.json). Defaults to the version's bots/ folder.",
     )
     p.add_argument("--name", type=str, default="learner", help="Learner lineage name")
     p.add_argument(

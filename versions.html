@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>65km Convoy</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #3a261f;
+      color: #f4efe4;
+      font-family: "Gill Sans", "Gill Sans MT", Calibri, "Trebuchet MS", sans-serif;
+    }
+    main {
+      max-width: 40rem;
+      margin: 0 auto;
+      padding: 3rem 1.25rem 4rem;
+    }
+    h1 {
+      margin: 0 0 0.4rem;
+      color: #c0b083;
+      font-weight: 600;
+    }
+    .lead {
+      margin: 0 0 1.5rem;
+      line-height: 1.4;
+    }
+    ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 0.75rem;
+    }
+    a.version {
+      display: block;
+      padding: 0.9rem 1rem;
+      border-radius: 0.6rem;
+      background: #2a1b16;
+      color: inherit;
+      text-decoration: none;
+      border: 1px solid #6b5344;
+    }
+    a.version:hover,
+    a.version:focus {
+      border-color: #c0b083;
+    }
+    a.version strong {
+      display: block;
+      margin-bottom: 0.25rem;
+      color: #c0b083;
+    }
+    a.version span {
+      display: block;
+      line-height: 1.35;
+    }
+    .note,
+    .error {
+      margin-top: 1.5rem;
+      line-height: 1.4;
+    }
+    .error {
+      color: #ffb4a8;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>65km Convoy</h1>
+    <p class="lead">Valitse peliversio. Sama peli, eri säännöt ja kortit.</p>
+    <ul id="versions"></ul>
+    <p class="note">Salasana on 1234.</p>
+    <p id="error" class="error" hidden></p>
+  </main>
+  <script>
+    const list = document.getElementById("versions");
+    const error = document.getElementById("error");
+    fetch("dev/versions/index.json", { cache: "no-store" })
+      .then((res) => {
+        if (!res.ok) throw new Error("Versioluettelo puuttuu");
+        return res.json();
+      })
+      .then((data) => {
+        const versions = Array.isArray(data.versions) ? data.versions : [];
+        if (!versions.length) throw new Error("Versioluettelo on tyhjä");
+        for (const version of versions) {
+          const id = String(version.id || "");
+          if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,40}$/.test(id)) continue;
+          const item = document.createElement("li");
+          const link = document.createElement("a");
+          link.className = "version";
+          link.href = "playtest.html?version=" + encodeURIComponent(id);
+          const title = document.createElement("strong");
+          title.textContent = version.title || id;
+          const summary = document.createElement("span");
+          summary.textContent = version.summary || "";
+          link.append(title, summary);
+          item.append(link);
+          list.append(item);
+        }
+      })
+      .catch((err) => {
+        error.hidden = false;
+        error.textContent = err && err.message ? err.message : "Versioiden lataus epäonnistui.";
+      });
+  </script>
+</body>
+</html>

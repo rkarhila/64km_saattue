@@ -31,6 +31,8 @@ class LeagueEntry:
     tags: list[str] = field(default_factory=list)
     active: bool = True
     config: dict[str, Any] = field(default_factory=dict)
+    # Relative directory with the config.py and cards copied at save time.
+    rules: str = ""
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -49,6 +51,7 @@ class LeagueEntry:
             tags=list(data.get("tags") or []),
             active=bool(data.get("active", True)),
             config=dict(data.get("config") or {}),
+            rules=str(data.get("rules") or ""),
         )
 
 
@@ -120,9 +123,17 @@ class League:
         tags: Iterable[str] | None = None,
         config: dict[str, Any] | None = None,
         entry_id: str | None = None,
+        rules_from: Path | None = None,
     ) -> LeagueEntry:
         eid = entry_id or self._new_id()
         path = self._ckpt_path(eid)
+        rules_dir = self.ckpt_dir / f"{eid}.rules"
+        if rules_from is not None and rules_from.is_dir():
+            shutil.copytree(rules_from, rules_dir)
+        else:
+            from sixtyfivekmconvoy.core.versions import snapshot_rules
+
+            snapshot_rules(rules_dir)
         payload = {
             "policy": model.checkpoint_dict(),
             "meta": {
@@ -144,6 +155,7 @@ class League:
             metrics=dict(metrics or {}),
             tags=list(tags or []),
             config=dict(config or {}),
+            rules=str(rules_dir.relative_to(self.root)),
         )
         self.entries[eid] = entry
         self.save()
@@ -180,6 +192,7 @@ class League:
         """Fork a new lineage from ``parent_id`` (copies weights)."""
         parent = self.entries[parent_id]
         model = self.load_model(parent_id, map_location=map_location)
+        parent_rules = self.root / parent.rules if parent.rules else None
         return self.add(
             model,
             name=name,
@@ -189,6 +202,7 @@ class League:
             metrics=dict(parent.metrics),
             tags=list(tags or []) + ["branch"],
             config=dict(parent.config),
+            rules_from=parent_rules,
         )
 
     def promote(

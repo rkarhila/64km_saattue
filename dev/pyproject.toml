@@ -41,7 +41,7 @@ rl = [
 convoy-selfplay = "sixtyfivekmconvoy.cli.selfplay:main"
 convoy-train = "sixtyfivekmconvoy.cli.train:main"
 convoy-league = "sixtyfivekmconvoy.cli.league_cli:main"
-convoy-web = "sixtyfivekmconvoy.api.app:main"
+convoy-web = "sixtyfivekmconvoy.cli.web:main"
 convoy-local = "sixtyfivekmconvoy.play:main"
 convoy-terminal = "sixtyfivekmconvoy.cli.terminal:main"
 

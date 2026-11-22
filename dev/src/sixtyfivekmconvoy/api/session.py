@@ -6,6 +6,7 @@ import asyncio
 import threading
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from sixtyfivekmconvoy.api.bots import make_seat_bots
@@ -965,12 +966,17 @@ class SessionManager:
         game_id = uuid.uuid4().hex[:10]
         human_ids = {f"player_{seat}" for seat in human_seats}
         if external_bots is not None:
+            from sixtyfivekmconvoy.api.bots import default_league_path, numpy_bot
+
+            root = Path(league_path) if league_path else default_league_path()
+            record = numpy_bot(root, bot_id)
             bots = external_bots
             bot_meta = {
                 "bot_kind": bot_kind,
                 "bot_id": bot_id,
-                "bot_name": bot_id,
-                "league": league_path,
+                "bot_name": (record or {}).get("name") or bot_id,
+                "league": str(root),
+                "warning": (record or {}).get("warning"),
             }
         else:
             bots, bot_meta = make_seat_bots(

@@ -103,10 +103,11 @@
         syncBotLobbyUi();
         return;
       }
+      window.__leagueBots = bots;
       bots.forEach((b) => {
         const opt = document.createElement("option");
         opt.value = b.id;
-        opt.textContent = b.label || b.name;
+        opt.textContent = (b.label || b.name) + (b.warning ? " — säännöt muuttuneet" : "");
         sel.appendChild(opt);
       });
       if ($("botKind") && $("botKind").value === "random") {
@@ -116,6 +117,7 @@
         hint.textContent = `League: ${data.league} — ${bots.length} bottia.`;
       }
       syncBotLobbyUi();
+      showBotWarning();
     } catch (err) {
       sel.innerHTML = "";
       const opt = document.createElement("option");
@@ -127,10 +129,28 @@
     }
   }
 
+  function showBotWarning() {
+    const el = $("botWarning");
+    if (!el) return;
+    const kind = $("botKind") ? $("botKind").value : "random";
+    const sel = $("botId");
+    const bots = window.__leagueBots || [];
+    const bot = bots.find((row) => row.id === (sel ? sel.value : ""));
+    const text = kind === "rl" && bot && bot.warning ? bot.warning : "";
+    el.hidden = !text;
+    el.textContent = text;
+  }
+
   if ($("botKind")) {
-    $("botKind").addEventListener("change", syncBotLobbyUi);
+    $("botKind").addEventListener("change", () => {
+      syncBotLobbyUi();
+      showBotWarning();
+    });
     syncBotLobbyUi();
     loadLeagueBots();
+  }
+  if ($("botId")) {
+    $("botId").addEventListener("change", showBotWarning);
   }
 
   // On page load, check for imported state in URL
@@ -3265,6 +3285,12 @@
     }
     $("roundInfo").textContent =
       `Kierros ${state.round ?? "?"} · vaihe ${state.stage ?? "?"}${botLine}`;
+    const rulesWarning = $("rulesWarning");
+    if (rulesWarning) {
+      const text = botMeta.warning || "";
+      rulesWarning.hidden = !text;
+      rulesWarning.textContent = text;
+    }
     $("message").textContent = state.message || "";
     const waitText = snap.waiting_for || "";
     if ($("waitingFor")) $("waitingFor").textContent = waitText;

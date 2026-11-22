@@ -1,0 +1,14 @@
+{
+  "id": "alpha_01",
+  "title": "Alpha 01",
+  "summary": "Julkaistu peli. Samat säännöt ja kortit kuin nykyisessä pelissä: myydyt kortit poistuvat pelistä.",
+  "cards": [
+    "action.csv",
+    "action_help.csv",
+    "hit.csv",
+    "mauling.csv",
+    "officer.csv",
+    "pillage.csv",
+    "resistance.csv"
+  ]
+}

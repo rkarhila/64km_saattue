@@ -18,6 +18,7 @@ from sixtyfivekmconvoy.api.session import GameSession, SessionManager
 # Training, the FastAPI app, and the PettingZoo env stay out.
 _PYODIDE_FILES = (
     "__init__.py",
+    "boot.py",
     "play.py",
     "api/__init__.py",
     "api/bots.py",
@@ -97,12 +98,18 @@ class LocalLobby:
     only the random bots are offered.
     """
 
-    def __init__(self, password: str = "1234", weights_path: str | None = None) -> None:
+    def __init__(
+        self,
+        password: str = "1234",
+        weights_path: str | None = None,
+        bots_root: str | None = None,
+    ) -> None:
         self.password = (password or "1234").strip() or "1234"
         self.token = "local-gate"
         self.manager = SessionManager()
         self.weights_path = weights_path or os.environ.get("CONVOY_BOT_WEIGHTS") or ""
-        self._policy: Any = None
+        self.bots_root = bots_root
+        self._policies: dict[str, Any] = {}
 
     def handle(
         self,
@@ -225,15 +232,51 @@ class LocalLobby:
         if not token or not hmac.compare_digest(token, self.token):
             raise PermissionError("Salasana puuttuu.")
 
-    def policy(self) -> Any:
-        if self._policy is None and self.weights_path and os.path.isfile(self.weights_path):
+    def _bots_dir(self) -> Path | None:
+        if self.bots_root:
+            return Path(self.bots_root)
+        version = os.environ.get("CONVOY_VERSION", "").strip()
+        if version:
+            from sixtyfivekmconvoy.core.versions import version_bots_dir
+
+            return version_bots_dir(version)
+        if self.weights_path and os.path.isdir(self.weights_path):
+            return Path(self.weights_path)
+        return None
+
+    def policy_for(self, bot_id: str | None) -> Any:
+        key = str(bot_id or "")
+        if key in self._policies:
+            return self._policies[key]
+        root = self._bots_dir()
+        if root is not None and key:
+            from sixtyfivekmconvoy.api.bots import numpy_bot
+
+            row = numpy_bot(root, key)
+            weights = str((row or {}).get("weights") or "")
+            if weights and os.path.isfile(weights):
+                from sixtyfivekmconvoy.play_net import NumpyPolicy
+
+                policy = NumpyPolicy.load(weights)
+                self._policies[key] = policy
+                return policy
+        if self.weights_path and os.path.isfile(self.weights_path):
             from sixtyfivekmconvoy.play_net import NumpyPolicy
 
-            self._policy = NumpyPolicy.load(self.weights_path)
-        return self._policy
+            policy = NumpyPolicy.load(self.weights_path)
+            self._policies[key or self.weights_path] = policy
+            return policy
+        return None
 
     def _bots_payload(self) -> dict[str, Any]:
-        policy = self.policy()
+        root = self._bots_dir()
+        if root is not None and (
+            (root / "index.json").is_file() or (root / "league.json").is_file()
+        ):
+            from sixtyfivekmconvoy.api.bots import list_league_bots
+
+            return list_league_bots(root)
+        policy = self.policy_for(self.weights_path)
         if policy is None:
             return {
                 "league": self.weights_path,
@@ -253,6 +296,7 @@ class LocalLobby:
                     "name": BOT_NAME,
                     "step": BOT_STEP,
                     "label": f"{BOT_NAME} ({BOT_ID[:8]}, step {BOT_STEP})",
+                    "warning": "Tämän botin koulutuksen aikaisia sääntöjä ja kortteja ei ole tallennettu.",
                 }
             ],
             "searched": [],
@@ -262,7 +306,7 @@ class LocalLobby:
     def _external_bots(self, table: Any) -> dict[str, Any] | None:
         if table.bot_kind != "rl":
             return None
-        policy = self.policy()
+        policy = self.policy_for(table.bot_id)
         if policy is None:
             raise ValueError("Botti ei ole ladattu.")
         return {
@@ -276,7 +320,7 @@ class LocalLobby:
         if cleaned not in ("random", "rl"):
             raise ValueError("bot_kind must be 'random' or 'rl'")
         if cleaned == "rl":
-            if self.policy() is None:
+            if self.policy_for(str(bot_id or "")) is None:
                 raise ValueError("Botti ei ole ladattu.")
             if not bot_id:
                 raise ValueError("bot_id required when bot_kind=rl")

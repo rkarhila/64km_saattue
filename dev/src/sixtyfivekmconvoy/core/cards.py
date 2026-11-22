@@ -13,8 +13,21 @@ from .constants import ActionName
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "cards")
 
 
+def _cards_dir() -> str:
+    """Package decks, unless a version directory was chosen before import."""
+    override = os.environ.get("CONVOY_CARDS", "").strip()
+    if override:
+        return override
+    version = os.environ.get("CONVOY_VERSION", "").strip()
+    if version:
+        from .versions import version_cards_dir
+
+        return str(version_cards_dir(version))
+    return _DATA_DIR
+
+
 def _cards_path(name: str) -> str:
-    return os.path.join(_DATA_DIR, name)
+    return os.path.join(_cards_dir(), name)
 
 
 # Mauling `target` column grammar (selectors case-insensitive):

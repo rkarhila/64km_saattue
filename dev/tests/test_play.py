@@ -98,14 +98,19 @@ def test_local_lobby_starts_after_the_password():
     assert status == 400
 
 
-def test_trained_bot_is_offered_and_places():
-    weights = Path("web/bots/curriculum-step1840496.npz")
+def test_trained_bot_is_offered_and_places(monkeypatch):
+    root = Path("versions/alpha_01/bots")
+    weights = root / "curriculum-step1840496" / "weights.npz"
     if not weights.is_file():
         return
-    lobby = LocalLobby(weights_path=str(weights))
+    monkeypatch.setenv("CONVOY_VERSION", "alpha_01")
+    monkeypatch.setenv("CONVOY_VERSIONS", str(Path("versions").resolve()))
+    monkeypatch.delenv("CONVOY_LEAGUE", raising=False)
+    lobby = LocalLobby(bots_root=str(root))
     status, listed = lobby.handle("GET", "/league/bots", {}, {})
     assert status == 200
     assert listed["bots"][0]["name"] == "curriculum-step1840496"
+    assert not listed["bots"][0]["warning"]
     headers = {"X-Convoy-Token": lobby.token}
     status, opened = lobby.handle(
         "POST",

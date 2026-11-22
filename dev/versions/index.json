@@ -1,0 +1,19 @@
+{
+  "versions": [
+    {
+      "id": "alpha_01",
+      "title": "Alpha 01",
+      "summary": "Julkaistu peli. Samat säännöt ja kortit kuin nykyisessä pelissä: myydyt kortit poistuvat pelistä."
+    },
+    {
+      "id": "minimal",
+      "title": "Minimal gameplay loop",
+      "summary": "Lyhyt pelisilmukka: kolme korttia (eteenpäin, hyökkää, ryöstä), yksi tiesulku ja kassalipas. Voittoon tarvitaan 5."
+    },
+    {
+      "id": "dev",
+      "title": "Kehitys",
+      "summary": "Kehitysversio. Lähtökohta on sama kuin Alpha 01. Muokkaa tämän kansion config.py-tiedostoa ja korttitaulukoita."
+    }
+  ]
+}

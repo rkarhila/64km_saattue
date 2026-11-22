@@ -1,0 +1,15 @@
+{
+  "id": "63ca88c06d48",
+  "name": "curriculum-step1840496",
+  "step": 1840496,
+  "weights": "weights.npz",
+  "cards": [
+    "action.csv",
+    "action_help.csv",
+    "hit.csv",
+    "mauling.csv",
+    "officer.csv",
+    "pillage.csv",
+    "resistance.csv"
+  ]
+}
