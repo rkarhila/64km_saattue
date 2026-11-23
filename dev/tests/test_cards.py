@@ -1,4 +1,5 @@
 import random
+from pathlib import Path
 
 from collections import Counter
 
@@ -584,3 +585,153 @@ def test_action_card_describe():
     desc = card.describe()
     assert isinstance(desc, list)
     assert "action_name" in desc[0]
+
+
+def test_missing_resistance_attack_uses_the_ambush(monkeypatch):
+    from sixtyfivekmconvoy.core.cards import load_resistance_deck
+    from sixtyfivekmconvoy.core.models import Resistance
+
+    monkeypatch.setenv(
+        "CONVOY_CARDS",
+        str(Path(__file__).resolve().parents[1] / "versions" / "minimal" / "cards"),
+    )
+    deck = load_resistance_deck()
+    village = deck[1]
+    assert village.effect["resistance_attack"] == "Sinkomiesten väijytys"
+    assert village.effect["resistance_damage"] == "3"
+    sign = deck[10]
+    assert sign.effect["resistance_attack"] == "Käännetty kyltti"
+    assert sign.effect["resistance_damage"] == ""
+    assert sign.effect["durability"] == 0
+
+    fallen_back = Resistance(
+        {
+            "name": "Kylä",
+            "effect": {
+                "ambush_attack": "Sinkomiesten väijytys",
+                "ambush_damage": "3",
+                "ambush_target": "A1",
+                "resistance_attack": "",
+                "resistance_damage": "",
+                "durability": 2,
+            },
+        }
+    )
+    assert fallen_back.resistance_attack == "Sinkomiesten väijytys"
+    assert fallen_back.resistance_attack_category == 3
+    defined = Resistance(
+        {
+            "name": "Kylä",
+            "effect": {
+                "ambush_attack": "Sinkomiesten väijytys",
+                "ambush_damage": "3",
+                "ambush_target": "A1",
+                "resistance_attack": "Tarkk’ampujia",
+                "resistance_damage": "1",
+                "durability": 2,
+            },
+        }
+    )
+    assert defined.resistance_attack == "Tarkk’ampujia"
+    assert defined.resistance_attack_category == 1
+
+
+def test_zero_durability_resistance_resolves_and_the_convoy_moves_on():
+    from sixtyfivekmconvoy.core.cards import ResistanceCard
+    from sixtyfivekmconvoy.core.models import Resistance
+
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=4)
+    _finish_placement(engine)
+    front = engine.convoy.units[0]
+    ephemeral = ResistanceCard(
+        901,
+        "Metsätie",
+        {
+            "ambush_attack": "Käännetty kyltti",
+            "ambush_damage": "reorder",
+            "ambush_target": "A",
+            "resistance_attack": "",
+            "resistance_damage": "0",
+            "loot": 1,
+            "durability": 0,
+            "cash_for_destroying": 0,
+            "target": "A",
+        },
+    )
+    durable = ResistanceCard(
+        902,
+        "Rajaportti",
+        {
+            "ambush_attack": "",
+            "ambush_damage": "0",
+            "ambush_target": "A",
+            "resistance_attack": "Tarkk’ampujia",
+            "resistance_damage": "1",
+            "loot": 0,
+            "durability": 1,
+            "cash_for_destroying": 0,
+            "target": "A",
+        },
+    )
+    engine.resistance_deck.names_and_effects[901] = ephemeral
+    engine.resistance_deck.names_and_effects[902] = durable
+    engine.resistance_queue.cards_and_visibilities = [[901, True], [902, True]]
+    engine.resistance = Resistance(engine.resistance_queue.describe(0), engine)
+    pillage_before = len(engine.pillage_queue)
+    lines = engine._sync_resistance_front()
+    assert engine.resistance.name == "Rajaportti"
+    assert engine.resistance.durability == 1
+    assert engine.resistance.active
+    assert engine.convoy.units[-1] is front
+    assert any("Metsätie" in line for line in lines)
+    assert any("ryöstöjonoon" in line for line in lines)
+    assert len(engine.pillage_queue) == pillage_before + 1
+    assert [card for card, _ in engine.resistance_queue.cards_and_visibilities] == [902]
+
+
+def test_surprise_ambush_waits_for_the_reveal_and_reorder_does_not():
+    from sixtyfivekmconvoy.core.cards import ResistanceCard
+    from sixtyfivekmconvoy.core.models import Resistance
+
+    def card(cid: int, name: str, damage: str) -> ResistanceCard:
+        return ResistanceCard(
+            cid,
+            name,
+            {
+                "ambush_attack": "Väijytys",
+                "ambush_damage": damage,
+                "ambush_target": "A",
+                "resistance_attack": "",
+                "resistance_damage": "0",
+                "loot": 0,
+                "durability": 0,
+                "cash_for_destroying": 0,
+                "target": "A",
+            },
+        )
+
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=6)
+    _finish_placement(engine)
+    engine.resistance_deck.names_and_effects[911] = card(911, "Tiedetty", "3")
+    nxt = card(912, "Seuraava", "0")
+    nxt.effect["durability"] = 1
+    engine.resistance_deck.names_and_effects[912] = nxt
+    hits_before = len(engine.hit_decks[3].deck)
+    engine.resistance_queue.cards_and_visibilities = [[911, True], [912, True]]
+    engine.resistance = Resistance(engine.resistance_queue.describe(0), engine)
+    lines = engine._sync_resistance_front()
+    assert engine.resistance.name == "Seuraava"
+    assert len(engine.hit_decks[3].deck) == hits_before
+    assert not any("Tiedetty" in line for line in lines)
+
+    engine.resistance_deck.names_and_effects[913] = card(913, "Yllätys", "3")
+    stopping = card(914, "Seis", "3")
+    stopping.effect["durability"] = 1
+    engine.resistance_deck.names_and_effects[914] = stopping
+    engine.resistance_queue.cards_and_visibilities = [[913, False], [914, True]]
+    lines = engine._sync_resistance_front()
+    assert engine.resistance.name == "Seis"
+    assert len(engine.hit_decks[3].deck) == hits_before - 1
+    assert any("Yllätys" in line for line in lines)

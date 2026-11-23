@@ -58,6 +58,17 @@ CASH_IN_CARDS = 4
 CASH_IN_REWARD = 1
 CASH_IN_REMOVES_FROM_PLAY = False
 
+# Officer queue is dealt and shown. A version can turn the queue off.
+USE_OFFICER_QUEUE = True
+# Queue cards behind the front stay face down unless a version turns these on.
+MAULING_QUEUE_FACE_UP = False
+PILLAGE_QUEUE_FACE_UP = False
+# Resistance queue at the start. The front card is face up and is the active resistance.
+RESISTANCE_QUEUE_LENGTH = 3
+# 1: a scout draws the action's printed number of resistance cards and keeps one
+# face up in the queue. 0 leaves resistance on the ordinary scout rules.
+SCOUT_RESISTANCE_DRAW = 0
+
 # Backward-compatible aliases (older imports / tests).
 INCENTIVE_SERVICE_CASH = SERVICE_CASH
 INCENTIVE_ATTACK_CASH = ATTACK_CASH

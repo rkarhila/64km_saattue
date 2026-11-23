@@ -533,33 +533,148 @@ class HitCard:
 # ---------------------------------------------------------------------------
 
 
-def load_action_deck() -> dict[int, ActionCard]:
+# Grid action.csv rows: one action and one modifier per troop, card ids in columns.
+_GRID_ACTION_ROWS = (
+    ("p_action", "p_action_mod", "P"),
+    ("i_action", "i_action_mod", "I"),
+    ("l_action", "l_action_mod", "L"),
+    ("a_action", "a_action_mod", "A"),
+)
+
+
+def _load_action_rows(rows: list[dict[str, str]]) -> dict[int, ActionCard]:
+    """Classic action.csv: one face per row, with zone and cost on that row."""
     deck: dict[int, dict[int, CardAction]] = {}
-    with open(_cards_path("action.csv"), encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            zone = (row.get("zone") or "").strip()
-            if not zone:
-                continue
-            action_type = row["action_type"].strip()
-            if not action_type:
-                continue
-            card_id = int(row["card_id"])
-            action_index = int(row["action_index"])
-            action = CardAction(
-                cost=(row.get("cost") or "0").strip() or "0",
-                action_name=ActionName.normalize(action_type) or action_type,
-                action_modifier=int(row["action_modifier"].strip() or 0),
-                zone=zone,
-                troop_type=row["troop_type"].strip(),
-                tire=int(row["tire"].strip() or 0),
-                intoxicate=int(row["intoxicate"].strip() or 0),
-                name=(row["name"].strip() or action_type),
-            )
-            deck.setdefault(card_id, {})[action_index] = action
+    for row in rows:
+        zone = (row.get("zone") or "").strip()
+        if not zone:
+            continue
+        action_type = (row.get("action_type") or "").strip()
+        if not action_type:
+            continue
+        card_id = int(row["card_id"])
+        action_index = int(row["action_index"])
+        action = CardAction(
+            cost=(row.get("cost") or "0").strip() or "0",
+            action_name=ActionName.normalize(action_type) or action_type,
+            action_modifier=int((row.get("action_modifier") or "0").strip() or 0),
+            zone=zone,
+            troop_type=(row.get("troop_type") or "").strip(),
+            tire=int((row.get("tire") or "0").strip() or 0),
+            intoxicate=int((row.get("intoxicate") or "0").strip() or 0),
+            name=((row.get("name") or "").strip() or action_type),
+        )
+        deck.setdefault(card_id, {})[action_index] = action
     return {
         cid: ActionCard(id=cid, actions=[bucket[i] for i in sorted(bucket)])
         for cid, bucket in sorted(deck.items())
     }
+
+
+def _action_csv_is_grid(fieldnames: list[str], rows: list[dict[str, str]]) -> bool:
+    label_col = fieldnames[0] if fieldnames else ""
+    labels = {(row.get(label_col) or "").strip() for row in rows}
+    return "p_action" in labels
+
+
+def _load_action_defs() -> dict[str, dict[str, Any]]:
+    """Zone, cost, tiredness, and printed name for a grid action key."""
+    path = _cards_path("action_defs.csv")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(
+            "grid action.csv needs action_defs.csv in the same card directory"
+        )
+    defs: dict[str, dict[str, Any]] = {}
+    with open(path, encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            key = (row.get("key") or "").strip()
+            if not key:
+                continue
+            action_type = (row.get("action_type") or "").strip()
+            zone = (row.get("zone") or "").strip()
+            if not action_type or not zone:
+                raise ValueError(
+                    f"action_defs.csv key {key!r} needs action_type and zone"
+                )
+            sign_text = (row.get("modifier_sign") or "1").strip() or "1"
+            defs[key] = {
+                "action_type": action_type,
+                "zone": zone,
+                "cost": (row.get("cost") or "0").strip() or "0",
+                "tire": int((row.get("tire") or "0").strip() or 0),
+                "intoxicate": int((row.get("intoxicate") or "0").strip() or 0),
+                "name": (row.get("name") or "").strip() or action_type,
+                "modifier_sign": int(sign_text),
+            }
+    return defs
+
+
+def _load_action_grid(
+    rows: list[dict[str, str]], fieldnames: list[str]
+) -> dict[int, ActionCard]:
+    """Card ids are columns. Each troop row names an action key and its modifier."""
+    label_col = fieldnames[0]
+    card_ids = [int(name.strip()) for name in fieldnames[1:] if name.strip()]
+    by_label = {
+        (row.get(label_col) or "").strip(): row
+        for row in rows
+        if (row.get(label_col) or "").strip()
+    }
+    defs = _load_action_defs()
+    deck: dict[int, ActionCard] = {}
+    for cid in card_ids:
+        column = str(cid)
+        faces: list[CardAction] = []
+        for action_row, mod_row, troop in _GRID_ACTION_ROWS:
+            action_key = (by_label.get(action_row, {}).get(column) or "").strip()
+            mod_text = (by_label.get(mod_row, {}).get(column) or "").strip()
+            if not action_key:
+                if mod_text:
+                    raise ValueError(
+                        f"action.csv card {cid} {troop} has modifier {mod_text} and no action"
+                    )
+                continue
+            spec = defs.get(action_key)
+            if spec is None:
+                known = ", ".join(sorted(defs))
+                raise ValueError(
+                    f"action.csv card {cid} {troop} action {action_key!r} "
+                    f"is not in action_defs.csv (known: {known})"
+                )
+            if not mod_text:
+                raise ValueError(
+                    f"action.csv card {cid} {troop} action {action_key!r} has no modifier"
+                )
+            action_type = spec["action_type"]
+            faces.append(
+                CardAction(
+                    cost=str(spec["cost"]),
+                    action_name=ActionName.normalize(action_type) or action_type,
+                    action_modifier=int(mod_text) * int(spec["modifier_sign"]),
+                    zone=str(spec["zone"]),
+                    troop_type=troop,
+                    tire=int(spec["tire"]),
+                    intoxicate=int(spec["intoxicate"]),
+                    name=str(spec["name"]),
+                )
+            )
+        if faces:
+            deck[cid] = ActionCard(id=cid, actions=faces)
+    return deck
+
+
+def load_action_deck() -> dict[int, ActionCard]:
+    path = _cards_path("action.csv")
+    with open(path, encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = [name.strip() for name in (reader.fieldnames or [])]
+        rows = [
+            {key.strip(): value for key, value in row.items() if key is not None}
+            for row in reader
+        ]
+    if _action_csv_is_grid(fieldnames, rows):
+        return _load_action_grid(rows, fieldnames)
+    return _load_action_rows(rows)
 
 
 def load_officer_deck() -> dict[int, OfficerCard]:
@@ -730,6 +845,14 @@ def load_resistance_deck() -> dict[int, ResistanceCard]:
             from .i18n import format_mauling_target
 
             ambush_target = row.get("ambush_target", "").strip()
+            res_attack = row.get("resistance_attack", "").strip()
+            # No resistance attack of its own: the ambush attack is the counterattack.
+            if not res_attack and not (
+                resistance_damage.isdigit() and int(resistance_damage) > 0
+            ):
+                res_attack = row.get("ambush_attack", "").strip()
+                if ambush_damage.isdigit() and int(ambush_damage) > 0:
+                    resistance_damage = ambush_damage
             deck[cid] = ResistanceCard(
                 id=cid,
                 name=row["name"].strip(),
@@ -738,7 +861,7 @@ def load_resistance_deck() -> dict[int, ResistanceCard]:
                     "ambush_damage": ambush_damage,
                     "ambush_target": ambush_target,
                     "ambush_target_label": format_mauling_target(ambush_target),
-                    "resistance_attack": row.get("resistance_attack", "").strip(),
+                    "resistance_attack": res_attack,
                     "resistance_damage": resistance_damage,
                     # resistance_target is ignored: a counterattack's target is
                     # the mauling card that triggers it. Only ambush_target applies.

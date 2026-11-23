@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from . import config
 from .cards import CardDeck, CardQueue
 from .i18n import t
 
@@ -47,9 +48,12 @@ def player_view(
         _deck_row("resistance", engine.resistance_deck, engine.resistance_queue),
         _deck_row("pillage", engine.pillage_deck, engine.pillage_queue),
         _deck_row("mauling", engine.mauling_deck, engine.mauling_queue),
-        _deck_row("officer", engine.officer_deck, engine.officer_queue),
-        _deck_row("action", engine.action_deck, None),
     ]
+    if config.USE_OFFICER_QUEUE:
+        table_decks.append(
+            _deck_row("officer", engine.officer_deck, engine.officer_queue)
+        )
+    table_decks.append(_deck_row("action", engine.action_deck, None))
     deck_state = {
         "decks": {
             "action": engine.action_deck.to_json(),
@@ -92,6 +96,14 @@ def player_view(
         "resistance": engine.resistance.to_json(),
         "round": engine.rounds.count if engine.rounds else 0,
         "stage": engine.rounds.stage if engine.rounds else -1,
+        "cards_to_deal": int(
+            config.CARDS_TO_DEAL_FIRST_ROUND
+            if engine.rounds and engine.rounds.count == 0
+            else config.CARDS_TO_DEAL
+        ),
+        "promotions_to_win": int(config.PROMOTION_POINTS_TO_WIN),
+        "cash_to_win": int(config.CASH_TO_WIN),
+        "acting_unit": getattr(engine, "acting_unit_index", None),
         "terminal": engine.terminal,
         "you": player.number,
         "log": _log_tail(engine.messages, log_tail),

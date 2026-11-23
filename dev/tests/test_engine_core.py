@@ -337,6 +337,34 @@ def test_bypass_from_second_place_stops_at_the_front():
     assert rear.bypass_distance(2) == 2
 
 
+def test_negative_bypass_moves_toward_the_tail():
+    from sixtyfivekmconvoy.core.constants import ChoiceType
+    from sixtyfivekmconvoy.core.engine import GameEngine
+
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=1)
+    while engine.pending_choice().choicetype == ChoiceType.PLACE_UNITS:
+        engine.step([0])
+    face = {
+        "action_name": "bypass",
+        "action_modifier": -2,
+        "cost": "0",
+        "limits": {"P": "ABCE", "I": "ABCE", "L": "ABCE"},
+    }
+    convoy = engine.convoy
+    front = convoy.units[0]
+    tail = convoy.units[-1]
+    assert front.bypass_distance(-2) == -2
+    assert tail.bypass_distance(-2) == 0
+    assert not action_mod.why_action_impossible(engine, 0, face)
+    assert action_mod.why_action_impossible(engine, len(convoy.units) - 1, face)
+    near_tail = convoy.units[-2]
+    assert near_tail.bypass_distance(-2) == -1
+    new_pos = action_mod._shift_off_mauling(engine, front, front.bypass_distance(-1))
+    assert new_pos == 1
+    assert convoy.units[1] is front
+
+
 def test_retreat_identity_loop_tires_each_unit_once():
     """Regression: index-based loops re-resolved the retreating unit and skipped the next."""
     players = [Player(0), Player(1)]
@@ -410,6 +438,8 @@ def test_pillage_sober_chooses_front_or_revealed():
 
 
 def test_pillage_drunk_takes_front_card():
+    from sixtyfivekmconvoy.core.constants import ChoiceType
+
     engine = GameEngine()
     engine.reset(num_players=2, seed=1)
     engine.pillage_queue = CardQueue(engine.pillage_deck)
@@ -425,9 +455,12 @@ def test_pillage_drunk_takes_front_card():
     engine.convoy.units = [unit]
 
     gen = action_mod._resolve_pillage(engine, unit, modifier=0)
+    req = next(gen)
+    assert req.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
+    assert req.options == [front]
     try:
-        next(gen)
-        raise AssertionError("drunk pillage should not ask")
+        gen.send([front])
+        raise AssertionError("expected StopIteration")
     except StopIteration as stop:
         taken = stop.value
     assert taken == [{**engine.pillage_deck.describe(front), "id": front}]

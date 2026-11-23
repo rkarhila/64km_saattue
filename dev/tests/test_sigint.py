@@ -131,10 +131,13 @@ def test_sigint_flips_the_last_hidden_card_then_peeks_two():
         verb="sigint",
     )
     req = next(gen)
+    assert req.choicetype == ChoiceType.CHOOSE_QUEUE_TO_SCOUT
+    assert req.options == [action_mod.SCOUT_QUEUE_MAULING]
+    assert engine.mauling_queue.cards_and_visibilities[kept_down][1] is True
+    req = gen.send([action_mod.SCOUT_QUEUE_MAULING])
     assert req.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
     assert req.payload.get("queue") == "mauling"
     assert len(req.options) == 2
-    assert engine.mauling_queue.cards_and_visibilities[kept_down][1] is True
     keep = req.options[0]
     try:
         gen.send([keep])
@@ -161,8 +164,10 @@ def test_resolve_sigint_draws_from_mauling_deck_when_known():
         allowed_queue_codes={action_mod.SCOUT_QUEUE_MAULING},
         verb="sigint",
     )
-    # Single allowed deck → no queue choice.
     req = next(gen)
+    assert req.choicetype == ChoiceType.CHOOSE_QUEUE_TO_SCOUT
+    assert req.options == [action_mod.SCOUT_QUEUE_MAULING]
+    req = gen.send([action_mod.SCOUT_QUEUE_MAULING])
     assert req.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
     assert req.payload.get("queue") == "mauling"
     assert len(req.options) == 3

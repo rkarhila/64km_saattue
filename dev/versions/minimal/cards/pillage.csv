@@ -1,2 +1,25 @@
 card_id,name,cash,loot,atrocities,atrocities_if_under_influence,cards,intoxicate
-0,Kassalipas,3,,0,0,0,0
+0,Rahaa,3,,0,0,0,0
+1,Arvokasta tavaraa,,3,0,,,
+2,Hyödyllistä tavaraa,,,,,2,
+3,Päihdyttävää rahaa,3,,,,,1
+4,Päihdttävää arvokasta tavaraa,,3,,,,1
+5,Päihdyttäävää hyödyllistä tavaraa,,,,,2,1
+6,Moraalitonta rahaa,3,,1,,,
+7,Moraalitonta arvokasta tavaraa,,3,1,,,
+8,Moraalitonta hyödyllistä tavaraa,,,1,,2,
+9,Vakaata harkintaa vaativaa rahaa,3,,,1,,
+10,Vakaata harkintaa vaativaa arvokasta tavaraa,,3,,1,,
+11,Vakaata harkintaa vaativaa hyödyllistä tavaraa,,,,1,2,
+12,Rahaa,3,,0,0,0,0
+13,Arvokasta tavaraa,,3,0,,,
+14,Hyödyllistä tavaraa,,,,,2,
+15,Päihdyttävää rahaa,3,,,,,1
+16,Päihdttävää arvokasta tavaraa,,3,,,,1
+17,Päihdyttäävää hyödyllistä tavaraa,,,,,2,1
+18,Moraalitonta rahaa,3,,1,,,
+19,Moraalitonta arvokasta tavaraa,,3,1,,,
+20,Moraalitonta hyödyllistä tavaraa,,,1,,2,
+21,Vakaata harkintaa vaativaa rahaa,3,,,1,,
+22,Vakaata harkintaa vaativaa arvokasta tavaraa,,3,,1,,
+23,Vakaata harkintaa vaativaa hyödyllistä tavaraa,,,,1,2,

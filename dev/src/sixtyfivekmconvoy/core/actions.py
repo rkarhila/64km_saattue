@@ -252,7 +252,7 @@ def why_action_impossible(
         elif not unit.can_overtake(-1):
             reasons.append("cannot overtake backward for retreat")
     elif name == ActionName.BYPASS:
-        if unit.bypass_distance(modifier) <= 0:
+        if unit.bypass_distance(modifier) == 0:
             reasons.append(f"cannot bypass/overtake by {modifier}")
     elif name == ActionName.PILLAGE:
         if len(engine.pillage_queue) < 1:
@@ -605,38 +605,35 @@ def resolve_order(
             f"but no legal face (card returned)"
         )
 
-    if len(possible) == 1:
-        face_i, face = possible[0]
-    else:
-        action_choices = []
-        labels = list(range(len(possible)))
-        for opt_i, (face_i, face) in enumerate(possible):
-            action_choices.append(
-                {
-                    "option": opt_i,
-                    "face_index": face_i,
-                    "kind": "card",
-                    "face": format_face(face),
-                }
-            )
-        d = (
-            f"Order {unit_log_label(waiter)}: choose face of card {card_id}: "
-            + " ".join(f'{i}:"{possible[i][1].get("name")}"' for i in labels)
+    action_choices = []
+    labels = list(range(len(possible)))
+    for opt_i, (face_i, face) in enumerate(possible):
+        action_choices.append(
+            {
+                "option": opt_i,
+                "face_index": face_i,
+                "kind": "card",
+                "face": format_face(face),
+            }
         )
-        pick = yield ChoiceRequest(
-            player_id=orderer.agent_id(),
-            choicetype=ChoiceType.CHOOSE_ACTION,
-            options=labels,
-            num_choices=1,
-            description=d,
-            payload={
-                "reason": "order_choose_face",
-                "unit_index": waiter.index(),
-                "card_id": card_id,
-                "actions": action_choices,
-            },
-        )
-        face_i, face = possible[pick[0]]
+    d = (
+        f"Order {unit_log_label(waiter)}: choose face of card {card_id}: "
+        + " ".join(f'{i}:"{possible[i][1].get("name")}"' for i in labels)
+    )
+    pick = yield ChoiceRequest(
+        player_id=orderer.agent_id(),
+        choicetype=ChoiceType.CHOOSE_ACTION,
+        options=labels,
+        num_choices=1,
+        description=d,
+        payload={
+            "reason": "order_choose_face",
+            "unit_index": waiter.index(),
+            "card_id": card_id,
+            "actions": action_choices,
+        },
+    )
+    face_i, face = possible[pick[0]]
 
     nested = yield from resolve_action(
         engine,
@@ -1224,9 +1221,6 @@ def _resolve_pillage(
         return []
 
     offered = [_pillage_offer(engine, i) for i in indices]
-    if len(offered) == 1:
-        return [_take_pillage_at(engine, offered[0]["index"])]
-
     options = [o["id"] for o in offered]
     desc = t("log.choose_pillage")
     for o in offered:
@@ -1419,40 +1413,37 @@ def _resolve_scout_from_deck(
         )
         return []
 
-    if len(eligible) == 1:
-        code, qname, queue, deck = eligible[0]
-    else:
-        options = [c for c, _, _, _ in eligible]
-        desc = (
-            tf("log.choose_deck", label=label, verb=scout_verb(verb), count=count)
-        )
-        for c, name, _, d in eligible:
-            ds, disc = d.get_sizes()
-            desc += f"\n  {c}: {name} (deck={ds}, discard={disc})"
-        chosen = yield ChoiceRequest(
-            player_id=unit.player.agent_id(),
-            choicetype=ChoiceType.CHOOSE_QUEUE_TO_SCOUT,
-            options=options,
-            num_choices=1,
-            description=desc,
-            payload={
-                "reason": f"{verb}_choose_deck",
-                "verb": verb,
-                "count": count,
-                "queues": [
-                    {
-                        "option": c,
-                        "queue": name,
-                        "deck": d.get_sizes()[0],
-                        "discard": d.get_sizes()[1],
-                    }
-                    for c, name, _, d in eligible
-                ],
-            },
-        )
-        code = chosen[0]
-        match = next(row for row in eligible if row[0] == code)
-        code, qname, queue, deck = match
+    options = [c for c, _, _, _ in eligible]
+    desc = (
+        tf("log.choose_deck", label=label, verb=scout_verb(verb), count=count)
+    )
+    for c, name, _, d in eligible:
+        ds, disc = d.get_sizes()
+        desc += f"\n  {c}: {name} (deck={ds}, discard={disc})"
+    chosen = yield ChoiceRequest(
+        player_id=unit.player.agent_id(),
+        choicetype=ChoiceType.CHOOSE_QUEUE_TO_SCOUT,
+        options=options,
+        num_choices=1,
+        description=desc,
+        payload={
+            "reason": f"{verb}_choose_deck",
+            "verb": verb,
+            "count": count,
+            "queues": [
+                {
+                    "option": c,
+                    "queue": name,
+                    "deck": d.get_sizes()[0],
+                    "discard": d.get_sizes()[1],
+                }
+                for c, name, _, d in eligible
+            ],
+        },
+    )
+    code = chosen[0]
+    match = next(row for row in eligible if row[0] == code)
+    code, qname, queue, deck = match
 
     drawn: list[int] = []
     for step in range(count):
@@ -1476,36 +1467,33 @@ def _resolve_scout_from_deck(
         return []
 
     offers = [_drawn_card_offer(engine, code, cid) for cid in drawn]
-    if len(drawn) == 1:
+    desc = (
+        tf(
+            "log.choose_drawn",
+            label=label,
+            verb=scout_verb(verb),
+            count=len(drawn),
+            queue=queue_name(qname),
+        )
+    )
+    for offer in offers:
+        desc += f"\n  {offer['id']}: {offer['name']}"
+    pick = yield ChoiceRequest(
+        player_id=unit.player.agent_id(),
+        choicetype=ChoiceType.CHOOSE_PILLAGE_CARD,
+        options=list(drawn),
+        num_choices=1,
+        description=desc,
+        payload={
+            "reason": "scout_deck_pick",
+            "verb": verb,
+            "queue": qname,
+            "pillage_cards": offers,
+        },
+    )
+    keep = pick[0]
+    if keep not in drawn:
         keep = drawn[0]
-    else:
-        desc = (
-            tf(
-                "log.choose_drawn",
-                label=label,
-                verb=scout_verb(verb),
-                count=len(drawn),
-                queue=queue_name(qname),
-            )
-        )
-        for offer in offers:
-            desc += f"\n  {offer['id']}: {offer['name']}"
-        pick = yield ChoiceRequest(
-            player_id=unit.player.agent_id(),
-            choicetype=ChoiceType.CHOOSE_PILLAGE_CARD,
-            options=list(drawn),
-            num_choices=1,
-            description=desc,
-            payload={
-                "reason": "scout_deck_pick",
-                "verb": verb,
-                "queue": qname,
-                "pillage_cards": offers,
-            },
-        )
-        keep = pick[0]
-        if keep not in drawn:
-            keep = drawn[0]
 
     for cid in drawn:
         if cid != keep:
@@ -1513,7 +1501,6 @@ def _resolve_scout_from_deck(
 
     queue.put_card(keep, visible=True)
     keep_name = deck.get_name(keep) or str(keep)
-    placed_index = len(queue) - 1
 
     pay = _cash_for_revealed_cards(
         engine, unit.player, code, 1, label, paid_types=paid_types
@@ -1524,21 +1511,11 @@ def _resolve_scout_from_deck(
     if pay:
         found.append(pay)
 
-    engine._broadcast(
-        one_line(
-            tf(
-                "log.draw_into_queue",
-                label=label,
-                name=keep_name,
-                queue=queue_name(qname),
-            )
-        ),
-        kind="reveal",
-        queue=code,
-        index=placed_index,
-        card_id=keep,
-        event_type=EVENT_REVEAL,
+    engine._note_event(
+        EVENT_REVEAL,
         actor=unit.player.number,
+        queue=code,
+        card_id=keep,
         amount=1,
         card_visible=True,
     )
@@ -1589,6 +1566,32 @@ def resolve_scout(
     label = unit_log_label(unit)
     paid_types: set[int] = set()
     queue_mapping = _scout_queue_mapping(engine, allowed_queue_codes)
+    from . import config
+
+    resistance_draw = 0
+    configured_draw = int(getattr(config, "SCOUT_RESISTANCE_DRAW", 0) or 0)
+    resistance_allowed = (
+        allowed_queue_codes is None
+        or SCOUT_QUEUE_RESISTANCE in allowed_queue_codes
+    )
+    deck_codes = allowed_queue_codes
+    if configured_draw == 1 and resistance_allowed and verb == "scout" and count > 0:
+        # The action's modifier is how many resistance cards the player sees.
+        # They keep one of those face up in the queue.
+        resistance_draw = count
+        queue_mapping = [
+            row for row in queue_mapping if row[0] != SCOUT_QUEUE_RESISTANCE
+        ]
+        if allowed_queue_codes is None:
+            deck_codes = {
+                code
+                for code, _name, _queue in _scout_queue_mapping(engine, None)
+                if code != SCOUT_QUEUE_RESISTANCE
+            }
+        else:
+            deck_codes = {
+                code for code in allowed_queue_codes if code != SCOUT_QUEUE_RESISTANCE
+            }
 
     face_down_cards = []
     for code, qname, queue in queue_mapping:
@@ -1692,25 +1695,12 @@ def resolve_scout(
     if revealed_faces:
         if len(revealed_faces) == 1:
             qlabel, card_name = revealed_faces[0]
-            engine._broadcast(
-                one_line(
-                    tf(
-                        "log.reveal_card",
-                        label=label,
-                        queue=qlabel,
-                        name=card_name,
-                    )
-                )
-            )
             yield from _pause_after_reveal(
                 engine,
                 tf("log.reveal_pause", queue=qlabel, name=card_name),
             )
         else:
             names = ", ".join(f"*{name}* ({qlabel})" for qlabel, name in revealed_faces)
-            engine._broadcast(
-                one_line(tf("log.reveal_cards", label=label, names=names))
-            )
             yield from _pause_after_reveal(
                 engine,
                 tf("log.reveal_cards_pause", names=names),
@@ -1783,12 +1773,23 @@ def resolve_scout(
     queues_face_up = all(
         not queue.contains_hidden_cards() for _, _, queue in queue_mapping
     )
-    if flips < count and queues_face_up:
+    if queue_mapping and flips < count and queues_face_up:
         from_deck = yield from _resolve_scout_from_deck(
             engine,
             unit,
             count - flips,
-            allowed_queue_codes=allowed_queue_codes,
+            allowed_queue_codes=deck_codes,
+            verb=verb,
+            paid_types=paid_types,
+        )
+        revealed.extend(from_deck)
+
+    if resistance_draw:
+        from_deck = yield from _resolve_scout_from_deck(
+            engine,
+            unit,
+            resistance_draw,
+            allowed_queue_codes={SCOUT_QUEUE_RESISTANCE},
             verb=verb,
             paid_types=paid_types,
         )

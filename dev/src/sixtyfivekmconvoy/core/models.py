@@ -260,10 +260,19 @@ class Unit:
         raise ValueError("Overtaking modifier cannot be 0")
 
     def bypass_distance(self, modifier: int) -> int:
-        """Steps toward the front. A longer printed move stops at the front."""
-        if modifier <= 0:
-            return 0
-        return min(int(modifier), self.index())
+        """Steps toward the front (positive) or the tail (negative).
+
+        A longer move stops at that end. Zero means there is no room to move.
+        """
+        steps = int(modifier)
+        if steps > 0:
+            return min(steps, self.index())
+        if steps < 0:
+            if self.convoy is None:
+                return 0
+            room = len(self.convoy.units) - 1 - self.index()
+            return -min(-steps, room)
+        return 0
 
     def rest(self) -> None:
         from . import config
@@ -598,6 +607,26 @@ class Convoy:
         return [u.to_json(playerview=playerview) for u in self.units]
 
 
+def _resolved_resistance_attack(effect: dict) -> tuple[str, int]:
+    """Counterattack name and hit category.
+
+    A card with no resistance attack uses its ambush attack instead.
+    """
+    name = str(effect.get("resistance_attack") or "").strip()
+    raw = effect.get("resistance_damage")
+    text = "" if raw is None else str(raw).strip()
+    damage = int(text) if text.isdigit() else 0
+    if name or damage > 0:
+        return name, damage
+    ambush_name = str(effect.get("ambush_attack") or "").strip()
+    ambush_raw = effect.get("ambush_damage")
+    if ambush_raw is None:
+        ambush_raw = effect.get("attack")
+    ambush_text = "" if ambush_raw is None else str(ambush_raw).strip()
+    ambush_damage = int(ambush_text) if ambush_text.isdigit() else 0
+    return ambush_name, ambush_damage
+
+
 class Resistance:
     def __init__(self, description: dict | None, engine: GameEngine | None = None):
         self.engine = engine
@@ -632,9 +661,9 @@ class Resistance:
             self.ambush_attack = effect.get("ambush_attack") or ""
             self.ambush_damage = str(effect.get("ambush_damage") or effect.get("attack") or "0")
             self.ambush_target = effect.get("ambush_target") or effect.get("target") or ""
-            self.resistance_attack = effect.get("resistance_attack") or ""
-            res_dmg = effect.get("resistance_damage") or "0"
-            self.resistance_damage = int(res_dmg) if str(res_dmg).isdigit() else 0
+            self.resistance_attack, self.resistance_damage = _resolved_resistance_attack(
+                effect
+            )
             # Counterattack target lives on the mauling card. This column is ignored.
             self.resistance_target = ""
 
@@ -701,6 +730,17 @@ class Resistance:
             damage=damage,
             durability=self.durability,
         )
+
+    def activate_ambush(self, *, already_known: bool) -> str | None:
+        """Ambush as this card becomes the active resistance.
+
+        ``reorder`` happens whenever the card is taken, even if it was
+        already face up. Any other ambush is a surprise and happens only
+        when the card is turned face up at that moment.
+        """
+        if already_known and self.ambush_damage != "reorder":
+            return None
+        return self.attack()
 
     def attack(self) -> str:
         """
@@ -779,12 +819,21 @@ class Resistance:
             tf("log.ambush_hit", name=self.name, how=how, hits=", ".join(msgs))
         )
 
-    def distribute_loot(self) -> None:
-        if self.engine is None:
-            return
+    def distribute_loot(self) -> list[str]:
+        """Move this card's loot into the pillage queue. Returns the card names."""
+        if self.engine is None or self.loot <= 0:
+            return []
+        from . import config
+
+        face_up = bool(config.PILLAGE_QUEUE_FACE_UP)
+        names: list[str] = []
         for _ in range(self.loot):
-            if self.engine.pillage_deck.deck:
-                self.engine.pillage_queue.put_card(self.engine.pillage_deck.get_card())
+            if not self.engine.pillage_deck.deck:
+                break
+            card_id = self.engine.pillage_deck.get_card()
+            self.engine.pillage_queue.put_card(card_id, visible=face_up)
+            names.append(self.engine.pillage_deck.get_name(card_id) or str(card_id))
+        return names
 
     def _ambush_target_label(self) -> str:
         from .i18n import format_mauling_target

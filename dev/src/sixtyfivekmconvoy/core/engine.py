@@ -149,6 +149,7 @@ class GameEngine:
         self.human_seat = 0
         self.pause_after_actions = True
         self.current_action_index = 0
+        self.acting_unit_index: int | None = None
         self.players: list[Player] = []
         self.convoy: Convoy | None = None  # type: ignore[assignment]
         self.resistance = Resistance(None)
@@ -548,23 +549,80 @@ class GameEngine:
         for deck in decks:
             self.rng.shuffle(deck.deck)
 
+    def _sync_resistance_front(self) -> list[str]:
+        """Make the queue front the active resistance.
+
+        A card with durability 0 is resolved at once, then the convoy moves
+        to the next resistance. A longer move stops when a card with
+        durability remains, or the deck has been walked once.
+        """
+        lines: list[str] = []
+        seen = 0
+        limit = max(4, len(self.resistance_deck.names_and_effects) + 2)
+        while seen < limit:
+            if not self.resistance_queue:
+                if self.resistance_deck.deck or self.resistance_deck.discard:
+                    self.resistance_queue.put_card(self.resistance_deck.get_card())
+                else:
+                    self.resistance = Resistance(None, self)
+                    return lines
+            already_known = bool(self.resistance_queue.cards_and_visibilities[0][1])
+            if not already_known:
+                self.resistance_queue.reveal_card(0)
+            self.resistance = Resistance(self.resistance_queue.describe(0), self)
+            ambush = self.resistance.activate_ambush(already_known=already_known)
+            if self.resistance.durability > 0:
+                if ambush:
+                    lines.append(ambush)
+                return lines
+            seen += 1
+            if ambush:
+                lines.append(ambush)
+            loot = self.resistance.distribute_loot()
+            if loot:
+                lines.append(
+                    tf(
+                        "log.resistance_loot",
+                        name=self.resistance.name,
+                        cards=", ".join(loot),
+                    )
+                )
+            res_id, _ = self.resistance_queue.remove_card(0)
+            self.resistance_deck.discard_card(res_id)
+        if self.resistance is not None and self.resistance.durability <= 0:
+            self.resistance.active = False
+            self.resistance.status = "passed"
+        return lines
+
     def _open_table(self) -> None:
         """Discard the order card, shuffle every deck, then deal the queues."""
         if self._table_open:
             return
         self.mauling_deck.discard_card(self.setup_order_card_id)
         self._shuffle_all_decks()
+        from . import config
+
+        queue_length = max(1, int(config.RESISTANCE_QUEUE_LENGTH))
         self.resistance_queue.put_card(self._resistance_starter_id, visible=True)
-        for _ in range(2):
+        for _ in range(queue_length - 1):
             if self.resistance_deck.deck:
                 self.resistance_queue.put_card(self.resistance_deck.get_card())
+
+        mauling_up = bool(config.MAULING_QUEUE_FACE_UP)
         for _ in range(3):
-            self.mauling_queue.put_card(self.mauling_deck.get_card())
-        self.mauling_queue.reveal_card(0)
+            self.mauling_queue.put_card(
+                self.mauling_deck.get_card(), visible=mauling_up
+            )
+        if not mauling_up:
+            self.mauling_queue.reveal_card(0)
         self.resistance = Resistance(self.resistance_queue.describe(0), self)
         self._table_open = True
 
     def _fill_officer_queue(self) -> None:
+        from . import config
+
+        if not config.USE_OFFICER_QUEUE:
+            return
         while len(self.officer_queue) < len(self.players):
             if not self.officer_deck.deck and not self.officer_deck.discard:
                 break
@@ -930,6 +988,14 @@ class GameEngine:
             for unit in self.convoy.units
         ]
         self._broadcast(t("log.convoy_formed"))
+        if self.resistance.durability <= 0:
+            for line in self._sync_resistance_front():
+                if line:
+                    self._broadcast(line)
+            if self.resistance.name:
+                self._broadcast(
+                    tf("log.new_resistance", name=self.resistance.name)
+                )
 
         initial_units = len(self.convoy.units)
 
@@ -990,6 +1056,7 @@ class GameEngine:
                 for unit in units_with_action:
                     if unit.convoy is not self.convoy or unit not in self.convoy.units:
                         continue
+                    self.acting_unit_index = unit.index()
                     unit_idx = unit.index()
                     actioncard = unit.actioncard[action_index]
                     while len(unit.actiontaken) <= action_index:
@@ -1033,16 +1100,15 @@ class GameEngine:
                                 }
                             )
 
-                    if len(possible) > 1:
+                    if possible:
                         from .card_display import format_face
+                        from .card_display import passive_clues_for
 
                         labels = list(range(len(possible)))
                         action_choices = []
                         for opt_i, (face_i, desc) in enumerate(possible):
                             face = format_face(desc)
                             clues = []
-                            from .card_display import passive_clues_for
-
                             if not desc.get("is_officer_discard"):
                                 clues = passive_clues_for(
                                     unit.officers, desc.get("action_name")
@@ -1080,9 +1146,21 @@ class GameEngine:
                             },
                         )
                         choice_i = pick[0]
-                    elif len(possible) == 1:
-                        choice_i = 0
                     else:
+                        yield ChoiceRequest(
+                            player_id=unit.player.agent_id(),
+                            choicetype=ChoiceType.YES_NO,
+                            options=[0],
+                            num_choices=1,
+                            description=t("log.frustration.none_available"),
+                            payload={
+                                "reason": "no_action",
+                                "unit_index": unit.index(),
+                                "unit_type_label": unit_type_label(unit.unittype),
+                                "card_id": actioncard,
+                                "blocked": blocked_faces,
+                            },
+                        )
                         choice_i = -1
 
                     unit.actiontaken[action_index] = choice_i
@@ -1151,6 +1229,8 @@ class GameEngine:
 
                 action_index += 1
 
+            self.acting_unit_index = None
+
             # Advance
             self.rounds.next_stage()
             has_advance_log = False
@@ -1176,17 +1256,15 @@ class GameEngine:
                 if self.resistance_queue:
                     res_id, _ = self.resistance_queue.remove_card(0)
                     self.resistance_deck.discard_card(res_id)
-                self.resistance_queue.put_card(self.resistance_deck.get_card())
-                if self.resistance_queue.cards_and_visibilities and not self.resistance_queue.cards_and_visibilities[0][1]:
-                    self.resistance_queue.reveal_card(0)
-                    self.resistance = Resistance(self.resistance_queue.describe(0), self)
-                    ambush = self.resistance.attack()
-                    self._broadcast(ambush)
-                else:
-                    self.resistance = Resistance(self.resistance_queue.describe(0), self)
-                self._broadcast(
-                    tf("log.new_resistance", name=self.resistance.name)
-                )
+                if self.resistance_deck.deck or self.resistance_deck.discard:
+                    self.resistance_queue.put_card(self.resistance_deck.get_card())
+                for line in self._sync_resistance_front():
+                    if line:
+                        self._broadcast(line)
+                if self.resistance.name:
+                    self._broadcast(
+                        tf("log.new_resistance", name=self.resistance.name)
+                    )
                 has_advance_log = True
             else:
                 self._broadcast(t("log.convoy_stuck"))
@@ -1220,7 +1298,12 @@ class GameEngine:
             if early is not None:
                 return early
             self.mauling_deck.discard_card(maul_id)
-            self.mauling_queue.put_card(self.mauling_deck.get_card())
+            from . import config
+
+            self.mauling_queue.put_card(
+                self.mauling_deck.get_card(),
+                visible=bool(config.MAULING_QUEUE_FACE_UP),
+            )
 
             if getattr(self, "pause_after_actions", True):
                 yield ChoiceRequest(

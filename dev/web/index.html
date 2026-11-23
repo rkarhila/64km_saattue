@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>65km Convoy</title>
-  <link rel="stylesheet" href="/static/style.css?v=rules" />
+  <link rel="stylesheet" href="/static/style.css?v=pick1" />
 </head>
 <body>
   <header class="top">
@@ -34,7 +34,12 @@
 
   <section class="controls" id="lobby">
     <div class="lobby-main">
-    <div id="passwordGate" class="lobby-block">
+    <div id="versionGate" class="lobby-block">
+      <p class="hint">Valitse peliversio.</p>
+      <div id="versionChoices" class="version-choices"></div>
+      <p id="versionStatus" class="hint version-status"></p>
+    </div>
+    <div id="passwordGate" class="lobby-block hidden">
       <label class="lobby-field">Salasana
         <input type="password" id="lobbyPassword" autocomplete="current-password" />
       </label>
@@ -44,6 +49,7 @@
     <div id="gate" class="lobby-block hidden">
       <label class="lobby-field">Nimi
         <input type="text" id="playerName" maxlength="32" placeholder="Nimi" required />
+        <span id="nameError" class="name-error"></span>
       </label>
       <button id="showCreate" type="button">Uusi peli</button>
       <p id="lobbyStatus" class="hint muted"></p>
@@ -165,8 +171,16 @@
       <button id="shareBtn" type="button" class="share-btn">Jaa peli</button>
     </div>
 
-    <aside id="continuePanel" class="continue-panel" aria-live="polite">
-      <div id="roundInfo" class="side-round"></div>
+    <aside id="continuePanel" class="continue-panel info-panel" aria-label="Info">
+      <div class="info-top">
+        <ol id="prepTrack" class="phase-track prep-track" aria-label="Pelivalmistelut"></ol>
+        <div class="round-status">
+          <div id="roundInfo" class="turn-counter"></div>
+          <ol id="phaseTrack" class="phase-track" aria-label="Kierroksen vaiheet"></ol>
+        </div>
+        <p id="scoringLine" class="scoring-line"></p>
+      </div>
+      <div class="info-body">
       <p id="rulesWarning" class="hint warning" hidden></p>
       <p id="sideWaiting" class="waiting-for"></p>
       <div id="playerPrompt" class="player-prompt hidden">
@@ -178,9 +192,6 @@
         <input type="checkbox" id="pauseToggle" checked />
         Pysäytä lokin jälkeen
       </label>
-      <button id="randomChoiceBtn" type="button" class="secondary random-choice-btn" title="Valitse satunnainen laillinen toiminto (testaus)">
-        Satunnainen
-      </button>
       <div id="continueActions" class="continue-actions hidden">
         <p id="continueHint">Toiminto kirjattu lokiin.</p>
         <div id="botWait" class="bot-wait hidden" role="status">
@@ -188,6 +199,7 @@
           <span>Botti miettii…</span>
         </div>
         <button id="continueBtn" type="button">Jatka</button>
+      </div>
       </div>
     </aside>
 
@@ -236,6 +248,6 @@
   </main>
 
   <script src="/static/transport.js?v=pyodide-play"></script>
-  <script src="/static/app.js?v=rules"></script>
+  <script src="/static/app.js?v=pick1"></script>
 </body>
 </html>

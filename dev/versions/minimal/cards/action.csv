@@ -1,4 +1,9 @@
-card_id,action_index,troop_type,zone,action_type,action_modifier,cost,tire,intoxicate,name
-0,0,A,ABCE,Bypass,1,0,0,0,Eteenpäin
-1,0,A,AB,Attack,1,0,0,0,Hyökkää
-2,0,A,ABCE,Pillage,0,0,0,0,Ryöstä
+card_id,0,1,2,3,4,5,6,7,8,9,10,11
+p_action,p_attack,rest,pillage ,,bypass,p_attack,rest,pillage ,,reverse,,
+p_action_mod,5,10,3,,2,5,10,3,,1,,
+i_action,bypass,scout,i_attack,pillage,rest,reverse,i_attack,scout,pillage,rest,,
+i_action_mod,2,2,3,3,10,1,3,2,3,10,,
+l_action,,bypass,bypass,rest,service,,reverse,reverse,rest,l_attack,,
+l_action_mod,,2,2,10,1,,1,1,10,1,,
+a_action,pillage,pillage,,bypass,,pillage,pillage,,bypass,,rest,rest
+a_action_mod,1,1,,1,,1,1,,1,,10,10

@@ -123,12 +123,13 @@ class GameSession:
                 continue_hint = self.engine.messages[idx]
         else:
             awaiting = self.awaiting_continue or log_pause_for_human
-            if awaiting and self.engine.messages:
-                # The pause description is a short prompt. The log line names
-                # who acted, which is what the continue box should show.
+            if awaiting and log_pause_for_human and pending is not None and pending.description:
+                # Reveal pauses no longer write a temporary log line; the pause
+                # text is the continue prompt until the action summary lands.
+                continue_hint = pending.description
+            elif awaiting and self.engine.messages:
                 continue_hint = self.engine.messages[-1]
-            elif awaiting and log_pause_for_human and pending is not None:
-                continue_hint = pending.description or None
+
         if self._several_humans():
             show_choice = choice_for_me and not awaiting
         else:

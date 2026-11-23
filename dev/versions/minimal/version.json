@@ -9,6 +9,7 @@
     "mauling.csv",
     "officer.csv",
     "pillage.csv",
-    "resistance.csv"
+    "resistance.csv",
+    "action_defs.csv"
   ]
 }

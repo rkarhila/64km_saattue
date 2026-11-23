@@ -39,6 +39,10 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(str(exc)) from exc
     print(f"Versio: {args.version} ({root})", flush=True)
     print(f"Botit: {version_bots_dir(args.version)}", flush=True)
+    os.environ["CONVOY_BIND_HOST"] = args.host
+    os.environ["CONVOY_BIND_PORT"] = str(args.port)
+    os.environ["CONVOY_MAX_GAMES"] = str(args.max_games)
+    os.environ["CONVOY_PASSWORD"] = args.password
     from sixtyfivekmconvoy.api.app import main as serve
 
     serve(

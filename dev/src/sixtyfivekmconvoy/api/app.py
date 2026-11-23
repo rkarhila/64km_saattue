@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import argparse
 import hmac
+import json
 import os
 import secrets
+import sys
+import threading
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
@@ -336,6 +340,72 @@ async def game_ws(websocket: WebSocket, game_id: str, seat: int = 0):
                 break
     except WebSocketDisconnect:
         return
+
+
+class VersionChoice(BaseModel):
+    version: str
+
+
+@app.get("/versions")
+def list_versions():
+    """Versions the lobby can offer. The running one is already loaded."""
+    from sixtyfivekmconvoy.boot import versions_root
+
+    index_path = versions_root() / "index.json"
+    try:
+        catalog = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        catalog = {"versions": []}
+    versions = catalog.get("versions") if isinstance(catalog, dict) else []
+    return {
+        "current": os.environ.get("CONVOY_VERSION", ""),
+        "versions": versions if isinstance(versions, list) else [],
+    }
+
+
+@app.post("/version")
+def choose_version(body: VersionChoice):
+    """Restart this process on another version directory. Call before a game exists."""
+    from sixtyfivekmconvoy.boot import version_dir
+
+    slug = (body.version or "").strip()
+    try:
+        version_dir(slug)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    current = os.environ.get("CONVOY_VERSION", "")
+    if slug == current:
+        return {"current": current, "restarting": False}
+    with manager._lock:
+        busy = bool(manager.tables) or any(
+            not session.engine.terminal for session in manager.sessions.values()
+        )
+    if busy:
+        raise HTTPException(409, "Peli on jo auki. Lopeta se ennen version vaihtoa.")
+
+    def restart() -> None:
+        time.sleep(0.4)
+        os.execv(
+            sys.executable,
+            [
+                sys.executable,
+                "-m",
+                "sixtyfivekmconvoy.cli.web",
+                "--version",
+                slug,
+                "--host",
+                os.environ.get("CONVOY_BIND_HOST", "127.0.0.1"),
+                "--port",
+                os.environ.get("CONVOY_BIND_PORT", "8000"),
+                "--max-games",
+                os.environ.get("CONVOY_MAX_GAMES", "3"),
+                "--password",
+                os.environ.get("CONVOY_PASSWORD") or "1234",
+            ],
+        )
+
+    threading.Thread(target=restart, daemon=True).start()
+    return {"current": slug, "restarting": True}
 
 
 @app.get("/")

@@ -183,6 +183,13 @@
     bootLobby();
   }
 
+  if ($("playerName")) {
+    $("playerName").addEventListener("input", () => {
+      const err = $("nameError");
+      if (err) err.textContent = "";
+    });
+  }
+
   if ($("unlockBtn")) {
     $("unlockBtn").addEventListener("click", unlockLobby);
   }
@@ -263,12 +270,14 @@
 
   function requireName() {
     const name = playerName();
+    const err = $("nameError");
     if (!name) {
-      alert("Anna nimi.");
+      if (err) err.textContent = "Anna nimi.";
       const el = $("playerName");
       if (el) el.focus();
       return "";
     }
+    if (err) err.textContent = "";
     return name;
   }
 
@@ -336,6 +345,107 @@
   }
 
   async function bootLobby() {
+    if (await confirmVersion()) await bootAfterVersion();
+  }
+
+  async function confirmVersion() {
+    const gate = $("versionGate");
+    if (window.CONVOY_LOCAL || !gate) return true;
+    let data = null;
+    try {
+      const res = await convoyTransport("/versions", { cache: "no-store" });
+      if (res.ok) data = await res.json();
+    } catch (err) {
+      data = null;
+    }
+    if (!data) {
+      gate.classList.add("hidden");
+      return true;
+    }
+    let saved = "";
+    try {
+      saved = sessionStorage.getItem("convoyVersion") || "";
+    } catch (err) {
+      saved = "";
+    }
+    if (saved && saved === data.current) {
+      gate.classList.add("hidden");
+      return true;
+    }
+    const box = $("versionChoices");
+    const status = $("versionStatus");
+    if (box) box.innerHTML = "";
+    const versions = Array.isArray(data.versions) ? data.versions : [];
+    versions.forEach((version) => {
+      const id = String(version.id || "");
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,40}$/.test(id)) return;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "version-choice";
+      const title = document.createElement("strong");
+      title.textContent = version.title || id;
+      const summary = document.createElement("span");
+      const running = id === data.current ? " Tämä palvelin." : "";
+      summary.textContent = `${version.summary || ""}${running}`.trim();
+      button.append(title, summary);
+      button.addEventListener("click", () => selectVersion(id));
+      if (box) box.appendChild(button);
+    });
+    gate.classList.remove("hidden");
+    if ($("passwordGate")) $("passwordGate").classList.add("hidden");
+    if ($("gate")) $("gate").classList.add("hidden");
+    if (status) status.textContent = "";
+    return false;
+  }
+
+  async function selectVersion(id) {
+    const status = $("versionStatus");
+    if (status) status.textContent = "Käynnistetään versiota…";
+    let res;
+    try {
+      res = await convoyTransport("/version", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: id }),
+      });
+    } catch (err) {
+      if (status) status.textContent = "Versiota ei voitu vaihtaa.";
+      return;
+    }
+    if (!res.ok) {
+      if (status) status.textContent = await res.text();
+      return;
+    }
+    const data = await res.json();
+    try {
+      sessionStorage.setItem("convoyVersion", id);
+    } catch (err) {
+      /* ignore */
+    }
+    if (!data.restarting) {
+      if ($("versionGate")) $("versionGate").classList.add("hidden");
+      await bootAfterVersion();
+      return;
+    }
+    if (status) status.textContent = "Palvelin vaihtaa versiota…";
+    for (let i = 0; i < 40; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      try {
+        const check = await fetch("/versions", { cache: "no-store" });
+        if (!check.ok) continue;
+        const body = await check.json();
+        if (body.current === id) {
+          location.reload();
+          return;
+        }
+      } catch (err) {
+        /* the process is restarting */
+      }
+    }
+    if (status) status.textContent = "Version vaihto ei valmistunut. Lataa sivu uudelleen.";
+  }
+
+  async function bootAfterVersion() {
     if (!gateToken()) {
       showPasswordGate();
       return;
@@ -623,7 +733,6 @@
   }
 
   $("continueBtn").addEventListener("click", () => sendContinue());
-  $("randomChoiceBtn").addEventListener("click", () => sendRandomChoice());
 
   $("shareBtn").addEventListener("click", async () => {
     console.log("lastSnap status:", lastSnap);
@@ -805,21 +914,6 @@
     } finally {
       setBotBusy(false);
     }
-  }
-
-  async function sendRandomChoice() {
-    if (!lastSnap || lastSnap.terminal) return;
-    if (lastSnap.awaiting_continue) {
-      await sendContinue();
-      return;
-    }
-    const legal = lastSnap.legal_actions || [];
-    if (!legal.length) {
-      alert("Ei laillisia valintoja.");
-      return;
-    }
-    const pick = legal[Math.floor(Math.random() * legal.length)];
-    await sendChoice(Array.isArray(pick) ? [...pick] : [pick]);
   }
 
   function escapeHtml(s) {
@@ -1046,25 +1140,6 @@
     );
   }
 
-  function formationMarginHtml(order) {
-    const digits = String(order || "");
-    if (!digits) return "";
-    const players = 5;
-    const cells = [...digits].map((ch, i) => {
-      const seat = Number(ch) - 1;
-      const third = i > 0 && i % players === 0 ? " formation-third" : "";
-      return (
-        `<span class="formation-cell player-color-${seat}${third}">` +
-        `<span class="formation-digit">${escapeHtml(ch)}</span></span>`
-      );
-    }).join("");
-    return (
-      `<div class="formation-margin formation-left formation-full" aria-label="Lähtöjärjestys alhaalta ylös, ${escapeHtml(digits)}">` +
-      cells +
-      `</div>`
-    );
-  }
-
   function renderMaulingFancyHtml(card) {
     const effect = card.effect || {};
     const target = effect.target_label || effect.target || "?";
@@ -1072,7 +1147,6 @@
     const hitCat = Number(effect.hit_category || 0);
     const discardN = Number(effect.discard || 0);
     const failHit = Number(effect.fail_hit_category || 0);
-    const forms = card.formations || {};
 
     const targetBox = fancyBox(
       t("mauling.target_type"),
@@ -1097,14 +1171,9 @@
     }
 
     return (
-      `<div class="formation-mid">` +
-      formationMarginHtml(forms["5"]) +
-      `<div class="formation-core">` +
       `<div class="fancy-eyebrow">${escapeHtml(t("deck.mauling"))}</div>` +
       `<div class="fancy-title">${escapeHtml(card.name || "?")}</div>` +
-      `<div class="fancy-body">${targetBox}${effectBox}</div>` +
-      `</div>` +
-      `</div>`
+      `<div class="fancy-body">${targetBox}${effectBox}</div>`
     );
   }
 
@@ -1280,7 +1349,6 @@
     if (deckKey === "resistance" && (card.effect || card.ambush_attack_name != null)) {
       el.innerHTML = renderResistanceFancyHtml(card);
     } else if (deckKey === "mauling" && card.effect) {
-      if (card.formations) el.classList.add("has-formation");
       el.innerHTML = renderMaulingFancyHtml(card);
     } else if (deckKey === "pillage" && card.reward) {
       el.innerHTML = renderPillageFancyHtml(card);
@@ -1822,6 +1890,7 @@
     const chip = document.createElement("div");
     chip.className = `troop-chip troop-type-${unitType}`;
     chip.textContent = label;
+    if (draggable) chip.title = "Vedä paikkaan";
     chip.dataset.unitType = String(unitType);
     if (draggable) {
       chip.draggable = true;
@@ -1883,46 +1952,59 @@
     return { tired: 0, influence: 0, atrocity: 0 };
   }
 
+  function statusRowLabel(kind, n) {
+    if (kind === "tired") return `Väsymys: ${n}`;
+    if (kind === "influence") return "päihtynyt";
+    if (kind === "atrocity") return `hirmutekoja: ${n}`;
+    return "";
+  }
+
   function chipsHtml(
     counts,
     { haloKinds, blinkKinds, removedCounts, damageMarkers, blinkDamage, skipDamage } = {}
   ) {
-    const parts = [];
+    const rows = [];
     const order = [
       ["tired", counts.tired],
       ["influence", counts.influence],
       ["atrocity", counts.atrocity],
     ];
     order.forEach(([kind, n]) => {
+      const removed = (removedCounts && removedCounts[kind]) || 0;
+      if (n <= 0 && removed <= 0) return;
+      const chips = [];
       for (let i = 0; i < n; i++) {
         const classes = ["status-chip", kind];
         if (haloKinds && haloKinds.has(kind)) {
           classes.push("halo");
           if (blinkKinds && blinkKinds.has(kind)) classes.push("blink");
         }
-        parts.push(`<span class="${classes.join(" ")}"></span>`);
+        chips.push(`<span class="${classes.join(" ")}"></span>`);
       }
+      for (let i = 0; i < removed; i++) {
+        chips.push(
+          `<span class="status-chip ${kind} removed blink" aria-hidden="true">` +
+            `<span class="chip-x">×</span></span>`
+        );
+      }
+      const labelN = n > 0 ? n : removed;
+      rows.push(
+        `<div class="status-row status-row-${kind}">` +
+          `<span class="status-row-chips">${chips.join("")}</span>` +
+          `<span class="status-row-label">${escapeHtml(statusRowLabel(kind, labelN))}</span>` +
+          `</div>`
+      );
     });
-    // Ghost chips with blinking red X only while this pause is awaiting continue.
-    if (removedCounts) {
-      ["tired", "influence", "atrocity"].forEach((kind) => {
-        const n = removedCounts[kind] || 0;
-        for (let i = 0; i < n; i++) {
-          parts.push(
-            `<span class="status-chip ${kind} removed blink" aria-hidden="true">` +
-              `<span class="chip-x">×</span></span>`
-          );
-        }
-      });
-    }
     const cards = skipDamage
       ? ""
       : damageCardsHtml(damageMarkers, {
           blinkFresh: Boolean(blinkDamage),
         });
-    const body = parts.join("") + cards;
-    return body
-      ? `<div class="status-overlay">${body}</div>`
+    if (cards) {
+      rows.push(`<div class="status-row status-row-damage">${cards}</div>`);
+    }
+    return rows.length
+      ? `<div class="status-overlay">${rows.join("")}</div>`
       : `<div class="status-overlay"><span class="muted">—</span></div>`;
   }
 
@@ -2445,6 +2527,7 @@
 
   function colorizeLogHtml(text) {
     let html = escapeHtml(prettifyLogLine(text));
+    html = html.replace(/\*([^*]+)\*/g, "<strong>$1</strong>");
     const colorWords = [
       ["punaiset", "punainen"],
       ["vihreät", "vihreä"],
@@ -2477,15 +2560,6 @@
     const actions = $("continueActions");
     const awaiting = Boolean(snap.awaiting_continue && !snap.terminal);
     panel.classList.toggle("awaiting", awaiting);
-    const randomBtn = $("randomChoiceBtn");
-    if (randomBtn) {
-      const canRandom =
-        !snap.terminal &&
-        (awaiting || (Array.isArray(snap.legal_actions) && snap.legal_actions.length > 0));
-      randomBtn.disabled = !canRandom;
-      randomBtn.classList.toggle("hidden", snap.terminal);
-      randomBtn.textContent = awaiting ? "Satunnainen (jatka)" : "Satunnainen";
-    }
     if (actions) {
       if (awaiting) {
         actions.classList.remove("hidden");
@@ -2680,12 +2754,47 @@
     }
 
     if (isActionSelect(snap)) {
+      const payload = snap.pending.payload || {};
+      const actions = payload.actions || [];
       title.textContent = "Valitse toiminto";
       const hint = document.createElement("p");
       hint.className = "hint";
-      hint.textContent = `Napsauta toimintoa kortilla (${(snap.pending.payload || {}).unit_type_label || "yksikkö"}).`;
+      hint.textContent = actions.length === 1
+        ? `Napsauta ainoaa toimintoa kortilla (${payload.unit_type_label || "yksikkö"}).`
+        : `Napsauta toimintoa kortilla (${payload.unit_type_label || "yksikkö"}).`;
       opts.appendChild(hint);
       // Card is also shown under the unit with clickable faces
+      return;
+    }
+
+    if (
+      snap.pending.choicetype === CT.YES_NO &&
+      (snap.pending.payload || {}).reason === "no_action"
+    ) {
+      const payload = snap.pending.payload || {};
+      title.textContent = "Ei kelvollista toimintoa";
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      const blocked = Array.isArray(payload.blocked) ? payload.blocked : [];
+      const reasons = blocked
+        .map((face) => {
+          const name = face.name || face.action_name || "?";
+          const why = (face.reasons || []).join(", ");
+          return why ? `${name} (${why})` : name;
+        })
+        .filter(Boolean);
+      hint.textContent = reasons.length
+        ? `Yksiköllä (${payload.unit_type_label || "yksikkö"}) ei ole kelvollista toimintoa. Yksikkö turhautuu.\n${reasons.join("\n")}`
+        : `Yksiköllä (${payload.unit_type_label || "yksikkö"}) ei ole kelvollista toimintoa. Yksikkö turhautuu.`;
+      opts.appendChild(hint);
+      const actions = document.createElement("div");
+      actions.className = "choice-actions";
+      const okBtn = document.createElement("button");
+      okBtn.type = "button";
+      okBtn.textContent = "Turhaudu";
+      okBtn.addEventListener("click", () => sendChoice([0]));
+      actions.appendChild(okBtn);
+      mountSide(actions);
       return;
     }
 
@@ -2709,13 +2818,17 @@
         : "Valitse ryöstökortti";
       const hint = document.createElement("p");
       hint.className = "hint";
+      const cards = payload.pillage_cards || [];
       hint.textContent = deckPick
-        ? t("ui.scout.deck_pick_hint", { queue: queueName })
-        : "Napsauta jonon ensimmäistä korttia tai mitä tahansa paljastettua korttia.";
+        ? cards.length === 1
+          ? `Napsauta korttia, joka menee ${queueName}jonoon.`
+          : t("ui.scout.deck_pick_hint", { queue: queueName })
+        : cards.length === 1
+          ? "Napsauta ainoaa ryöstökorttia."
+          : "Napsauta jonon ensimmäistä korttia tai mitä tahansa paljastettua korttia.";
       opts.appendChild(hint);
       const row = document.createElement("div");
       row.className = "card-row pillage-choices";
-      const cards = payload.pillage_cards || [];
       cards.forEach((c, idx) => {
         const el = document.createElement("button");
         el.type = "button";
@@ -3068,12 +3181,7 @@
       else if (row.key === "mauling") queueCode = 1;
       else if (row.key === "resistance") queueCode = 2;
 
-      const setupOrder =
-        row.key === "mauling" && snap.state && snap.state.setup_order_card
-          ? snap.state.setup_order_card
-          : null;
-
-      if (!queue.length && !setupOrder) {
+      if (!queue.length) {
         const empty = document.createElement("div");
         empty.className = "queue-empty";
         empty.textContent = "—";
@@ -3232,12 +3340,6 @@
 
           track.appendChild(cardEl);
         }
-        if (setupOrder) {
-          const orderEl = document.createElement("div");
-          orderEl.className = "queue-card face-up setup-order-halo";
-          fillFancyQueueCard(orderEl, setupOrder, "mauling");
-          track.appendChild(orderEl);
-        }
       }
       rowEl.appendChild(track);
       el.appendChild(rowEl);
@@ -3269,6 +3371,159 @@
     }
   }
 
+  const ROUND_PHASES = [
+    "Nosta kortit",
+    "Valitse toimintokortit",
+    "Paljasta ja pelaa",
+    "Saattue etenee",
+    "Moukarointi",
+    "Hylkää ylimääräiset",
+    "Laske voitot",
+  ];
+
+  function currentPhaseIndex(snap) {
+    const state = (snap && snap.state) || {};
+    if (!state.setup_complete) return -1;
+    const stage = Number(state.stage);
+    if (!Number.isFinite(stage) || stage < 0) return -1;
+    if (stage <= 0) return 0;
+    if (stage === 1) return 1;
+    if (stage === 2) return 2;
+    if (stage === 3) return 3;
+    if (stage === 4) return 4;
+    const pending = snap.pending;
+    if (pending && pending.choicetype === CT.CHOOSE_CARDS_TO_DISCARD) return 5;
+    return 6;
+  }
+
+  const PREP_STEPS = [
+    "Sekoita pakat",
+    "Jaa aloituskortit",
+    "Sijoita yksiköt",
+  ];
+
+  const UNIT_LETTER = {
+    panzer: "P",
+    infantry: "J",
+    logistics: "H",
+  };
+
+  function renderPrepTrack(snap) {
+    const track = $("prepTrack");
+    if (!track) return;
+    const state = (snap && snap.state) || {};
+    const placed = Boolean(state.setup_complete);
+    const units = Array.isArray(state.convoy) ? state.convoy : [];
+    const seats = Array.isArray(state.setup_pattern) ? state.setup_pattern : [];
+    track.innerHTML = "";
+    PREP_STEPS.forEach((label, index) => {
+      const step = document.createElement("li");
+      step.className = "phase-step";
+      const current = placed ? -1 : 2;
+      if (index < current || placed) step.classList.add("done");
+      if (index === current) step.classList.add("current");
+      const dot = document.createElement("span");
+      dot.className = "phase-dot";
+      dot.setAttribute("aria-hidden", "true");
+      const text = document.createElement("span");
+      text.className = "phase-label";
+      text.textContent = index === 1 && state.cards_to_deal != null
+        ? `${label} (${state.cards_to_deal})`
+        : label;
+      step.appendChild(dot);
+      step.appendChild(text);
+      if (index === 2 && (units.length || seats.length)) {
+        const row = document.createElement("span");
+        row.className = "order-row";
+        if (units.length) {
+          units.forEach((unit, unitIndex) => {
+            const chip = document.createElement("span");
+            const player = Number(unit && unit.player);
+            chip.className = `order-chip player-color-${player}`;
+            chip.textContent = UNIT_LETTER[unit && unit.unit_type] || "";
+            const typeLabel = (unit && unit.unit_type_label) || "";
+            chip.title = `#${unitIndex + 1} ${typeLabel}`.trim();
+            row.appendChild(chip);
+          });
+        } else {
+          seats.forEach((player, seatIndex) => {
+            const chip = document.createElement("span");
+            chip.className = `order-chip player-color-${Number(player)}`;
+            chip.title = `Paikka ${seatIndex + 1}`;
+            row.appendChild(chip);
+          });
+        }
+        step.appendChild(row);
+      }
+      track.appendChild(step);
+    });
+  }
+
+  function renderScoringLine(snap) {
+    const line = $("scoringLine");
+    if (!line) return;
+    const state = (snap && snap.state) || {};
+    const points = Number(state.promotions_to_win);
+    const cash = Number(state.cash_to_win);
+    const pp = Number.isFinite(points) ? `${points} ylennyspistettä` : "ylennykset";
+    const money = Number.isFinite(cash) ? `${cash} MMk` : "raja";
+    const lead = "Pisteytys: Raha on rahaa. Ylennyspiste kierroksen suurimmalle kassalle, ei tasatilanteessa.";
+    let ending = "Loppu, kun saattueesta on jäljellä kolmannes. Eniten rahaa voittaa.";
+    if (points > 0 && cash > 0) {
+      ending = `Loppu: ${pp}, ${money} tai kolmannes saattueesta (eniten rahaa voittaa). Molemmat rajat samalla kierroksella: tasapeli.`;
+    } else if (cash > 0) {
+      ending = `Loppu: ${money} tai kolmannes saattueesta. Eniten rahaa voittaa.`;
+    } else if (points > 0) {
+      ending = `Loppu: ${pp} tai kolmannes saattueesta. Eniten rahaa voittaa.`;
+    }
+    line.textContent = `${lead} ${ending}`;
+  }
+
+  function renderPhaseTrack(snap) {
+    const track = $("phaseTrack");
+    if (!track) return;
+    const state = (snap && snap.state) || {};
+    const current = currentPhaseIndex(snap);
+    const deal = state.cards_to_deal;
+    const units = Array.isArray(state.convoy) ? state.convoy : [];
+    const pendingUnit = snap.pending && snap.pending.payload
+      ? snap.pending.payload.unit_index
+      : null;
+    const acting = state.acting_unit != null ? state.acting_unit : pendingUnit;
+    track.innerHTML = "";
+    ROUND_PHASES.forEach((label, index) => {
+      const step = document.createElement("li");
+      step.className = "phase-step";
+      if (current > index) step.classList.add("done");
+      if (current === index) step.classList.add("current");
+      const dot = document.createElement("span");
+      dot.className = "phase-dot";
+      dot.setAttribute("aria-hidden", "true");
+      const text = document.createElement("span");
+      text.className = "phase-label";
+      text.textContent = index === 0 && deal != null
+        ? `${label} (${deal})`
+        : label;
+      step.appendChild(dot);
+      step.appendChild(text);
+      if (index === 2 && current === 2 && units.length) {
+        const dots = document.createElement("span");
+        dots.className = "unit-dots";
+        units.forEach((unit, unitIndex) => {
+          const mark = document.createElement("span");
+          const player = Number(unit && unit.player);
+          mark.className = `unit-dot player-color-${player}`;
+          if (acting === unitIndex) mark.classList.add("current");
+          const typeLabel = (unit && unit.unit_type_label) || "";
+          mark.title = `#${unitIndex + 1} ${typeLabel}`.trim();
+          dots.appendChild(mark);
+        });
+        step.appendChild(dots);
+      }
+      track.appendChild(step);
+    });
+  }
+
   function render(snap, options) {
     const keepPicks = Boolean(options && options.keepPicks);
     ensureReorderPicks(snap);
@@ -3283,8 +3538,10 @@
     } else if (botMeta.bot_kind === "random") {
       botLine = " · vs random";
     }
-    $("roundInfo").textContent =
-      `Kierros ${state.round ?? "?"} · vaihe ${state.stage ?? "?"}${botLine}`;
+    $("roundInfo").textContent = `Kierros ${state.round ?? "?"}${botLine}`;
+    renderPrepTrack(snap);
+    renderPhaseTrack(snap);
+    renderScoringLine(snap);
     const rulesWarning = $("rulesWarning");
     if (rulesWarning) {
       const text = botMeta.warning || "";
@@ -3292,9 +3549,13 @@
       rulesWarning.textContent = text;
     }
     $("message").textContent = state.message || "";
-    const waitText = snap.waiting_for || "";
+    const youAct = !snap.terminal && (Boolean(snap.pending) || Boolean(snap.awaiting_continue));
+    const waitText = youAct ? "" : (snap.waiting_for || "");
     if ($("waitingFor")) $("waitingFor").textContent = waitText;
-    if ($("sideWaiting")) $("sideWaiting").textContent = waitText;
+    if ($("sideWaiting")) {
+      $("sideWaiting").textContent = waitText;
+      $("sideWaiting").classList.toggle("hidden", !waitText);
+    }
 
     if ($("pauseToggle") && typeof snap.pause_after_actions === "boolean") {
       $("pauseToggle").checked = snap.pause_after_actions;

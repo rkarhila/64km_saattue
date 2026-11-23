@@ -74,6 +74,16 @@ def _file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _rule_card_names(cards: Path, snapshot_cards: Path) -> list[str]:
+    """Required decks, plus any extra CSV a version keeps beside them."""
+    found: set[str] = set()
+    for folder in (cards, snapshot_cards):
+        if folder.is_dir():
+            found.update(path.name for path in folder.glob("*.csv"))
+    extras = sorted(found - set(CARD_FILES))
+    return list(CARD_FILES) + extras
+
+
 def snapshot_rules(dest: Path) -> None:
     """Copy the live config and card CSVs next to a checkpoint."""
     config_file, cards = live_rules_paths()
@@ -81,7 +91,7 @@ def snapshot_rules(dest: Path) -> None:
     shutil.copyfile(config_file, dest / "config.py")
     card_dest = dest / "cards"
     card_dest.mkdir(parents=True, exist_ok=True)
-    for name in CARD_FILES:
+    for name in _rule_card_names(cards, card_dest):
         src = cards / name
         if src.is_file():
             shutil.copyfile(src, card_dest / name)
@@ -100,7 +110,7 @@ def rules_changes(snapshot: Path, live: tuple[Path, Path] | None = None) -> list
         or _file_hash(snap_cfg) != _file_hash(config_file)
     ):
         changed.append("config.py")
-    for name in CARD_FILES:
+    for name in _rule_card_names(cards, snapshot / "cards"):
         saved = snapshot / "cards" / name
         current = cards / name
         if not saved.is_file() and not current.is_file():

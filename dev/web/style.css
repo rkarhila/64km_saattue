@@ -138,11 +138,32 @@ body {
 
 .status-overlay {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.12rem;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.18rem;
   min-height: 1rem;
   margin-top: 0.25rem;
+}
+
+.status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.28rem 0.4rem;
+}
+
+.status-row-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.12rem;
+}
+
+.status-row-label {
+  color: var(--ink);
+  font-size: 0.78rem;
+  line-height: 1.1;
+  font-weight: 600;
 }
 
 /* Static halo for markers gained this round (survives continue). */
@@ -265,6 +286,58 @@ body {
   flex: 1 0 100%;
   color: #e07a7a;
   margin: 0;
+}
+
+.lobby-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.name-error:empty {
+  display: none;
+}
+
+.name-error {
+  color: #d72626;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.version-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  flex: 1 0 100%;
+}
+
+.version-choice {
+  max-width: 22rem;
+  text-align: left;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font-weight: 500;
+  padding: 0.75rem 0.9rem;
+}
+
+.version-choice strong {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--accent);
+}
+
+.version-choice span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+.version-status:empty {
+  display: none;
 }
 
 .rules-intro {
@@ -446,27 +519,217 @@ button:disabled {
   width: auto;
 }
 
+#game {
+  padding-bottom: 18rem;
+}
+
 .continue-panel {
   position: fixed;
-  top: 5.5rem;
-  right: 0.75rem;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
   z-index: 80;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.4rem;
-  width: min(23rem, calc(100vw - 1.5rem));
-  max-height: calc(100vh - 6.5rem);
-  overflow: auto;
+  gap: 0.35rem;
+  width: auto;
+  max-height: min(54vh, 30rem);
+  overflow: hidden;
   margin: 0;
-  padding: 0.55rem 0.65rem 0.6rem;
+  padding: 0.45rem 0.85rem 0.55rem;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  background: rgba(18, 36, 28, 0.92);
+  border-bottom: none;
+  border-radius: 14px 14px 0 0;
+  background: #145c46;
+  color: var(--ink);
+  --muted: #e7f3ec;
+  border-color: #1e7a5c;
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.45),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+    0 -10px 28px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   backdrop-filter: blur(6px);
+}
+
+.info-top {
+  flex: 0 0 auto;
+}
+
+.round-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.turn-counter {
+  flex: 0 0 auto;
+  min-width: 5.6rem;
+  max-width: 9rem;
+  margin: 0.35rem 0 0;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.round-status .phase-track {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.info-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.45rem 0.9rem;
+  min-height: 0;
+  overflow: auto;
+}
+
+.info-body .player-prompt,
+.info-body .side-choice,
+.info-body .continue-actions {
+  flex: 1 1 16rem;
+}
+
+.phase-track {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  list-style: none;
+  margin: 0.15rem 0 0.2rem;
+  padding: 0.15rem 0 0.25rem;
+  overflow-x: auto;
+}
+
+.phase-step {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 5.4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  color: var(--muted);
+}
+
+.phase-step::before {
+  content: "";
+  position: absolute;
+  top: 0.48rem;
+  right: 50%;
+  left: -50%;
+  height: 2px;
+  background: rgba(154, 171, 156, 0.35);
+}
+
+.phase-step:first-child::before {
+  display: none;
+}
+
+.phase-step.done::before,
+.phase-step.current::before {
+  background: var(--accent);
+}
+
+.phase-dot {
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  border: 2px solid rgba(154, 171, 156, 0.7);
+  background: transparent;
+  z-index: 1;
+}
+
+.phase-step.done .phase-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.phase-step.current .phase-dot {
+  border-color: var(--ink);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(196, 163, 90, 0.4);
+}
+
+.phase-label {
+  margin-top: 0.28rem;
+  font-size: 0.72rem;
+  line-height: 1.15;
+  padding: 0 0.15rem;
+}
+
+.phase-step.current .phase-label {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.phase-step.done .phase-label {
+  color: var(--accent);
+}
+
+.unit-dots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.18rem;
+  max-width: 7.5rem;
+  margin-top: 0.22rem;
+  min-height: 0.55rem;
+}
+
+.unit-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--pc, var(--muted));
+  opacity: 0.4;
+}
+
+.unit-dot.current {
+  opacity: 1;
+  transform: scale(1.35);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+.prep-track {
+  margin-bottom: 0.15rem;
+  padding-bottom: 0.15rem;
+  border-bottom: 1px solid rgba(196, 163, 90, 0.18);
+}
+
+.order-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.16rem;
+  max-width: 11rem;
+  margin-top: 0.22rem;
+}
+
+.order-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0.95rem;
+  height: 0.95rem;
+  padding: 0 0.12rem;
+  border-radius: 999px;
+  background: var(--pc, var(--muted));
+  color: #102018;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.scoring-line {
+  margin: 0.15rem 0 0.2rem;
+  color: #e7f3ec;
+  font-size: 0.78rem;
+  line-height: 1.3;
 }
 
 .player-prompt {
@@ -504,15 +767,35 @@ button:disabled {
 }
 
 .continue-panel .troop-tray {
+  align-self: flex-start;
+  width: max-content;
+  max-width: 100%;
   margin: 0;
   gap: 0.4rem;
 }
 
 .continue-panel .troop-chip {
-  flex: 1 1 6.2rem;
-  min-width: 0;
-  padding: 0.5rem 0.4rem;
+  flex: 0 0 auto;
+  min-width: 6.4rem;
+  padding: 0.45rem 0.7rem 0.5rem;
   font-size: 0.95rem;
+  color: #f4efe4;
+  border: 2px dashed rgba(244, 239, 228, 0.9);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.28);
+  cursor: grab;
+}
+
+.continue-panel .troop-chip::before {
+  content: "⋮⋮";
+  display: block;
+  margin-bottom: 0.12rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  opacity: 0.9;
+}
+
+.continue-panel .troop-chip:active {
+  cursor: grabbing;
 }
 
 .continue-panel .choice-actions {
@@ -534,11 +817,10 @@ button:disabled {
 
 .continue-panel .side-round {
   font-family: var(--font-display);
-  font-size: 1.05rem;
+  font-size: 1rem;
   color: var(--accent);
   letter-spacing: 0.02em;
-  padding-bottom: 0.25rem;
-  border-bottom: 1px solid rgba(196, 163, 90, 0.2);
+  margin: 0;
 }
 
 .continue-panel .side-pause {
@@ -563,8 +845,11 @@ button:disabled {
 
 .continue-actions {
   display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem 1rem;
   max-height: min(28vh, 10rem);
   padding-top: 0.25rem;
   border-top: 1px solid rgba(196, 163, 90, 0.18);
@@ -575,8 +860,8 @@ button:disabled {
 }
 
 .continue-panel #continueHint {
-  margin: 0;
-  flex: 1 1 auto;
+  margin: 0 auto 0 0;
+  flex: 1 1 12rem;
   min-height: 0;
   overflow: auto;
   color: var(--ink);
@@ -585,9 +870,11 @@ button:disabled {
 }
 
 .continue-panel #continueBtn {
-  align-self: stretch;
-  min-width: 0;
-  padding: 0.45rem 0.6rem;
+  align-self: center;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 7.5rem;
+  padding: 0.5rem 1.4rem;
   font-size: 1.05rem;
 }
 
@@ -629,13 +916,18 @@ button:disabled {
 }
 
 @media (max-width: 720px) {
+  #game {
+    padding-bottom: 18rem;
+  }
+
   .continue-panel {
-    top: auto;
-    bottom: 0.75rem;
-    right: 0.75rem;
-    left: auto;
-    width: min(23rem, calc(100vw - 1.5rem));
-    max-height: calc(100vh - 1.5rem);
+    max-height: min(52vh, 26rem);
+    padding-left: 0.55rem;
+    padding-right: 0.55rem;
+  }
+
+  .phase-step {
+    min-width: 4.6rem;
   }
 }
 
@@ -1103,14 +1395,15 @@ section h2 {
 }
 
 .unit-tokens {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.1rem;
-  align-items: center;
+  display: block;
   min-height: 1.1rem;
   letter-spacing: 0.02em;
   font-size: 0.95rem;
   line-height: 1;
+}
+
+.unit-tokens .status-overlay {
+  margin-top: 0.2rem;
 }
 
 .unit-tokens .atrocity {

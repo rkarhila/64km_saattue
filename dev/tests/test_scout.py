@@ -159,7 +159,7 @@ def test_resolve_scout_reorders_when_multiple_from_same_queue():
     assert resistance_queue.cards_and_visibilities[idx2][1] is True
 
 
-def test_several_reveals_share_one_log_line():
+def test_several_reveals_wait_for_the_action_summary():
     from sixtyfivekmconvoy.rl.events import EVENT_REVEAL
 
     engine = GameEngine()
@@ -173,15 +173,15 @@ def test_several_reveals_share_one_log_line():
     ]
     idx1, idx2 = hidden_indices[0], hidden_indices[1]
     before = sum(1 for row in engine.event_rows if row[0] == EVENT_REVEAL)
+    before_msgs = len(engine.messages)
 
     gen = action_mod.resolve_scout(engine, inf, count=2)
     next(gen)
     pause = gen.send([200 + idx1, 200 + idx2])
 
     assert pause.choicetype == ChoiceType.LOG_PAUSE
-    lines = [m for m in engine.messages if "paljastaa" in m]
-    assert len(lines) == 1
-    assert lines[0].count("*") >= 4
+    assert "Paljastettu" in (pause.description or "")
+    assert len(engine.messages) == before_msgs
     after = sum(1 for row in engine.event_rows if row[0] == EVENT_REVEAL)
     assert after - before == 2
     reorder = gen.send([0])
@@ -258,3 +258,37 @@ def test_resolve_scout_draws_from_deck_when_queues_known():
         len(engine.resistance_deck.deck) + len(engine.resistance_deck.discard)
         == before_deck - 1
     )
+
+
+def test_configured_scout_keeps_one_of_several_resistance_cards(monkeypatch):
+    import sixtyfivekmconvoy.core.config as game_config
+
+    monkeypatch.setattr(game_config, "SCOUT_RESISTANCE_DRAW", 1)
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=11)
+    engine.pause_after_actions = False
+    inf = _seat_front_infantry(engine)
+    _reveal_all_queues(engine)
+    engine.mauling_deck.deck.clear()
+    engine.mauling_deck.discard.clear()
+    engine.pillage_deck.deck.clear()
+    engine.pillage_deck.discard.clear()
+    assert len(engine.resistance_deck.deck) >= 3
+
+    gen = action_mod.resolve_scout(engine, inf, count=3)
+    req = next(gen)
+    assert req.choicetype == ChoiceType.CHOOSE_QUEUE_TO_SCOUT
+    assert req.options == [action_mod.SCOUT_QUEUE_RESISTANCE]
+    req = gen.send([action_mod.SCOUT_QUEUE_RESISTANCE])
+    assert req.choicetype == ChoiceType.CHOOSE_PILLAGE_CARD
+    assert len(req.options) == 3
+    keep = req.options[0]
+    others = [card for card in req.options if card != keep]
+    try:
+        gen.send([keep])
+        raise AssertionError("expected the scout to finish")
+    except StopIteration:
+        pass
+    assert engine.resistance_queue.cards_and_visibilities[-1] == [keep, True]
+
+    assert all(card in engine.resistance_deck.discard for card in others)
