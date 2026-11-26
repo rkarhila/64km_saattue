@@ -10,8 +10,11 @@ from sixtyfivekmconvoy.core.cards import (
     OFFICER_CATALOG,
     PILLAGE_CATALOG,
     RESISTANCE_CATALOG,
+    load_hit_decks,
+    parse_hit_face,
     select_resistance_deck,
 )
+from sixtyfivekmconvoy.core.actions import _apply_category_hit
 from sixtyfivekmconvoy.core.constants import RESISTANCE_POOL_SIZE
 from sixtyfivekmconvoy.core.engine import GameEngine
 
@@ -179,6 +182,49 @@ def test_hit_deck_category_ranges_and_stats():
     assert counts[3][1] == 25 and counts[3][2] == 25
     assert counts[5][1] == 12 and counts[5][2] == 26 and counts[5][3] == 12
     assert counts[10][2] == 12 and counts[10][3] == 26 and counts[10][4] == 12
+
+
+def test_parse_hit_face_accepts_zero_and_T():
+    assert parse_hit_face("0") == 0
+    assert parse_hit_face("T") == "T"
+    assert parse_hit_face("t") == "T"
+    assert parse_hit_face("2") == 2
+
+
+def test_minimal_hit_deck_allows_zero_and_T(monkeypatch):
+    from sixtyfivekmconvoy.boot import version_dir
+
+    monkeypatch.setenv("CONVOY_CARDS", str(version_dir("minimal") / "cards"))
+    decks = load_hit_decks()
+    assert all(len(deck) == 36 for deck in decks.values())
+    faces_1 = {card.damage for card in decks[1].values()}
+    faces_3 = {card.damage for card in decks[3].values()}
+    faces_5 = {card.damage for card in decks[5].values()}
+    assert 0 in faces_1 and "T" in faces_1
+    assert 0 in faces_3 and "T" in faces_3
+    assert "T" in faces_5
+
+
+def test_hit_T_tires_unit_and_skips_resistance(monkeypatch):
+    engine = GameEngine()
+    engine.reset(num_players=2, seed=3)
+    _seat_units(engine)
+    unit = engine.convoy.units[0]
+    before = unit.tired
+    carry_before = list(unit.carry)
+    engine.draw_hit_damage = lambda category: "T"  # type: ignore[method-assign]
+    msg = _apply_category_hit(engine, unit, 3, "G")
+    assert unit.tired == before + 1
+    assert unit.carry == carry_before
+    assert unit.damage_markers == []
+    assert "väsy" in msg.lower() or "tired" in msg.lower()
+
+    resistance = engine.resistance
+    durability = resistance.durability
+    markers_before = len(resistance.damage_markers)
+    engine.attach_damage_marker(resistance, "T", category=5)
+    assert resistance.durability == durability
+    assert len(resistance.damage_markers) == markers_before
 
 
 def test_draw_hit_damage_uses_category_and_discards():

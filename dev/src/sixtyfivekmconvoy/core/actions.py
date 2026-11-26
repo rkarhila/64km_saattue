@@ -1909,13 +1909,16 @@ def _apply_category_hit(engine: GameEngine, unit: Unit, category: int, attack_ty
     if cat <= 0:
         return note or tf("log.category_dodged", label=label, category=category)
     damage = engine.draw_hit_damage(cat)
-    if damage <= 0:
+    if damage == "T":
+        unit.tire()
+        line = tf("log.category_tired", label=label, category=cat)
+    elif isinstance(damage, int) and damage <= 0:
         line = tf("log.category_zero", label=label, category=cat)
     else:
-        line = convoy.apply_damage(damage, unit=unit, attack_type=attack_type)
+        line = convoy.apply_damage(int(damage), unit=unit, attack_type=attack_type)
         engine.note_shaping("mauling_damage", unit.player.number, damage=int(damage))
         if unit in convoy.units:
-            engine.attach_damage_marker(unit, damage, category=cat)
+            engine.attach_damage_marker(unit, int(damage), category=cat)
     engine.discard_unclaimed_hits()
     if note:
         return one_line(f"{note}, {line}")

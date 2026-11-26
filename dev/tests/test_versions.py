@@ -68,6 +68,7 @@ from sixtyfivekmconvoy.core.config import (
     CONFIG_NAME,
     MAULING_QUEUE_FACE_UP,
     PILLAGE_QUEUE_FACE_UP,
+    PROMOTION_POINTS_TO_WIN,
     RESISTANCE_QUEUE_LENGTH,
     SCOUT_RESISTANCE_DRAW,
     USE_OFFICER_QUEUE,
@@ -76,8 +77,9 @@ from sixtyfivekmconvoy.core.constants import ChoiceType
 from sixtyfivekmconvoy.core.engine import GameEngine
 
 assert CONFIG_NAME == "minimal"
-assert CARDS_TO_DEAL == 3
-assert CASH_TO_WIN == 5
+assert CARDS_TO_DEAL == 5
+assert CASH_TO_WIN == 15
+assert PROMOTION_POINTS_TO_WIN == 3
 assert USE_OFFICER_QUEUE is False
 assert MAULING_QUEUE_FACE_UP is True
 assert PILLAGE_QUEUE_FACE_UP is True
@@ -95,10 +97,9 @@ assert all(visible for _, visible in engine.mauling_queue.cards_and_visibilities
 pending = engine.pending_choice()
 assert pending is not None
 assert pending.choicetype == ChoiceType.PLACE_UNITS
-assert len(engine.players[0].action_cards) == 3
+assert len(engine.players[0].action_cards) == 5
 assert engine.resistance.active
 assert engine.resistance.durability == 1
-assert engine.resistance.name == "Rajaportti"
 for _ in range(3):
     engine.step([0])
 pending = engine.pending_choice()
@@ -140,6 +141,8 @@ def test_default_queues_show_officers_and_hide_card_backs():
     assert view["cards_to_deal"] == 5
     assert view["promotions_to_win"] == 6
     assert view["cash_to_win"] == 25
+    assert view["hand_keep_base"] == 2
+    assert view["hand_keep_max"] == 5
     assert view["acting_unit"] is None
 
 
@@ -245,7 +248,7 @@ prepare_version("minimal")
 from sixtyfivekmconvoy.core.config import CASH_TO_WIN, CONFIG_NAME
 from sixtyfivekmconvoy.core.cards import _cards_dir
 assert CONFIG_NAME == "minimal"
-assert CASH_TO_WIN == 5
+assert CASH_TO_WIN == 15
 assert _cards_dir().endswith("versions/minimal/cards")
 """
     subprocess.run(

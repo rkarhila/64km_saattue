@@ -197,6 +197,8 @@ class GameSession:
             ][: len(self.engine.players)],
             "terminal": self.engine.terminal,
             "ranking": self.engine.winner_ranking(),
+            "end_reason": getattr(self.engine, "end_reason", "") or "",
+            "end_message": getattr(self.engine, "_end_message", None) or "",
             "stats": self.engine.stats.to_json() if self.engine.terminal else None,
             "awaiting_continue": awaiting,
             "continue_hint": continue_hint,

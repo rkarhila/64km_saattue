@@ -47,8 +47,12 @@ PROMOTION_POINTS_TO_WIN = 6
 # strictly more cash this round than every other player.
 # False: every player tied for the highest cash this round (above 0) gets a point.
 SOLE_CASH_LEAD_FOR_PROMOTION = True
-# First player whose total_cash reaches this wins immediately (mid-round OK).
+# Cash race threshold (≤0 disables). Default: first to reach wins mid-round.
 CASH_TO_WIN = 25
+# True: check cash at end of round bookkeeping instead. Then the richest
+# player wins if anyone is at/above CASH_TO_WIN. Same round as a sole
+# promotion win for a different player → tie.
+CASH_WIN_AT_END_OF_ROUND = False
 
 # Sell (Myy varusteita) pays CASH_IN_REWARD for the card's printed cost.
 # CASH_IN_CARDS is the count shown in the rules; the printed cost is what play uses.

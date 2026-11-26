@@ -505,18 +505,31 @@ class ResistanceCard:
         }
 
 
+def parse_hit_face(raw: str) -> int | str:
+    """Hit-card face: non-negative damage, or ``T`` (tiredness on a unit hit)."""
+    text = (raw or "").strip()
+    if text.upper() == "T":
+        return "T"
+    value = int(text)
+    if value < 0:
+        raise ValueError(f"hit damage must be >= 0 or T, got {raw!r}")
+    return value
+
+
 @dataclass
 class HitCard:
     """
     One card in a single attack-category deck.
 
-    The face is the damage for that category. The reverse is a money counter
-    of ``cash`` dollars, which is the category itself: 1, 3, 5, or 10.
+    The face is the damage for that category (``0+`` or ``T`` for tiredness).
+    The reverse is a money counter of ``cash`` dollars, which is the category
+    itself: 1, 3, 5, or 10. ``T`` tires a unit on mauling/ambush hits and has
+    no effect on resistance durability.
     """
 
     id: int
     category: int
-    damage: int
+    damage: int | str
     cash: int
 
     def describe(self) -> dict:
@@ -938,18 +951,19 @@ def load_hit_decks() -> dict[int, dict[int, HitCard]]:
     from .constants import ATTACK_CATEGORIES
 
     columns = {1: "damage_1", 3: "damage_3", 5: "damage_5", 10: "damage_10"}
+    # Default decks use a tight band; minimal also allows 0 / T (and 1 on cat 10).
     allowed = {
-        1: {0, 1},
-        3: {1, 2},
-        5: {1, 2, 3},
-        10: {2, 3, 4},
+        1: {0, 1, "T"},
+        3: {0, 1, 2, "T"},
+        5: {0, 1, 2, 3, "T"},
+        10: {1, 2, 3, 4, "T"},
     }
     decks: dict[int, dict[int, HitCard]] = {cat: {} for cat in ATTACK_CATEGORIES}
     with open(_cards_path("hit.csv"), encoding="utf-8") as f:
         for row in csv.DictReader(f):
             cid = int(row["card_id"].strip())
             for cat, column in columns.items():
-                value = int(row[column].strip())
+                value = parse_hit_face(row[column])
                 if value not in allowed[cat]:
                     raise ValueError(
                         f"hit.csv card {cid} category {cat} has invalid damage {value}"
@@ -957,11 +971,11 @@ def load_hit_decks() -> dict[int, dict[int, HitCard]]:
                 decks[cat][cid] = HitCard(
                     id=cid, category=cat, damage=value, cash=cat
                 )
-    for cat, deck in decks.items():
-        if len(deck) != 50:
-            raise ValueError(
-                f"hit.csv category {cat} must contain 50 cards, found {len(deck)}"
-            )
+    sizes = {cat: len(deck) for cat, deck in decks.items()}
+    if any(n <= 0 for n in sizes.values()):
+        raise ValueError(f"hit.csv must contain cards in every category, found {sizes}")
+    if len(set(sizes.values())) != 1:
+        raise ValueError(f"hit.csv categories must have equal size, found {sizes}")
     return decks
 
 

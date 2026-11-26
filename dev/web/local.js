@@ -125,7 +125,7 @@ try {
   if (passwordGate) passwordGate.classList.remove("hidden");
   document.body.replaceChildren(holder);
   const script = document.createElement("script");
-  script.src = new URL("app.js?v=pick1", import.meta.url).href;
+  script.src = new URL("app.js?v=help13", import.meta.url).href;
   document.body.appendChild(script);
 } catch (err) {
   say("Pelin lataus epäonnistui: " + err);

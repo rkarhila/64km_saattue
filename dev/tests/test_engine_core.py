@@ -199,7 +199,7 @@ def test_format_cost_follows_csv_formula():
     assert face["reward"]["label"].startswith("(+")
     assert face["action_name"] == "scout"
     assert "{reveal_mauling_cash}" not in face["help"]["finnish_explanation"]
-    assert "1 MMk" in face["help"]["finnish_explanation"]
+    assert "1 $" in face["help"]["finnish_explanation"]
     assert face["help"]["finnish_title"] == "Tiedustele"
 
     shields = format_face(
@@ -287,13 +287,13 @@ def test_action_help_covers_every_printed_action():
     suggested = action_help_for("attack", "Tietokone ehdottaa: Hyökkää!")
     assert suggested["finnish_title"] == "Hyökkää"
     assert "{attack_cash}" not in suggested["finnish_explanation"]
-    assert "2 MMk" in suggested["finnish_explanation"]
-    assert "2 Me¥" in suggested["english_explanation"]
+    assert "2 $" in suggested["finnish_explanation"]
+    assert "2 $" in suggested["english_explanation"]
     service = action_help_for("service", "Huolla")
     assert "{service_cash}" not in service["finnish_explanation"]
     assert "{service_tiredness}" not in service["finnish_explanation"]
     assert "1 väsymys" in service["finnish_explanation"]
-    assert "1 MMk" in service["finnish_explanation"]
+    assert "1 $" in service["finnish_explanation"]
     rest = action_help_for("rest", "Lepää")
     assert "{rest_tiredness}" not in rest["english_explanation"]
     assert "2 tiredness" in rest["english_explanation"]

@@ -180,7 +180,7 @@ class GameEngine:
         self.mauling_deck: CardDeck
         self.officer_deck: CardDeck
         self.hit_decks: dict[int, CardDeck]
-        self.hit_draws: list[dict[str, int]] = []
+        self.hit_draws: list[dict] = []
         self.struck_units: list[Unit] = []
         self.resistance_struck = False
         self._consolidating: set[int] = set()
@@ -633,12 +633,13 @@ class GameEngine:
             for player in self.players:
                 player.draw_card(1)
 
-    def draw_hit_damage(self, category: int) -> int:
+    def draw_hit_damage(self, category: int) -> int | str:
         """
-        Draw one card from that category's deck and return its damage.
+        Draw one card from that category's deck and return its face.
 
-        The card stays out of the deck while it is a damage marker. Unclaimed
-        draws and markers on a destroyed unit or resistance go back to discard.
+        Faces are non-negative damage or ``T`` (tiredness on a unit). The card
+        stays out of the deck while it is a damage marker. Unclaimed draws and
+        markers on a destroyed unit or resistance go back to discard.
         """
         deck = self.hit_decks.get(category)
         if deck is None:
@@ -789,10 +790,14 @@ class GameEngine:
         return paid
 
     def attach_damage_marker(
-        self, target: Any, damage: int, category: int | None = None
+        self, target: Any, damage: int | str, category: int | None = None
     ) -> None:
-        """Stick the dealt damage card on a unit or the resistance."""
-        if damage <= 0:
+        """Stick the dealt damage card on a unit or the resistance.
+
+        ``T`` and non-positive faces are not damage markers (tiredness is a
+        status token; zero does nothing). Resistance never takes ``T``.
+        """
+        if not isinstance(damage, int) or damage <= 0:
             return
         card_id = self._claim_hit_card(category) if category is not None else None
         target.damage_markers.append(
@@ -1357,7 +1362,12 @@ class GameEngine:
                     amount=1,
                 )
 
-            early = self._check_promotion_victory()
+            from .configs import get_config as _get_config
+
+            if bool(getattr(_get_config(), "CASH_WIN_AT_END_OF_ROUND", False)):
+                early = self._check_end_of_round_victories()
+            else:
+                early = self._check_promotion_victory()
             if early is not None:
                 return early
 
@@ -1383,7 +1393,7 @@ class GameEngine:
                     "log.score_player",
                     name=player_log_name(pl),
                     pp=pl.promotion_points,
-                    cash=pl.total_cash,
+                    cash=raha(pl.total_cash),
                 )
                 for pl in self.players
             ]
@@ -1500,8 +1510,11 @@ class GameEngine:
         """Instant win when total_cash first crosses CASH_TO_WIN (mid-round OK)."""
         if self.terminal:
             return
+        from .configs import get_config
         from .config import CASH_TO_WIN
 
+        if bool(getattr(get_config(), "CASH_WIN_AT_END_OF_ROUND", False)):
+            return
         if CASH_TO_WIN <= 0:
             return
         if before < CASH_TO_WIN <= player.total_cash:
@@ -1510,11 +1523,116 @@ class GameEngine:
                 tf(
                     "log.win_cash",
                     name=player_log_name(player),
-                    cash=player.total_cash,
-                    target=CASH_TO_WIN,
+                    cash=raha(player.total_cash),
+                    target=raha(CASH_TO_WIN),
                 ),
                 reason="cash",
             )
+
+    def _cash_threshold_leaders(self) -> list[Player]:
+        """Players tied for most cash, if anyone has reached CASH_TO_WIN."""
+        from .config import CASH_TO_WIN
+
+        if CASH_TO_WIN <= 0 or not self.players:
+            return []
+        best = max(p.total_cash for p in self.players)
+        if best < CASH_TO_WIN:
+            return []
+        return [p for p in self.players if p.total_cash == best]
+
+    def _sole_promotion_winner(self) -> Player | None:
+        """Sole promotion winner this check, or None (may enter sudden death)."""
+        from .config import PROMOTION_POINTS_TO_WIN
+
+        if PROMOTION_POINTS_TO_WIN <= 0:
+            return None
+        at_target = [
+            p for p in self.players if p.promotion_points >= PROMOTION_POINTS_TO_WIN
+        ]
+        if not self.sudden_death_pp:
+            if len(at_target) == 1:
+                return at_target[0]
+            return None
+        max_pp = max(p.promotion_points for p in self.players)
+        leaders = [p for p in self.players if p.promotion_points == max_pp]
+        if len(leaders) == 1:
+            return leaders[0]
+        return None
+
+    def _check_end_of_round_victories(self) -> StepResult | None:
+        """End-of-round cash race plus promotion, with cross-win ties."""
+        if self.terminal:
+            return self._finished_result()
+        from .config import CASH_TO_WIN, PROMOTION_POINTS_TO_WIN
+
+        cash_leaders = self._cash_threshold_leaders()
+        cash_winner = cash_leaders[0] if len(cash_leaders) == 1 else None
+        cash_tied = len(cash_leaders) >= 2
+        pp_winner = self._sole_promotion_winner()
+
+        if cash_winner is not None and pp_winner is not None and cash_winner is not pp_winner:
+            return self._end_game(None, t("log.win_tie"), reason="tie")
+
+        if cash_tied:
+            if pp_winner is not None:
+                # No sole cash winner; promotion can still decide alone.
+                return self._end_game(
+                    pp_winner,
+                    tf(
+                        "log.win_pp",
+                        name=player_log_name(pp_winner),
+                        pp=pp_winner.promotion_points,
+                        target=PROMOTION_POINTS_TO_WIN,
+                    ),
+                    reason="promotion",
+                )
+            return self._end_game(
+                None,
+                tf("log.win_cash_tie", target=raha(CASH_TO_WIN)),
+                reason="cash_tie",
+            )
+
+        if cash_winner is not None:
+            return self._end_game(
+                cash_winner,
+                tf(
+                    "log.win_cash",
+                    name=player_log_name(cash_winner),
+                    cash=raha(cash_winner.total_cash),
+                    target=raha(CASH_TO_WIN),
+                ),
+                reason="cash",
+            )
+
+        if pp_winner is not None:
+            reason = "sudden_death" if self.sudden_death_pp else "promotion"
+            key = "log.win_sudden" if self.sudden_death_pp else "log.win_pp"
+            kwargs = {
+                "name": player_log_name(pp_winner),
+                "pp": pp_winner.promotion_points,
+            }
+            if not self.sudden_death_pp:
+                kwargs["target"] = PROMOTION_POINTS_TO_WIN
+            return self._end_game(pp_winner, tf(key, **kwargs), reason=reason)
+
+        # Contested promotion threshold → sudden death (same as before).
+        if PROMOTION_POINTS_TO_WIN > 0 and not self.sudden_death_pp:
+            at_target = [
+                p
+                for p in self.players
+                if p.promotion_points >= PROMOTION_POINTS_TO_WIN
+            ]
+            if len(at_target) >= 2:
+                self.sudden_death_pp = True
+                names = ", ".join(player_log_name(p) for p in at_target)
+                self._broadcast(
+                    tf(
+                        "log.sudden_death",
+                        names=names,
+                        target=PROMOTION_POINTS_TO_WIN,
+                    )
+                )
+        return None
 
     def _check_promotion_victory(self) -> StepResult | None:
         """

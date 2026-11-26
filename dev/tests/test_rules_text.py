@@ -38,21 +38,21 @@ def test_rules_template_keeps_placeholders():
 def test_default_rules_use_discard_cash_in_and_win_threshold():
     html = _filled("default")
     assert "{cash_to_win}" not in html
-    assert "edellyttämän 25 MMk tai 6 ylennyspistettä" in html
+    assert "edellyttämän 25 $ tai 6 ylennyspistettä" in html
     assert "nostaa 5 korttia" in html
-    assert "Maksaa 4 korttia. Kortit menevät poistopakkaan ja saat 1 MMk." in html
+    assert "Maksaa 4 korttia. Kortit menevät poistopakkaan ja saat 1 $." in html
     assert "Pelaajalla on mahdollisuus laittaa 4 korttia" not in html
-    assert "tuo 2 MMk" in html
-    assert "saat 2 MMk ja 1 hirmutekopisteen" in html
-    assert "antaa 1 MMk ja vähintään yksi vastarintakortti 1 MMk" in html
-    assert "saa 1 MMk." in html
+    assert "tuo 2 $" in html
+    assert "saat 2 $ ja 1 hirmutekopisteen" in html
+    assert "antaa 1 $ ja vähintään yksi vastarintakortti 1 $" in html
+    assert "saa 1 $." in html
 
 
 def test_retire_rules_remove_cards_and_pay_one():
     html = _filled("retire")
-    assert "edellyttämän 25 MMk tai 6 ylennyspistettä" in html
+    assert "edellyttämän 25 $ tai 6 ylennyspistettä" in html
     assert (
         "Maksaa 4 korttia. Kortit poistuvat pelistä eivätkä palaa pakkaan, "
-        "ja saat 1 MMk."
+        "ja saat 1 $."
     ) in html
     assert "laittaa 4 korttia poistopakkaan" not in html

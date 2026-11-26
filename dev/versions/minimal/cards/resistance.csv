@@ -1,13 +1,22 @@
-card_id,name,ambush_attack,ambush_damage,ambush_target,resistance_attack,resistance_damage,resistance_target,loot,durability,cash_for_destroying,min_players,starting
-0,Rajaportti,,0,,,,,1,1,1,2,1
-1,Kylä,Sinkomiesten väijytys,3,A1,,,,3,2,2,2,0
-2,Kylä,Kiväärimiestin väijytys,3,A1,,,,3,2,2,2,0
-3,Kylä,Sinkomiesten väijytys,3,A1,,,,3,2,2,2,0
-4,Kylä,Kiväärimiestin väijytys,3,A1,,,,3,2,2,2,0
-5,Kirkonkylä,Tienvarsiräjähde,3,A1,,,,4,4,2,2,0
-6,Kirkonkylä,Sinkomiesten väijytys,3,A2,,,,4,4,2,2,0
-7,Kirkonkylä,Tienvarsiräjähde,3,A1,,,,4,5,2,2,0
-8,Pieni kaupunki,Tienvarsiräjähde,3,A2,,,,5,6,3,2,0
-9,Pieni kaupunki,Sinkomiesten väijytys,3,A1,,,,5,8,3,2,0
-10,Metsätie ja käännetty kyltti,Käännetty kyltti,reorder,A,,,,1,0,0,2,0
-11,Metsätie ja käännetty kyltti,Käännetty kyltti,reorder,AB,,,,1,0,0,2,0
+card_id,name,ambush_attack,ambush_damage,ambush_target,resistance_attack,resistance_damage,resistance_target,loot,durability,cash_for_destroying,min_players,starting,small_damage
+0,Rajapuomi,,0,,,,,1,1,1,2,1,T
+1,Kylä,Sinkomiesten väijytys,3,A1,,,,3,2,2,2,0,T
+2,Kylä,Kiväärimiestin väijytys,3,A1,,,,3,2,2,2,0,0
+3,Kylä,Sinkomiesten väijytys,3,A1,,,,3,2,2,2,0,1
+4,Kylä,Kiväärimiestin väijytys,3,A1,,,,3,2,2,2,0,1
+5,Kirkonkylä,Tienvarsiräjähde,3,A1,,,,4,4,2,2,0,2
+6,Kirkonkylä,Sinkomiesten väijytys,3,A2,,,,4,4,2,2,0,T
+7,Kirkonkylä,Tienvarsiräjähde,3,A1,,,,4,5,2,2,0,T
+8,Pieni kaupunki,Tienvarsiräjähde,3,A2,,,,5,6,3,2,0,0
+9,Pieni kaupunki,Sinkomiesten väijytys,3,A1,,,,5,8,3,2,0,1
+10,Metsätie ja käännetty kyltti,Käännetty kyltti,reorder,A,,,,1,0,0,2,0,1
+11,Metsätie ja käännetty kyltti,Käännetty kyltti,reorder,AB,,,,1,0,0,2,0,2
+12,Kylä,Sinkomiesten väijytys,3,A1,,,,3,2,2,2,0,T
+13,Kylä,Kiväärimiestin väijytys,3,A1,,,,3,2,2,2,0,0
+14,Kylä,Sinkomiesten väijytys,3,A1,,,,3,2,2,2,0,1
+15,Kylä,Kiväärimiestin väijytys,3,A1,,,,3,2,2,2,0,1
+16,Kirkonkylä,Tienvarsiräjähde,3,A1,,,,4,4,2,2,0,2
+17,Kirkonkylä,Sinkomiesten väijytys,3,A2,,,,4,4,2,2,0,T
+18,Kirkonkylä,Tienvarsiräjähde,3,A1,,,,4,5,2,2,0,T
+19,Pieni kaupunki,Tienvarsiräjähde,3,A2,,,,5,6,3,2,0,0
+20,Pieni kaupunki,Sinkomiesten väijytys,3,A1,,,,5,8,3,2,0,1

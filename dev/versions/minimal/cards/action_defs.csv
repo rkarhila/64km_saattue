@@ -3,8 +3,9 @@ p_attack,attack,AB,1/T+1/U,1,0,Hyökkää,1
 i_attack,attack,A,1/T+1/U,1,0,Hyökkää,1
 l_attack,attack,A,1/T+1/U,1,0,Hyökkää,1
 bypass,bypass,ABCE,1/T+1/U,1,0,Ohita,1
-reverse,bypass,ABCE,1/T+1/U,1,0,Ohita,-1
+reverse,bypass,ABCE,1/T+1/U+1/A,1,0,Peruuta,-1
 pillage,pillage,ABCE,1/T,1,0,Ryöstä,1
 rest,rest,ABCE,0,0,0,Lepää,1
 scout,scout,A,1/T+2/U+1/A,1,0,Tiedustele,1
 service,service,ABCE,1/T+1/U+1/A,1,0,Huolla,1
+exit,exit,E,1/T+1/U+1/A,0,0,"Sayonara, suckers!",1

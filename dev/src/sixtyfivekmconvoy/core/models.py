@@ -775,13 +775,13 @@ class Resistance:
             return one_line(tf("log.ambush_none", name=self.name))
         
         damage = self.engine.draw_hit_damage(self.attack_category)
-        if damage <= 0:
+        if isinstance(damage, int) and damage <= 0:
             self.engine.discard_unclaimed_hits()
             return one_line(
                 tf("log.ambush_zero", name=self.name, category=self.attack_category)
             )
 
-        from .actions import mauling_target_units
+        from .actions import mauling_target_units, unit_log_label
         try:
             targets = mauling_target_units(self.engine.convoy, self.ambush_target)
         except ValueError:
@@ -793,12 +793,13 @@ class Resistance:
 
         if not targets:
             self.engine.discard_unclaimed_hits()
+            shown = "T" if damage == "T" else damage
             return one_line(
                 tf(
                     "log.ambush_miss",
                     name=self.name,
                     category=self.attack_category,
-                    damage=damage,
+                    damage=shown,
                 )
             )
 
@@ -806,13 +807,23 @@ class Resistance:
         for unit in targets:
             if unit not in self.engine.convoy.units:
                 continue
-            dmg_msg = self.engine.convoy.apply_damage(damage, unit=unit)
-            if damage > 0 and unit in self.engine.convoy.units:
+            if damage == "T":
+                unit.tire()
+                msgs.append(
+                    tf(
+                        "log.category_tired",
+                        label=unit_log_label(unit),
+                        category=self.attack_category,
+                    )
+                )
+                continue
+            dmg_msg = self.engine.convoy.apply_damage(int(damage), unit=unit)
+            if isinstance(damage, int) and damage > 0 and unit in self.engine.convoy.units:
                 self.engine.attach_damage_marker(
                     unit, damage, category=self.attack_category
                 )
             msgs.append(dmg_msg)
-        
+
         self.engine.discard_unclaimed_hits()
         how = tf("log.ambush_how", how=self.ambush_attack) if self.ambush_attack else ""
         return one_line(

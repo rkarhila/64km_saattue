@@ -826,15 +826,15 @@
   function applyBotWait() {
     const btn = $("continueBtn");
     const wait = $("botWait");
-    const actions = $("continueActions");
-    if (actions && botBusy) actions.classList.remove("hidden");
-    if (btn) btn.classList.toggle("hidden", botBusy);
+    const awaiting = Boolean(lastSnap && lastSnap.awaiting_continue && !lastSnap.terminal);
+    if (btn) btn.classList.toggle("hidden", botBusy || !awaiting);
     if (wait) wait.classList.toggle("hidden", !botBusy);
     document.querySelectorAll(".choice-actions").forEach((el) => {
       el.classList.toggle("hidden", botBusy);
     });
     choiceSpinner($("choicePanel"));
     choiceSpinner($("sideChoice"));
+    choiceSpinner($("infoActionButtons"));
   }
 
   function setBotBusy(on) {
@@ -985,13 +985,20 @@
     "ui.scout.deck_pick_title": "Valitse kortti jonoon ({queue})",
     "ui.scout.deck_pick_hint": "Napsauta yksi nostetuista korteista. Se menee {queue}jonoon kuvapuoli ylöspäin; muut poistetaan.",
     "ui.scout.unknown_card": "Tuntematon (paikka {n})",
+    "ui.cash_unit": "$",
+    "log.cash_many": "{n} $",
     "ui.cash_in.title": "Vaihda kortteja rahaksi?",
-    "ui.cash_in.discard_hint": "Hylkää {n} korttia ja saa {cash} MMk. Kortit menevät poistopakkaan.",
-    "ui.cash_in.remove_hint": "Poista {n} korttia pelistä ja saa {cash} MMk. Kortit eivät palaa pakkaan.",
+    "ui.cash_in.discard_hint": "Hylkää {n} korttia ja saa {cash}. Kortit menevät poistopakkaan.",
+    "ui.cash_in.remove_hint": "Poista {n} korttia pelistä ja saa {cash}. Kortit eivät palaa pakkaan.",
     "ui.cash_in.yes": "Kyllä",
     "ui.cash_in.no": "Ei",
-    "ui.sell.discard_hint": "Valitse {n} korttia. Ne menevät poistopakkaan ja saat {cash} MMk.",
-    "ui.sell.remove_hint": "Valitse {n} korttia. Ne poistuvat pelistä ja saat {cash} MMk.",
+    "ui.sell.discard_hint": "Valitse {n} korttia. Ne menevät poistopakkaan ja saat {cash}.",
+    "ui.sell.remove_hint": "Valitse {n} korttia. Ne poistuvat pelistä ja saat {cash}.",
+    "ui.game_over.title": "Hurraa — peli päättyi!",
+    "ui.game_over.winner": "Voittaja on {name}!",
+    "ui.game_over.winner_you": "Sinä voitit — onnea matkaan mutavellistä!",
+    "ui.game_over.tie": "Tasapeli! Kukaan ei vienyt voittoa yksin.",
+    "ui.game_over.fallback": "Peli on ohi. Kiitos matkasta!",
   };
 
   // Active UI language. Add a sibling of `fi` to support another language.
@@ -1024,15 +1031,27 @@
       "ui.scout.deck_pick_title": "Choose a card for the {queue} queue",
       "ui.scout.deck_pick_hint": "Click one of the drawn cards. It goes into the {queue} queue face up; the rest are discarded.",
       "ui.scout.unknown_card": "Unknown (slot {n})",
+      "ui.cash_unit": "$",
+      "log.cash_many": "{n} $",
       "ui.cash_in.title": "Cash cards in?",
-      "ui.cash_in.discard_hint": "Discard {n} cards and gain {cash} Me¥. The cards go to the discard pile.",
-      "ui.cash_in.remove_hint": "Remove {n} cards from the game and gain {cash} Me¥. They do not return to the deck.",
+      "ui.cash_in.discard_hint": "Discard {n} cards and gain {cash}. The cards go to the discard pile.",
+      "ui.cash_in.remove_hint": "Remove {n} cards from the game and gain {cash}. They do not return to the deck.",
       "ui.cash_in.yes": "Yes",
       "ui.cash_in.no": "No",
-      "ui.sell.discard_hint": "Choose {n} cards. They go to the discard pile and you gain {cash} Me¥.",
-      "ui.sell.remove_hint": "Choose {n} cards. They leave the game and you gain {cash} Me¥.",
+      "ui.sell.discard_hint": "Choose {n} cards. They go to the discard pile and you gain {cash}.",
+      "ui.sell.remove_hint": "Choose {n} cards. They leave the game and you gain {cash}.",
+      "ui.game_over.title": "Hooray — the game is over!",
+      "ui.game_over.winner": "The winner is {name}!",
+      "ui.game_over.winner_you": "You won — time to leave the mud behind!",
+      "ui.game_over.tie": "It's a tie! Nobody took the win alone.",
+      "ui.game_over.fallback": "Game over. Thanks for the ride!",
     },
   };
+
+  function formatCash(amount) {
+    const n = Number(amount);
+    return t("log.cash_many", { n: Number.isFinite(n) ? n : 0 });
+  }
 
   function t(key, vars) {
     const active = UI_TABLES[UI_LANG] || UI_TABLES.fi;
@@ -1303,7 +1322,7 @@
         ? [reward.loot]
         : [];
     const bits = [];
-    if (Number(reward.cash) > 0) bits.push(`${reward.cash} MMk`);
+    if (Number(reward.cash) > 0) bits.push(formatCash(reward.cash));
     if (loot.length) bits.push(loot.join(" · "));
     return (
       `<div class="officer-tuck-name">${escapeHtml(card.name || t("deck.pillage"))}</div>` +
@@ -1617,10 +1636,6 @@
         onClick: handler,
       });
 
-      if (!troopSlots && facesList.length === 1) {
-        faceEl.classList.add("single-action-face");
-      }
-
       el.appendChild(faceEl);
     });
 
@@ -1670,7 +1685,8 @@
   const TROOP_SLOT_ORDER = ["panzer", "infantry", "logistics", "any"];
 
   function facesInTroopSlots(faces) {
-    if (!Array.isArray(faces) || faces.length !== 3) return null;
+    // Always map into the four troop rows (P/I/L/A); missing rows stay empty.
+    if (!Array.isArray(faces) || !faces.length || faces.length > 4) return null;
     const slots = TROOP_SLOT_ORDER.map(() => null);
     for (let faceIndex = 0; faceIndex < faces.length; faceIndex++) {
       const face = faces[faceIndex];
@@ -2006,17 +2022,6 @@
     return rows.length
       ? `<div class="status-overlay">${rows.join("")}</div>`
       : `<div class="status-overlay"><span class="muted">—</span></div>`;
-  }
-
-  function moneyCardsHtml(counters, blink) {
-    return (counters || [])
-      .map((counter) => {
-        const value = Number(counter.value);
-        const shown = Number.isFinite(value) ? value : "";
-        const fresh = blink && counter.fresh ? " blink" : "";
-        return `<span class="money-card money-${shown}${fresh}">${shown}$</span>`;
-      })
-      .join("");
   }
 
   function damageCardsHtml(markers, { blinkFresh } = {}) {
@@ -2555,33 +2560,74 @@
   function renderContinuePanel(snap) {
     const panel = $("continuePanel");
     if (!panel) return;
-    // Sidebar stays visible during the game; only the continue action block toggles.
     panel.classList.remove("hidden");
-    const actions = $("continueActions");
     const awaiting = Boolean(snap.awaiting_continue && !snap.terminal);
     panel.classList.toggle("awaiting", awaiting);
-    if (actions) {
+    const hint = $("continueHint");
+    const btn = $("continueBtn");
+    if (hint) {
       if (awaiting) {
-        actions.classList.remove("hidden");
         const raw =
           snap.continue_hint ||
           ((snap.state && snap.state.log && snap.state.log.length)
             ? snap.state.log[snap.state.log.length - 1]
             : "");
-        $("continueHint").innerHTML = raw
+        hint.innerHTML = raw
           ? colorizeLogHtml(raw)
           : "Toiminto kirjattu lokiin. Klikkaa jatkaaksesi.";
-      } else if (!botBusy) {
-        actions.classList.add("hidden");
+        hint.classList.remove("hidden");
+      } else {
+        hint.classList.add("hidden");
+        hint.textContent = "";
       }
     }
+    if (btn) btn.classList.toggle("hidden", !awaiting || botBusy);
     applyBotWait();
+  }
+
+  function renderGameOverPrompt(snap) {
+    const box = $("playerPrompt");
+    if (!box) return;
+    const titleEl = $("playerPromptTitle");
+    const bodyEl = $("playerPromptBody");
+    if (!titleEl || !bodyEl) return;
+
+    const reason = String(snap.end_reason || "");
+    const endMsg = String(snap.end_message || "").trim();
+    const ranking = snap.ranking || [];
+    const isTie = reason === "tie" || reason === "cash_tie";
+
+    titleEl.textContent = t("ui.game_over.title");
+    box.classList.add("game-over-prompt");
+    box.classList.remove("hidden");
+
+    if (isTie) {
+      bodyEl.textContent = [t("ui.game_over.tie"), endMsg].filter(Boolean).join(" ");
+      return;
+    }
+
+    const winner = ranking[0];
+    if (!winner) {
+      bodyEl.textContent = endMsg || t("ui.game_over.fallback");
+      return;
+    }
+
+    const name = playerDisplayName(winner);
+    const youWon = Number(winner.number) === seatNum;
+    const cheer = youWon
+      ? t("ui.game_over.winner_you")
+      : t("ui.game_over.winner", { name });
+    const colorClass = playerColorClass(winner.number);
+    bodyEl.innerHTML =
+      `<span class="game-over-winner ${colorClass}">${escapeHtml(cheer)}</span>` +
+      (endMsg ? `<span class="game-over-detail">${escapeHtml(endMsg)}</span>` : "");
   }
 
   function syncPlayerPrompt() {
     const box = $("playerPrompt");
     const panel = $("choicePanel");
     if (!box || !panel) return;
+    box.classList.remove("game-over-prompt");
     if (panel.classList.contains("hidden")) {
       box.classList.add("hidden");
       $("playerPromptTitle").textContent = "";
@@ -2590,13 +2636,21 @@
     }
     const title = ($("choiceTitle").textContent || "").trim();
     const desc = ($("choiceDesc").textContent || "").trim();
-    const hints = [...panel.querySelectorAll(".hint")]
-      .map((el) => (el.textContent || "").trim())
-      .filter(Boolean);
-    const body = hints.length ? hints.join("\n\n") : desc;
+    const rich = panel.querySelector(".hint.rich");
     $("playerPromptTitle").textContent = title;
-    $("playerPromptBody").textContent = body;
-    box.classList.toggle("hidden", !title && !body);
+    if (rich) {
+      $("playerPromptBody").innerHTML = rich.innerHTML;
+    } else {
+      const hints = [...panel.querySelectorAll(".hint")]
+        .map((el) => (el.textContent || "").trim())
+        .filter(Boolean);
+      $("playerPromptBody").textContent = hints.length ? hints.join("\n\n") : desc;
+    }
+    const bodyEl = $("playerPromptBody");
+    const hasBody = Boolean(
+      (bodyEl.textContent || "").trim() || bodyEl.querySelector("*")
+    );
+    box.classList.toggle("hidden", !title && !hasBody);
     panel.querySelectorAll(".hint").forEach((el) => el.classList.add("hidden"));
     const opts = $("choiceOptions");
     const hasControls = opts
@@ -2608,11 +2662,19 @@
   function clearSideChoice() {
     const el = $("sideChoice");
     if (el) el.innerHTML = "";
+    const actions = $("infoActionButtons");
+    if (actions) actions.innerHTML = "";
   }
 
   function mountSide(node) {
-    const el = $("sideChoice");
-    if (el) el.appendChild(node);
+    const isActions =
+      node &&
+      node.classList &&
+      node.classList.contains("choice-actions");
+    const host = isActions
+      ? $("infoActionButtons") || $("sideChoice")
+      : $("sideChoice");
+    if (host) host.appendChild(node);
     else $("choiceOptions").appendChild(node);
   }
 
@@ -2637,10 +2699,19 @@
       const used = new Set(
         Object.values(placementMap).filter((v) => v != null)
       );
-      const hint = document.createElement("p");
-      hint.className = "hint";
-      hint.textContent =
-        "Vedä panssarit, jalkaväki ja huolto omiin korostettuihin paikkoihisi (yksi jokaiseen kolmannekseen).";
+      const hint = document.createElement("div");
+      hint.className = "hint rich";
+      hint.innerHTML =
+        "<p>Vedä panssarit, jalkaväki ja huolto omiin korostettuihin paikkoihisi (yksi jokaiseen kolmannekseen).</p>" +
+        "<p>Kun sijoitat joukkoja, muista:</p>" +
+        "<ul>" +
+        "<li>Jalkaväki voi tiedustella ja hyökätä vain A-vyöhykkeeltä.</li>" +
+        "<li>Panssarit voivat hyökätä A- tai B-vyöhykkeeltä.</li>" +
+        "<li>Huoltojoukot voivat huoltaa muita joukkoja mistä vain, mutta hyökätä vain A-vyöhykkeeltä.</li>" +
+        "<li>Kaikki joukot voivat lähteä saattueesta E-vyöhykkeeltä.</li>" +
+        "<li>Ohittaminen, peruuttaminen, lepo ja ryöstely ovat mahdollisia kaikilla vyöhykkeillä.</li>" +
+        "<li>Joukkojen ei kannata viettää liian kauaa saattueen kärjessä, vaikka kärkietenijä saakin bonuksia.</li>" +
+        "</ul>";
       opts.appendChild(hint);
 
       const tray = document.createElement("div");
@@ -2748,7 +2819,7 @@
       hint.textContent =
         units.length === 1
           ? "Vedä kortti kädestä yksikön alle."
-          : "Vedä kortti jokaisen yksikön alle. Ne jaetaan edestä taakse.";
+          : "Vedä kortti jokaisen yksikön alle.";
       opts.appendChild(hint);
       return;
     }
@@ -2885,7 +2956,7 @@
       hint.textContent = payload.sell
         ? t(payload.removes ? "ui.sell.remove_hint" : "ui.sell.discard_hint", {
             n: need,
-            cash: payload.reward || 0,
+            cash: formatCash(payload.reward || 0),
           })
         : isPayCost(snap)
           ? `Valitse ${need} korttia kädestä maksaaksesi: ${payload.action_name || ""}`
@@ -3048,7 +3119,7 @@
       hint.className = "hint";
       hint.textContent = t(
         payload.removes ? "ui.cash_in.remove_hint" : "ui.cash_in.discard_hint",
-        { n: count, cash: reward }
+        { n: count, cash: formatCash(reward) }
       );
       opts.appendChild(hint);
 
@@ -3100,40 +3171,43 @@
     });
   }
 
-  function renderHitDecks(snap) {
-    const el = $("hitDecks");
+  function pileCountHtml(n) {
+    return `<span class="pile-count">${Number(n) || 0} korttia</span>`;
+  }
+
+  function makePileBox(kind, label, count) {
+    const pile = document.createElement("div");
+    pile.className = `pile-box ${kind}`;
+    pile.innerHTML =
+      `<span class="pile-kind">${kind === "discard" ? "Poisto" : "Pakka"}</span>` +
+      `<span class="pile-name">${escapeHtml(label || "")}</span>` +
+      pileCountHtml(count);
+    return pile;
+  }
+
+  function renderActionDeck(snap) {
+    const el = $("actionDeckPiles");
     if (!el) return;
     el.innerHTML = "";
-    const decks = (snap.state && snap.state.hit_decks) || [];
-    const showDrawn = Boolean(snap.awaiting_continue);
-    decks.forEach((deck) => {
-      const pair = document.createElement("div");
-      pair.className = `hit-pair hit-cat-${deck.category}`;
-
-      const pile = document.createElement("div");
-      pile.className = "pile-box draw hit-pile";
-      pile.innerHTML =
-        `<span class="pile-kind">Vahinko</span>` +
-        `<span class="pile-name">${escapeHtml(deck.label || "")}</span>` +
-        `<span class="pile-count">${Number(deck.deck) || 0}</span>`;
-      pair.appendChild(pile);
-
-      const slot = document.createElement("div");
-      slot.className = "hit-drawn-slot";
-      if (showDrawn) {
-        (deck.drawn || []).forEach((card) => {
-          const face = document.createElement("div");
-          face.className = "hit-drawn blink";
-          const damage = Number(card.damage);
-          face.innerHTML =
-            `<div class="hit-drawn-damage"><span class="hit-boom" aria-hidden="true">💥</span>${Number.isFinite(damage) ? damage : ""}</div>` +
-            `<div class="hit-drawn-caption">vahinko</div>`;
-          slot.appendChild(face);
-        });
-      }
-      pair.appendChild(slot);
-      el.appendChild(pair);
-    });
+    const rows = (snap.state && snap.state.decks && snap.state.decks.rows) || [];
+    const row = rows.find((r) => r.key === "action");
+    const decks = (snap.state && snap.state.decks && snap.state.decks.decks) || {};
+    const action = decks.action || {};
+    const you = ((snap.state && snap.state.players) || []).find(
+      (p) => p.number === seatNum
+    );
+    const label = (row && row.label) || "Toiminto";
+    // Prefer the viewer's live pile sizes (per-player action decks).
+    const discard =
+      you && you.discard != null
+        ? you.discard
+        : row
+          ? row.discard
+          : action.discard;
+    const draw =
+      you && you.deck != null ? you.deck : row ? row.deck : action.deck;
+    el.appendChild(makePileBox("discard", label, discard));
+    el.appendChild(makePileBox("draw", label, draw));
   }
 
   function renderDeckRows(snap) {
@@ -3150,26 +3224,14 @@
     ensureReorderPicks(snap);
 
     rows.forEach((row) => {
+      // Action pack sits beside the hand, not in the table rows.
+      if (row.key === "action") return;
+
       const rowEl = document.createElement("div");
       rowEl.className = `deck-row deck-key-${row.key || "unknown"}`;
 
-      // Left edge: discard pile
-      const discard = document.createElement("div");
-      discard.className = "pile-box discard";
-      discard.innerHTML =
-        `<span class="pile-kind">Poisto</span>` +
-        `<span class="pile-name">${escapeHtml(row.label || "")}</span>` +
-        `<span class="pile-count">${Number(row.discard) || 0}</span>`;
-      rowEl.appendChild(discard);
-
-      // Deck (draw pile)
-      const draw = document.createElement("div");
-      draw.className = "pile-box draw";
-      draw.innerHTML =
-        `<span class="pile-kind">Pakka</span>` +
-        `<span class="pile-name">${escapeHtml(row.label || "")}</span>` +
-        `<span class="pile-count">${Number(row.deck) || 0}</span>`;
-      rowEl.appendChild(draw);
+      rowEl.appendChild(makePileBox("discard", row.label, row.discard));
+      rowEl.appendChild(makePileBox("draw", row.label, row.deck));
 
       // Queue: render back→front so index 0 (front) is rightmost
       const track = document.createElement("div");
@@ -3381,6 +3443,127 @@
     "Laske voitot",
   ];
 
+  // Finnish phase help — edit freely.
+  // Phase 0: $N = cards dealt this round.
+  // Phase 5: $M = base hand keep, $N = max keep with full free logistics cargo.
+  // Phase 6: scoring blurb (with live PP/cash targets) is appended in code.
+  const ROUND_PHASE_HELP = [
+    "Jokainen pelaaja nostaa omasta toimintakorttipakastaan $N korttia.",
+    "Aseta jokaiselle omalle yksiköllesi yksi toimintokortti kuvapuoli alaspäin. Toimintakorteissa on useita eri toimintoja: Osa on tietylle joukkotyypille tarkoitettu, osa kaikille. Monet toiminnot on rajoitettu tietylle vyöhykkeelle eli sijainnille saattueessa — joukon vyöhykkeen näet saattueen yläpuolella olevista ABCE-kirjaimista. Toiminnoista maksetaan käsikorteilla: Hinta riippuu yksikön väsymyksestä, päihtyneisyydestä ja verenhimoisuudesta. Yksikkö turhautuu (päihtyy tai väsyy), jos se ei voi tehdä mitään kortissa olevista toiminnoista. Muista, että yksikön on pakko tehdä jokin mahdollisista toiminnoista.",
+    "Käy saattue läpi kärjestä perään. Paljasta yksikön kortti ja valitse siitä mahdollinen toiminto (vyöhyke, joukkotyyppi ja hinta rajoittavat). Maksa hinta, käy läpi vaikutus ja siirry seuraavaan. Jos mikään toiminto ei ole mahdollinen, yksikkö turhautuu (päihtyy tai väsyy).",
+    "Jos aktiivinen vastarinta on murrettu, saattue etenee seuraavaan vastarintaan. Uusi kortti voi laukaista väijytyksen, jos sitä ei ole tiedusteltu.",
+    "Käsittele moukarointijonon kärkikortti: vihollisen isku saattuetta vastaan. Kohde ja vahinko ovat näkyvissä kortissa, mahdollistaen varautumisen iskuun jo muutamaa kierrosta aiemmin.",
+    "Pelaaja saa vuoron lopussa pitää kädessään $M korttia sekä yhden jokaista huoltojoukkojen vapaata tavaratilaa kohden (eli korkeintaan $N).",
+    "Laske voitot ja tarkista voittoehdot.",
+  ];
+
+  let phaseHelpEl = null;
+  let phaseHelpIndex = -1;
+  let phaseHelpAnchor = null;
+
+  function phaseHelpBox() {
+    if (phaseHelpEl) return phaseHelpEl;
+    phaseHelpEl = document.createElement("div");
+    phaseHelpEl.id = "phaseHelpTip";
+    phaseHelpEl.className = "phase-help-tip hidden";
+    phaseHelpEl.setAttribute("role", "dialog");
+    phaseHelpEl.setAttribute("aria-modal", "false");
+    phaseHelpEl.innerHTML =
+      `<button type="button" class="phase-help-close" aria-label="Sulje">×</button>` +
+      `<h3 class="phase-help-title"></h3>` +
+      `<div class="phase-help-body"></div>`;
+    document.body.appendChild(phaseHelpEl);
+    phaseHelpEl.querySelector(".phase-help-close").addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      hidePhaseHelp();
+    });
+    phaseHelpEl.addEventListener("click", (ev) => ev.stopPropagation());
+    return phaseHelpEl;
+  }
+
+  function hidePhaseHelp() {
+    const tip = phaseHelpBox();
+    tip.classList.add("hidden");
+    phaseHelpIndex = -1;
+    phaseHelpAnchor = null;
+  }
+
+  function placePhaseHelp(anchor) {
+    const tip = phaseHelpBox();
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const tipRect = tip.getBoundingClientRect();
+    const margin = 8;
+    let left = rect.left + rect.width / 2 - tipRect.width / 2;
+    let top = rect.top - tipRect.height - margin;
+    if (top < margin) top = rect.bottom + margin;
+    left = Math.max(margin, Math.min(left, window.innerWidth - tipRect.width - margin));
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = `${Math.round(top)}px`;
+  }
+
+  function scoringHelpText(state) {
+    const points = Number(state && state.promotions_to_win);
+    const cash = Number(state && state.cash_to_win);
+    const endRound = Boolean(state && state.cash_win_at_end_of_round);
+    const pp = Number.isFinite(points) ? `${points} ylennyspistettä` : "ylennykset";
+    const money = Number.isFinite(cash) ? formatCash(cash) : "raja";
+    const lead = "Raha on rahaa. Ylennyspiste kierroksen suurimmalle kassalle, ei tasatilanteessa.";
+    let ending = "Peli päättyy, kun saattueesta on jäljellä kolmannes: eniten rahaa voittaa.";
+    if (points > 0 && cash > 0) {
+      ending = endRound
+        ? `Peli päättyy kierroksen lopussa, kun jollakin on vähintään ${money} (eniten rahaa voittaa), pelaaja saavuttaa ${pp}, tai saattueesta on jäljellä kolmannes. Rahavoitto ja ylennysvoitto eri pelaajille samalla kierroksella: tasapeli.`
+        : `Peli päättyy, kun pelaaja saavuttaa ${pp}, jollakin on vähintään ${money}, tai saattueesta on jäljellä kolmannes (eniten rahaa voittaa). Molemmat rajat samalla kierroksella: tasapeli.`;
+    } else if (cash > 0) {
+      ending = endRound
+        ? `Peli päättyy kierroksen lopussa, kun jollakin on vähintään ${money} (eniten rahaa voittaa), tai saattueesta on jäljellä kolmannes.`
+        : `Peli päättyy, kun jollakin on vähintään ${money}, tai saattueesta on jäljellä kolmannes: eniten rahaa voittaa.`;
+    } else if (points > 0) {
+      ending = `Peli päättyy, kun pelaaja saavuttaa ${pp}, tai saattueesta on jäljellä kolmannes: eniten rahaa voittaa.`;
+    }
+    return `${lead} ${ending}`;
+  }
+
+  function showPhaseHelp(index, anchor) {
+    const tip = phaseHelpBox();
+    const title = ROUND_PHASES[index] || "";
+    const state = (lastSnap && lastSnap.state) || {};
+    let body = String(ROUND_PHASE_HELP[index] || "");
+    if (index === 0) {
+      const deal = state.cards_to_deal != null ? String(state.cards_to_deal) : "?";
+      body = body.split("$N").join(deal);
+    } else if (index === 5) {
+      const base = state.hand_keep_base != null ? String(state.hand_keep_base) : "2";
+      const max = state.hand_keep_max != null ? String(state.hand_keep_max) : "5";
+      body = body.split("$M").join(base).split("$N").join(max);
+    } else if (index === 6) {
+      body = `${body} ${scoringHelpText(state)}`;
+    }
+    tip.querySelector(".phase-help-title").textContent = title;
+    tip.querySelector(".phase-help-body").textContent = body;
+    tip.classList.remove("hidden");
+    phaseHelpIndex = index;
+    phaseHelpAnchor = anchor;
+    placePhaseHelp(anchor);
+  }
+
+  function togglePhaseHelp(index, anchor) {
+    if (phaseHelpIndex === index && !phaseHelpBox().classList.contains("hidden")) {
+      hidePhaseHelp();
+      return;
+    }
+    showPhaseHelp(index, anchor);
+  }
+
+  if (!window.__phaseHelpOutsideBound) {
+    window.__phaseHelpOutsideBound = true;
+    document.addEventListener("click", () => hidePhaseHelp());
+    window.addEventListener("resize", () => {
+      if (phaseHelpAnchor && phaseHelpIndex >= 0) placePhaseHelp(phaseHelpAnchor);
+    });
+  }
+
   function currentPhaseIndex(snap) {
     const state = (snap && snap.state) || {};
     if (!state.setup_complete) return -1;
@@ -3396,87 +3579,60 @@
     return 6;
   }
 
-  const PREP_STEPS = [
-    "Sekoita pakat",
-    "Jaa aloituskortit",
-    "Sijoita yksiköt",
-  ];
-
-  const UNIT_LETTER = {
-    panzer: "P",
-    infantry: "J",
-    logistics: "H",
-  };
-
-  function renderPrepTrack(snap) {
-    const track = $("prepTrack");
-    if (!track) return;
-    const state = (snap && snap.state) || {};
-    const placed = Boolean(state.setup_complete);
-    const units = Array.isArray(state.convoy) ? state.convoy : [];
-    const seats = Array.isArray(state.setup_pattern) ? state.setup_pattern : [];
-    track.innerHTML = "";
-    PREP_STEPS.forEach((label, index) => {
-      const step = document.createElement("li");
-      step.className = "phase-step";
-      const current = placed ? -1 : 2;
-      if (index < current || placed) step.classList.add("done");
-      if (index === current) step.classList.add("current");
-      const dot = document.createElement("span");
-      dot.className = "phase-dot";
-      dot.setAttribute("aria-hidden", "true");
-      const text = document.createElement("span");
-      text.className = "phase-label";
-      text.textContent = index === 1 && state.cards_to_deal != null
-        ? `${label} (${state.cards_to_deal})`
-        : label;
-      step.appendChild(dot);
-      step.appendChild(text);
-      if (index === 2 && (units.length || seats.length)) {
-        const row = document.createElement("span");
-        row.className = "order-row";
-        if (units.length) {
-          units.forEach((unit, unitIndex) => {
-            const chip = document.createElement("span");
-            const player = Number(unit && unit.player);
-            chip.className = `order-chip player-color-${player}`;
-            chip.textContent = UNIT_LETTER[unit && unit.unit_type] || "";
-            const typeLabel = (unit && unit.unit_type_label) || "";
-            chip.title = `#${unitIndex + 1} ${typeLabel}`.trim();
-            row.appendChild(chip);
-          });
-        } else {
-          seats.forEach((player, seatIndex) => {
-            const chip = document.createElement("span");
-            chip.className = `order-chip player-color-${Number(player)}`;
-            chip.title = `Paikka ${seatIndex + 1}`;
-            row.appendChild(chip);
-          });
-        }
-        step.appendChild(row);
-      }
-      track.appendChild(step);
-    });
+  function playerDisplayName(p) {
+    const raw = String((p && p.name) || "").trim();
+    if (!raw || /^player_\d+$/i.test(raw) || /^botti$/i.test(raw)) return "Botti";
+    return raw;
   }
 
-  function renderScoringLine(snap) {
-    const line = $("scoringLine");
-    if (!line) return;
-    const state = (snap && snap.state) || {};
-    const points = Number(state.promotions_to_win);
-    const cash = Number(state.cash_to_win);
-    const pp = Number.isFinite(points) ? `${points} ylennyspistettä` : "ylennykset";
-    const money = Number.isFinite(cash) ? `${cash} MMk` : "raja";
-    const lead = "Pisteytys: Raha on rahaa. Ylennyspiste kierroksen suurimmalle kassalle, ei tasatilanteessa.";
-    let ending = "Loppu, kun saattueesta on jäljellä kolmannes. Eniten rahaa voittaa.";
-    if (points > 0 && cash > 0) {
-      ending = `Loppu: ${pp}, ${money} tai kolmannes saattueesta (eniten rahaa voittaa). Molemmat rajat samalla kierroksella: tasapeli.`;
-    } else if (cash > 0) {
-      ending = `Loppu: ${money} tai kolmannes saattueesta. Eniten rahaa voittaa.`;
-    } else if (points > 0) {
-      ending = `Loppu: ${pp} tai kolmannes saattueesta. Eniten rahaa voittaa.`;
-    }
-    line.textContent = `${lead} ${ending}`;
+  function maxAmong(players, read) {
+    let best = -Infinity;
+    players.forEach((p) => {
+      const n = Number(read(p));
+      if (Number.isFinite(n) && n > best) best = n;
+    });
+    return best;
+  }
+
+  function renderInfoPlayers(snap) {
+    const box = $("infoPlayers");
+    if (!box) return;
+    const players = ((snap && snap.state && snap.state.players) || []);
+    box.innerHTML = "";
+    if (!players.length) return;
+    const topCards = maxAmong(players, (p) => p.card_count);
+    const topPp = maxAmong(players, (p) => p.promotion_points);
+    const topRound = maxAmong(players, (p) => p.cash_this_round);
+    const topCash = maxAmong(players, (p) => p.total_cash);
+    players.forEach((p) => {
+      const cards = Number(p.card_count) || 0;
+      const pp = Number(p.promotion_points) || 0;
+      const roundCash = Number(p.cash_this_round) || 0;
+      const total = Number(p.total_cash) || 0;
+      const div = document.createElement("div");
+      div.className =
+        "info-player" +
+        (p.number === seatNum ? " you" : "") +
+        ` ${playerColorClass(p.number)}`;
+      const name = playerDisplayName(p);
+      const color = playerColorName(p.number);
+      const hi = (value, top) =>
+        top > 0 && value === top ? " info-stat-high" : "";
+      div.innerHTML =
+        `<div class="info-player-head">` +
+        `<span class="info-player-swatch" aria-hidden="true"></span>` +
+        `<span class="info-player-name">${escapeHtml(name)}</span>` +
+        `<span class="info-player-color">${escapeHtml(color)}</span>` +
+        (p.number === seatNum ? `<span class="info-player-you">sinä</span>` : "") +
+        `</div>` +
+        `<div class="info-player-grid">` +
+        `<div class="info-stat${hi(cards, topCards)}"><span class="info-stat-label">Kortteja kädessä:</span> <strong>${cards}</strong></div>` +
+        `<div class="info-stat${hi(roundCash, topRound)}"><span class="info-stat-label">Kierroksen tulot:</span> <strong>${escapeHtml(formatCash(roundCash))}</strong></div>` +
+        `<div class="info-stat${hi(pp, topPp)}"><span class="info-stat-label">Ylennyspisteet:</span> <strong>${pp}</strong></div>` +
+        `<div class="info-stat${hi(total, topCash)}"><span class="info-stat-label">Kassa:</span> <strong>${escapeHtml(formatCash(total))}</strong></div>` +
+        `</div>`;
+      box.appendChild(div);
+    });
   }
 
   function renderPhaseTrack(snap) {
@@ -3496,30 +3652,53 @@
       step.className = "phase-step";
       if (current > index) step.classList.add("done");
       if (current === index) step.classList.add("current");
-      const dot = document.createElement("span");
-      dot.className = "phase-dot";
-      dot.setAttribute("aria-hidden", "true");
-      const text = document.createElement("span");
-      text.className = "phase-label";
-      text.textContent = index === 0 && deal != null
-        ? `${label} (${deal})`
-        : label;
-      step.appendChild(dot);
-      step.appendChild(text);
-      if (index === 2 && current === 2 && units.length) {
+      if (index === 2 && units.length) {
+        step.classList.add("phase-step-units");
         const dots = document.createElement("span");
         dots.className = "unit-dots";
+        dots.setAttribute("aria-hidden", "true");
         units.forEach((unit, unitIndex) => {
           const mark = document.createElement("span");
           const player = Number(unit && unit.player);
           mark.className = `unit-dot player-color-${player}`;
-          if (acting === unitIndex) mark.classList.add("current");
+          if (current === 2 && acting === unitIndex) mark.classList.add("current");
           const typeLabel = (unit && unit.unit_type_label) || "";
           mark.title = `#${unitIndex + 1} ${typeLabel}`.trim();
           dots.appendChild(mark);
         });
         step.appendChild(dots);
+      } else {
+        const dot = document.createElement("span");
+        dot.className = "phase-dot";
+        dot.setAttribute("aria-hidden", "true");
+        step.appendChild(dot);
       }
+      const labelRow = document.createElement("span");
+      labelRow.className = "phase-label-row";
+      const text = document.createElement("span");
+      text.className = "phase-label";
+      text.textContent = index === 0 && deal != null
+        ? `${label} (${deal})`
+        : label;
+      const helpBtn = document.createElement("button");
+      helpBtn.type = "button";
+      helpBtn.className = "phase-help-btn";
+      helpBtn.textContent = "?";
+      helpBtn.setAttribute("aria-label", `Ohje: ${label}`);
+      helpBtn.title = "Näytä vaiheen ohje";
+      helpBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        togglePhaseHelp(index, helpBtn);
+      });
+      helpBtn.addEventListener("mouseenter", () => {
+        if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+          showPhaseHelp(index, helpBtn);
+        }
+      });
+      labelRow.appendChild(text);
+      labelRow.appendChild(helpBtn);
+      step.appendChild(labelRow);
       track.appendChild(step);
     });
   }
@@ -3528,6 +3707,7 @@
     const keepPicks = Boolean(options && options.keepPicks);
     ensureReorderPicks(snap);
     hideActionTip();
+    hidePhaseHelp();
     noteQueueReveals(snap);
     lastSnap = snap;
     const state = snap.state || {};
@@ -3539,9 +3719,7 @@
       botLine = " · vs random";
     }
     $("roundInfo").textContent = `Kierros ${state.round ?? "?"}${botLine}`;
-    renderPrepTrack(snap);
     renderPhaseTrack(snap);
-    renderScoringLine(snap);
     const rulesWarning = $("rulesWarning");
     if (rulesWarning) {
       const text = botMeta.warning || "";
@@ -3578,42 +3756,14 @@
     if (!keepPicks) renderChoicePanel(snap);
     syncPlayerPrompt();
 
-    const playersEl = $("players");
-    playersEl.innerHTML = "";
-    (state.players || []).forEach((p) => {
-      const div = document.createElement("div");
-      div.className =
-        "player" +
-        (p.number === seatNum ? " you" : "") +
-        ` ${playerColorClass(p.number)}`;
-      const cards = p.cards ? p.cards.join(", ") : `(${p.card_count})`;
-      const bank = Math.max(0, Number(p.total_cash) - Number(p.cash_this_round || 0));
-      const blink = Boolean(snap.awaiting_continue);
-      const label = p.name || `Pelaaja ${p.number}`;
-      div.innerHTML =
-        `<strong>${escapeHtml(label)}</strong>` +
-        (p.number === seatNum ? " (sinä)" : "") +
-        `<div class="pp-line">PP ${p.promotion_points}</div>` +
-        `<div class="cash-piles">` +
-        `<div class="cash-pile">` +
-        `<span class="cash-label">Kierros ${Number(p.cash_this_round) || 0}</span>` +
-        `<div class="cash-cards">${moneyCardsHtml(p.round_counters, blink)}</div>` +
-        `</div>` +
-        `<div class="cash-pile cash-bank">` +
-        `<span class="cash-label">Kassa ${bank}</span>` +
-        `<div class="cash-cards">${moneyCardsHtml(p.bank_counters, blink)}</div>` +
-        `</div>` +
-        `</div>` +
-        `<div class="hand-line">kortit: ${escapeHtml(cards)}</div>`;
-      playersEl.appendChild(div);
-    });
-
+    renderInfoPlayers(snap);
     renderDeckRows(snap);
-    renderHitDecks(snap);
+    renderActionDeck(snap);
     renderLog(snap);
 
     if (snap.terminal) {
       $("choicePanel").classList.add("hidden");
+      renderGameOverPrompt(snap);
       $("endPanel").classList.remove("hidden");
       $("ranking").textContent = JSON.stringify(snap.ranking || snap.stats, null, 2);
     } else {

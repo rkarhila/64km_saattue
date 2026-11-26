@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from . import config
 from .cards import CardDeck, CardQueue
+from .constants import MIN_PLAYER_CARD_LIMIT
 from .i18n import t
 
 if TYPE_CHECKING:
@@ -53,10 +54,18 @@ def player_view(
         table_decks.append(
             _deck_row("officer", engine.officer_deck, engine.officer_queue)
         )
-    table_decks.append(_deck_row("action", engine.action_deck, None))
+    # Each player has their own action draw/discard; show the viewer's.
+    viewer_action = player.action_deck
+    if viewer_action is not None:
+        table_decks.append(_deck_row("action", viewer_action, None))
+    action_sizes = (
+        viewer_action.to_json()
+        if viewer_action is not None
+        else {"deck": 0, "discard": 0}
+    )
     deck_state = {
         "decks": {
-            "action": engine.action_deck.to_json(),
+            "action": action_sizes,
             "resistance": engine.resistance_deck.to_json(),
             "pillage": engine.pillage_deck.to_json(),
             "mauling": engine.mauling_deck.to_json(),
@@ -103,6 +112,12 @@ def player_view(
         ),
         "promotions_to_win": int(config.PROMOTION_POINTS_TO_WIN),
         "cash_to_win": int(config.CASH_TO_WIN),
+        "cash_win_at_end_of_round": bool(
+            getattr(config, "CASH_WIN_AT_END_OF_ROUND", False)
+        ),
+        # Base hand keep, plus at most one logistics unit's free cargo slots (3).
+        "hand_keep_base": int(MIN_PLAYER_CARD_LIMIT),
+        "hand_keep_max": int(MIN_PLAYER_CARD_LIMIT) + 3,
         "acting_unit": getattr(engine, "acting_unit_index", None),
         "terminal": engine.terminal,
         "you": player.number,

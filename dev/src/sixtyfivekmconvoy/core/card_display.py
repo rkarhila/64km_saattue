@@ -175,7 +175,7 @@ def _printed_sell_cost(cfg) -> int:
 
 
 def _money_phrase(amount: int, lang: str) -> str:
-    """``N MMk`` in Finnish, ``N Me¥`` in English. The unit does not inflect."""
+    """Cash amount with the unit from ``log.cash_many`` (``N $``)."""
     from .i18n import t
 
     return t("log.cash_many", lang=lang).replace("{n}", str(int(amount)))
@@ -189,6 +189,7 @@ def _fi_cash(amount: int) -> str:
 def rules_placeholders() -> dict[str, str]:
     """Values the start-page rules substitute from the active balance profile."""
     from .configs import get_config
+    from .i18n import t
 
     cfg = get_config()
 
@@ -207,13 +208,18 @@ def rules_placeholders() -> dict[str, str]:
         cash_in = (
             f"Maksaa {cards} korttia. Kortit menevät poistopakkaan ja saat {cash}."
         )
-    values = {name: amount(name.upper()) for name in _help_reward_values()}
+    raw = _help_reward_values()
+    values = {
+        name: _fi_cash(value) if name in _CASH_PLACEHOLDERS else str(int(value))
+        for name, value in raw.items()
+    }
     values.update(
         {
             "cards_to_deal": amount("CARDS_TO_DEAL"),
-            "cash_to_win": amount("CASH_TO_WIN"),
+            "cash_to_win": _fi_cash(int(getattr(cfg, "CASH_TO_WIN", 0) or 0)),
             "promotions_to_win": amount("PROMOTION_POINTS_TO_WIN"),
             "cash_in_sentence": cash_in,
+            "cash_unit": t("ui.cash_unit", lang="fi"),
         }
     )
     return values

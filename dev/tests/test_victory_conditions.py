@@ -1,6 +1,7 @@
 """Promotion-point and cash race victory conditions."""
 
 from sixtyfivekmconvoy.core.config import CASH_TO_WIN, PROMOTION_POINTS_TO_WIN
+from sixtyfivekmconvoy.core.configs import get_config
 from sixtyfivekmconvoy.core.engine import GameEngine
 
 
@@ -14,6 +15,7 @@ def _engine(seed: int = 0) -> GameEngine:
 def test_config_defaults():
     assert PROMOTION_POINTS_TO_WIN == 6
     assert CASH_TO_WIN == 25
+    assert get_config().CASH_WIN_AT_END_OF_ROUND is False
 
 
 def test_cash_to_win_immediate():
@@ -26,7 +28,9 @@ def test_cash_to_win_immediate():
     p0.get_cash(1)
     assert engine.terminal
     assert engine.ranking[0]["number"] == p0.number
-    assert "rahalla" in (engine._end_message or "").lower()
+    assert "rahalla" in (engine._end_message or "").lower() or "voittaa" in (
+        engine._end_message or ""
+    ).lower()
 
 
 def test_cash_to_win_does_not_fire_for_second_player_after_game_over():
@@ -36,6 +40,59 @@ def test_cash_to_win_does_not_fire_for_second_player_after_game_over():
     assert engine.terminal
     p1.get_cash(CASH_TO_WIN)
     assert engine.ranking[0]["number"] == p0.number
+
+
+def test_end_of_round_cash_win_waits_until_bookkeeping():
+    cfg = get_config()
+    previous = cfg.CASH_WIN_AT_END_OF_ROUND
+    try:
+        cfg.CASH_WIN_AT_END_OF_ROUND = True
+        engine = _engine()
+        p0, p1 = engine.players
+        p0.get_cash(CASH_TO_WIN)
+        assert not engine.terminal
+        p1.get_cash(CASH_TO_WIN - 1)
+        result = engine._check_end_of_round_victories()
+        assert result is not None and result.terminal
+        assert engine.ranking[0]["number"] == p0.number
+        assert engine.end_reason == "cash"
+    finally:
+        cfg.CASH_WIN_AT_END_OF_ROUND = previous
+
+
+def test_end_of_round_cash_and_promotion_conflict_is_a_tie():
+    cfg = get_config()
+    previous = cfg.CASH_WIN_AT_END_OF_ROUND
+    try:
+        cfg.CASH_WIN_AT_END_OF_ROUND = True
+        engine = _engine()
+        p0, p1 = engine.players
+        p0.get_cash(CASH_TO_WIN + 2)
+        p1.get_cash(1)
+        p1.promotion_points = PROMOTION_POINTS_TO_WIN
+        result = engine._check_end_of_round_victories()
+        assert result is not None and result.terminal
+        assert engine.end_reason == "tie"
+        assert "tasapeli" in (engine._end_message or "").lower()
+    finally:
+        cfg.CASH_WIN_AT_END_OF_ROUND = previous
+
+
+def test_end_of_round_same_player_cash_and_promotion_wins():
+    cfg = get_config()
+    previous = cfg.CASH_WIN_AT_END_OF_ROUND
+    try:
+        cfg.CASH_WIN_AT_END_OF_ROUND = True
+        engine = _engine()
+        p0, p1 = engine.players
+        p0.get_cash(CASH_TO_WIN)
+        p0.promotion_points = PROMOTION_POINTS_TO_WIN
+        result = engine._check_end_of_round_victories()
+        assert result is not None and result.terminal
+        assert engine.ranking[0]["number"] == p0.number
+        assert engine.end_reason == "cash"
+    finally:
+        cfg.CASH_WIN_AT_END_OF_ROUND = previous
 
 
 def test_promotion_sole_winner():
